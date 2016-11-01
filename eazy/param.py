@@ -105,18 +105,18 @@ class EazyParam():
     
     def list_filters(self):
         for filter in self.filters:
-            print ' F%d, %s, lc=%f' %(filter.fnumber, filter.name, filter.lambda_c)
+            print(' F{0:d}, {1}, lc={2}'.format(filter.fnumber, filter.name, filter.lambda_c))
     
     def write(self, file=None):
         if file == None:
-            print 'No output file specified...'
+            print('No output file specified...')
         else:
             fp = open(file,'w')
             for param in self.param_names:
                 if isinstance(self.params[param], np.str):
-                    fp.write('%-25s %s\n' %(param, self.params[param]))
+                    fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
                 else:
-                    fp.write('%-25s %f\n' %(param, self.params[param]))
+                    fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
                     #str = '%-25s %'+self.formats[param]+'\n'
             #
             fp.close()
@@ -130,8 +130,7 @@ class EazyParam():
 
         """
         if param_name not in self.param_names:
-            print ('Column %s not found.  Check `column_names` attribute.'
-                    %column_name)
+            print('Column {0} not found.  Check `column_names` attribute.'.format(column_name))
             return None
         else:
             #str = 'out = self.%s*1' %column_name
@@ -173,19 +172,19 @@ class TranslateFile():
         
         if isinstance(filter, int):
             for key in self.trans.keys():
-                if self.trans[key] == 'E%0d' %(filter):
+                if self.trans[key] == 'E{0:0d}'.format(filter):
                     self.error[key] = value
                     return True
         
-        print 'Filter %s not found in list.' %(str(filter))
+        print('Filter {0} not found in list.'.format(str(filter)))
     
     def write(self, file=None, show_ones=False):
 
         lines = []
         for key in self.ordered_keys:
-            line = '%s  %s' %(key, self.trans[key])
+            line = '{0}  {1}'.format(key, self.trans[key])
             if self.trans[key].startswith('E') & ((self.error[key] != 1.0) | show_ones):
-                line += '  %.1f' %(self.error[key])
+                line += '  {0:.1f}'.format(self.error[key])
 
             lines.append(line+'\n')
 
@@ -198,4 +197,4 @@ class TranslateFile():
             fp.close()
         else:
             for line in lines:
-                print line[:-1]
+                print(line[:-1])

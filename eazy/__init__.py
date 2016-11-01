@@ -1,8 +1,7 @@
 import os
 
-import igm
-import param
-import templates
-import filters
-
-import photoz
+from . import igm
+from . import param
+from . import templates
+from . import filters
+from . import photoz

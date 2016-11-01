@@ -98,7 +98,7 @@ class PhotoZ(object):
             if fcol.startswith('F') & ('FTOT' not in fcol):
                 f_number = int(fcol[1:])
                 for ke in self.translate.trans:
-                    if self.translate.trans[ke] == 'E%d' %(f_number):
+                    if self.translate.trans[ke] == 'E{0}'.format(f_number):
                         break
                                  
                 if (k in self.cat.colnames) & (ke in self.cat.colnames):
@@ -106,7 +106,7 @@ class PhotoZ(object):
                     self.flux_columns.append(k)
                     self.err_columns.append(ke)
                     self.f_numbers.append(f_number)
-                    print '%s %s (%3d): %s' %(k, ke, f_number, self.filters[-1].name.split()[0])
+                    print('{0} {1} ({2:3d}): {3}'.format(k, ke, f_number, self.filters[-1].name.split()[0]))
                         
         self.f_numbers = np.array(self.f_numbers)
         
@@ -157,7 +157,7 @@ class PhotoZ(object):
                        ref_filter=int(self.param['PRIOR_FILTER']),
                        update_templates=update_templates)
         
-        fig.savefig('iter_%03d.png' %(iter))
+        fig.savefig('iter_{0:03d}.png'.format(iter))
         
         if error_residuals:
             self.error_residuals()
@@ -361,7 +361,7 @@ class PhotoZ(object):
         
         for ifilt in range(self.NFILT):
             iok = okz & (self.efnu[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
-            print '{0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], threedhst.utils.nmad(resid[iok,ifilt]))
+            print('{0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], threedhst.utils.nmad(resid[iok,ifilt])))
             scale_errors[ifilt] = threedhst.utils.nmad(resid[iok,ifilt])
             
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
@@ -425,7 +425,7 @@ class PhotoZ(object):
             if fname.count('.') > 1:
                 fname = '.'.join(fname.split('.')[:-1])
             
-            ax.plot(xm, ym/delta, color=color, alpha=0.8, label='%-30s %.3f' %(fname, delta), linewidth=2)
+            ax.plot(xm, ym/delta, color=color, alpha=0.8, label='{0:30s} {1:.3f}'.format(fname, delta), linewidth=2)
             ax.fill_between(xm, ym/delta-ys/np.sqrt(N), ym/delta+ys/np.sqrt(N), color=color, alpha=0.1) 
                     
         ax.semilogx()
@@ -646,7 +646,7 @@ class PhotoZ(object):
                         
         indices = np.where(self.zbest > self.zgrid[0])[0]
         for ix in indices:
-            print ix
+            print(ix)
             fnu_i = fnu_corr[ix,:]*1
             efnu_i = efnu_corr[ix,:]*1
             z = self.zbest[ix]

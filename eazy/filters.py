@@ -56,7 +56,7 @@ class FilterDefinition:
             HAS_SPECUTILS = False
              
         if self.wave is None:
-            print 'Filter not defined.'
+            print('Filter not defined.')
             return False
         
         if source_flux is None:
@@ -88,7 +88,7 @@ class FilterDefinition:
         try:
             import pysynphot as S
         except:
-            print 'Failed to import "pysynphot"'
+            print('Failed to import "pysynphot"')
             return False
         
         vega=S.FileSpectrum(S.locations.VegaFile)
@@ -106,7 +106,7 @@ class FilterDefinition:
         try:
             import pysynphot as S
         except:
-            print 'Failed to import "pysynphot"'
+            print('Failed to import "pysynphot"')
             return False
             
         self.bp = S.ArrayBandpass(wave=self.wave, throughput=self.throughput, name='')
@@ -119,7 +119,7 @@ class FilterDefinition:
         try:
             import pysynphot as S
         except:
-            print 'Failed to import "pysynphot"'
+            print('Failed to import "pysynphot"')
             return False
             
         self.bp = S.ArrayBandpass(wave=self.wave, throughput=self.throughput, name='')
@@ -188,9 +188,9 @@ class FilterFile:
         """
         if verbose:
             for i in range(len(self.filters)):
-                print '%5d %s' %(i+1, self.filters[i].name)            
+                print('{0:5d} {1}'.format(i+1, self.filters[i].name))
         else:
-            string_list = ['%5d %s\n' %(i+1, self.filters[i].name) for i in range(len(self.filters))]
+            string_list = ['{0:5d} {1}\n'.format(i+1, self.filters[i].name) for i in range(len(self.filters))]
             return string_list
             
     def write(self, file='xxx.res', verbose=True):
@@ -199,9 +199,9 @@ class FilterFile:
         """
         fp = open(file,'w')
         for filter in self.filters:
-            fp.write('%6d %s\n' %(len(filter.wave), filter.name))
+            fp.write('{0:6d} {1}\n'.format(len(filter.wave), filter.name))
             for i in range(len(filter.wave)):
-                fp.write('%-6d %.5e %.5e\n' %(i+1, filter.wave[i], filter.throughput[i]))
+                fp.write('{0:6d} {1:.5e} {2:.5e}\n'.format(i+1, filter.wave[i], filter.throughput[i]))
         
         fp.close()
         
@@ -211,7 +211,7 @@ class FilterFile:
         fp.close()
         
         if verbose:
-            print 'Wrote <%s[.info]>' %(file)
+            print('Wrote <{0}[.info]>'.format(file))
             
     def search(self, search_string, case=True, verbose=True):
         """ 
@@ -232,7 +232,7 @@ class FilterFile:
                 
             if re.search(search_string, filt_name) is not None:
                 if verbose:
-                    print '%5d %s' %(i+1, self.filters[i].name)
+                    print('{0:5d} {1}'.format(i+1, self.filters[i].name))
                 matched.append(i)
         
         return np.array(matched)

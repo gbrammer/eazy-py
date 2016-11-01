@@ -5,37 +5,37 @@ import os
 import numpy
 
 ### For Cython build
-if False:
-    try:
-        from Cython.Build import cythonize
-        USE_CYTHON = True
-    except ImportError:
-        USE_CYTHON = False
-
-    if not os.path.exists('grizli/utils_c/interp.pyx'):
-        USE_CYTHON = False
-    
-    if USE_CYTHON:
-        cext = '.pyx'
-    else:
-        cext = '.c'
-
-    print 'C extension: %s' %(cext)
-
-    extensions = [
-        Extension("grizli/utils_c/interp", ["grizli/utils_c/interp"+cext],
-            include_dirs = [numpy.get_include()],),
-        
-        # Extension("grizli/utils_c/nmf", ["grizli/utils_c/nmf"+cext],
-        #     include_dirs = [numpy.get_include()],),
-    
-        Extension("grizli/utils_c/disperse", ["grizli/utils_c/disperse"+cext],
-            include_dirs = [numpy.get_include()],),
-
-    ]
-
-    if USE_CYTHON:
-        extensions = cythonize(extensions)
+# if False:
+#     try:
+#         from Cython.Build import cythonize
+#         USE_CYTHON = True
+#     except ImportError:
+#         USE_CYTHON = False
+# 
+#     if not os.path.exists('grizli/utils_c/interp.pyx'):
+#         USE_CYTHON = False
+#     
+#     if USE_CYTHON:
+#         cext = '.pyx'
+#     else:
+#         cext = '.c'
+# 
+#     print 'C extension: %s' %(cext)
+# 
+#     extensions = [
+#         Extension("grizli/utils_c/interp", ["grizli/utils_c/interp"+cext],
+#             include_dirs = [numpy.get_include()],),
+#         
+#         # Extension("grizli/utils_c/nmf", ["grizli/utils_c/nmf"+cext],
+#         #     include_dirs = [numpy.get_include()],),
+#     
+#         Extension("grizli/utils_c/disperse", ["grizli/utils_c/disperse"+cext],
+#             include_dirs = [numpy.get_include()],),
+# 
+#     ]
+# 
+#     if USE_CYTHON:
+#         extensions = cythonize(extensions)
 
 # Utility function to read the README file.
 # Used for the long_description.  It's nice, because now 1) we have a top level
