@@ -8,6 +8,7 @@ from .filters import FilterFile
 from .param import EazyParam, TranslateFile
 from .igm import Inoue14
 from .templates import TemplateError
+from .utils import running_median, nmad
 
 class PhotoZ(object):
     def __init__(self, param_file='zphot.param.m0416.uvista', translate_file='zphot.translate.m0416.uvista', zeropoint_file=None):
@@ -344,6 +345,7 @@ class PhotoZ(object):
     
     
     def check_uncertainties(self):
+        import astropy.stats
         
         TEF_scale = 1.
         
@@ -361,8 +363,8 @@ class PhotoZ(object):
         
         for ifilt in range(self.NFILT):
             iok = okz & (self.efnu[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
-            print('{0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], threedhst.utils.nmad(resid[iok,ifilt])))
-            scale_errors[ifilt] = threedhst.utils.nmad(resid[iok,ifilt])
+            print('{0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], nmad(resid[iok,ifilt])))
+            scale_errors[ifilt] = nmad(resid[iok,ifilt])
             
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
         
@@ -373,7 +375,7 @@ class PhotoZ(object):
         import matplotlib.pyplot as plt
         import matplotlib.gridspec as gridspec
         
-        import threedhst
+        #import threedhst
         from astroML.sum_of_norms import sum_of_norms, norm
                
         izbest = np.argmin(self.fit_chi2, axis=1)
@@ -397,7 +399,7 @@ class PhotoZ(object):
         
         lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]), self.lc[np.newaxis,:])
         clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0)
-        xmf, ymf, ysf, Nf = threedhst.utils.runmed(lcz[clip], resid[clip], NBIN=20*(self.NFILT/2), use_median=True, use_nmad=True)
+        xmf, ymf, ysf, Nf = running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
         
         Ng = 40
         w_best, rms, locs, widths = sum_of_norms(xmf, ymf, Ng, spacing='log', full_output=True)
@@ -414,7 +416,7 @@ class PhotoZ(object):
             color = cmap(cnorm(i))
 
             xi = self.lc[ifilt]/(1+self.zgrid[izbest][clip])
-            xm, ym, ys, N = threedhst.utils.runmed(xi, resid[clip, ifilt], NBIN=20, use_median=True, use_nmad=True)
+            xm, ym, ys, N = running_median(xi, resid[clip, ifilt], NBIN=20, use_median=True, use_nmad=True)
             
             # Normalize to overall mediadn
             xgi = (w_best * norm(xi[:, None], locs, widths)).sum(1)
@@ -458,7 +460,7 @@ class PhotoZ(object):
         ax.set_xlabel(r'$z_\mathrm{spec}$')
         ax.set_ylabel(r'$z_\mathrm{phot}$')
         
-        ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), threedhst.utils.nmad(dz[clip])), ha='left', va='top', fontsize=10, transform=ax.transAxes)
+        ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), nmad(dz[clip])), ha='left', va='top', fontsize=10, transform=ax.transAxes)
         fig.tight_layout(pad=0.1)
         
         # update zeropoints in self.zp
