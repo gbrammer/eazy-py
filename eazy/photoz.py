@@ -11,7 +11,7 @@ from .templates import TemplateError
 from .utils import running_median, nmad
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param.m0416.uvista', translate_file='zphot.translate.m0416.uvista', zeropoint_file=None):
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, params={}):
         
         self.param_file = param_file
         self.translate_file = translate_file
@@ -37,6 +37,9 @@ class PhotoZ(object):
             #self.param.params['MW_EBV'] = 0.0072 # GOODS-S
             #self.param['SCALE_2175_BUMP'] = 0.4 # Test
         
+        for key in params:
+            self.param.params[key] = params[key]
+            
         ### Read templates
         self.templates = self.param.read_templates(templates_file=self.param['TEMPLATES_FILE'])
         self.NTEMP = len(self.templates)
@@ -47,6 +50,10 @@ class PhotoZ(object):
         
         ### Read catalog and filters
         self.read_catalog()
+        
+        ### Read prior file
+        self.full_prior = np.ones((self.NOBJ, self.NZ))
+        self.read_prior()
         
         if zeropoint_file is not None:
             self.read_zeropoint(zeropoint_file)
@@ -77,9 +84,12 @@ class PhotoZ(object):
             obj_ix = 2480
             obj_ix = idx[i]
                     
-    def read_catalog(self):
+    def read_catalog(self, verbose=True):
         from astropy.table import Table
-                
+               
+        if verbose:
+            print('Read CATALOG_FILE:', self.param['CATALOG_FILE'])
+             
         if 'fits' in self.param['CATALOG_FILE'].lower():
             self.cat = Table.read(self.param['CATALOG_FILE'], format='fits')
         else:
@@ -124,11 +134,16 @@ class PhotoZ(object):
             self.efnu[:,i] = self.cat[self.err_columns[i]]*self.translate.error[self.err_columns[i]]
         
         self.efnu_orig = self.efnu*1.
+        self.efnu = np.sqrt(self.efnu**2+(self.param['SYS_ERR']*self.fnu)**2)
+        
+        ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD'])
+        self.nusefilt = ok_data.sum(axis=1)
         
         # Translate the file itself    
         for k in self.translate.trans:
             if k in self.cat.colnames:
-                self.cat.rename_column(k, self.translate.trans[k])
+                #self.cat.rename_column(k, self.translate.trans[k])
+                self.cat[self.translate.trans[k]] = self.cat[k]
         
     def read_zeropoint(self, zeropoint_file='zphot.zeropoint'):
         lines = open(zeropoint_file).readlines()
@@ -149,6 +164,40 @@ class PhotoZ(object):
                                dz = self.param['Z_STEP'])
         self.NZ = len(self.zgrid)
     
+    def read_prior(self, verbose=True):
+        
+        prior_raw = np.loadtxt(self.param['PRIOR_FILE'])
+        prior_header = open(self.param['PRIOR_FILE']).readline()
+        
+        self.prior_mags = np.cast[float](prior_header.split()[2:])
+        self.prior_z = prior_raw[:,0]
+        self.prior_data = prior_raw[:,1:]
+        self.prior_map_z = np.interp(self.zgrid, self.prior_z, np.arange(len(self.prior_z)))
+                
+        ix = self.f_numbers == int(self.param['PRIOR_FILTER'])
+        if ix.sum() == 0:
+            print('PRIOR_FILTER {0:d} not found in the catalog!')
+            self.prior_mag_cat = np.zeros(self.NOBJ)-1
+            
+        else:
+            self.prior_mag_cat = self.param['PRIOR_ABZP'] - 2.5*np.log10(self.fnu[:,ix])
+            self.prior_mag_cat[~np.isfinite(self.prior_mag_cat)] = -1
+            
+            for i in range(self.NOBJ):
+                if self.prior_mag_cat[i] > 0:
+                    #print(i)
+                    self.full_prior[i,:] = self._get_prior(self.prior_mag_cat[i])
+                    
+        if verbose:
+            print('Read PRIOR_FILE: ', self.param['PRIOR_FILE'])
+            
+    def _get_prior(self, mag, **kwargs):
+        import scipy.ndimage as nd
+        
+        mag_ix = np.interp(mag, self.prior_mags, np.arange(len(self.prior_mags)))*np.ones(self.NZ)
+        prior = np.maximum(nd.map_coordinates(self.prior_data, [self.prior_map_z, mag_ix], **kwargs), 1.e-8)
+        return prior
+    
     def iterate_zp_templates(self, idx=None, update_templates=True, update_zeropoints=True, iter=0, n_proc=4, save_templates=False, error_residuals=False):
         
         self.fit_parallel(idx=idx, n_proc=n_proc)
@@ -156,9 +205,9 @@ class PhotoZ(object):
         self.best_fit()
         fig = self.residuals(update_zeropoints=update_zeropoints,
                        ref_filter=int(self.param['PRIOR_FILTER']),
-                       update_templates=update_templates)
+                       update_templates=update_templates, Ng=(self.zbest > 0.1).sum() // 50)
         
-        fig.savefig('iter_{0:03d}.png'.format(iter))
+        fig.savefig('{0}_zp_{1:03d}.png'.format(self.param['MAIN_OUTPUT_FILE'], iter))
         
         if error_residuals:
             self.error_residuals()
@@ -181,7 +230,7 @@ class PhotoZ(object):
             np.savetxt(templ_file, np.array([templ.wave, templ.flux]).T,
                        fmt='%.6e')
                            
-    def fit_parallel(self, idx=None, n_proc=4, verbose=True):
+    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True):
 
         import numpy as np
         import matplotlib.pyplot as plt
@@ -228,6 +277,8 @@ class PhotoZ(object):
         if verbose:
             print('Fit {1:.1f} s (n_proc={0}, NOBJ={2})'.format(n_proc, t1-t0, len(idx)))
         
+        if get_best_fit:
+            self.best_fit()
             
     def fit_object(self, iobj=0, z=0, show=False):
         """
@@ -273,13 +324,13 @@ class PhotoZ(object):
             fig.axes[0].scatter(self.lc, model*flam_factor, color='orange')
             fig.axes[0].errorbar(self.lc, fnu_i*flam_factor, rms*flam_factor, color='g', marker='s', linestyle='None')
     
-    def best_fit(self, zbest=None):
+    def best_fit(self, zbest=None, prior=False):
         self.fobs = self.fnu*0.
         izbest = np.argmin(self.fit_chi2, axis=1)
 
         self.zbest_grid = self.zgrid[izbest]
         if zbest is None:
-            self.zbest, self.chi_best = self.best_redshift()
+            self.zbest, self.chi_best = self.best_redshift(prior=prior)
         else:
             self.zbest = zbest
                 
@@ -300,14 +351,20 @@ class PhotoZ(object):
             efnu_i = efnu_corr[iobj,:]
             chi2, self.coeffs_best[iobj,:], self.fobs[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, False)
             
-    def best_redshift(self):
+    def best_redshift(self, prior=True):
         """Fit parabola to chi2 to get best minimum
         
         TBD: include prior
         """
         from scipy import polyfit, polyval
-        izbest = np.argmin(self.fit_chi2, axis=1)
         
+        if prior:
+            test_chi2 = self.fit_chi2-2*np.log(self.full_prior)
+        else:
+            test_chi2 = self.fit_chi2
+            
+        izbest = np.argmin(test_chi2, axis=1)
+            
         zbest = self.zgrid[izbest]
         chi_best = self.fit_chi2.min(axis=1)
         
@@ -316,8 +373,7 @@ class PhotoZ(object):
             if (iz == 0) | (iz == self.NZ-1):
                 continue
             
-            c = polyfit(self.zgrid[iz-1:iz+2], 
-                        self.fit_chi2[iobj, iz-1:iz+2], 2)
+            c = polyfit(self.zgrid[iz-1:iz+2], test_chi2[iobj, iz-1:iz+2], 2)
             
             zbest[iobj] = -c[1]/(2*c[0])
             chi_best[iobj] = polyval(c, zbest[iobj])
@@ -368,7 +424,7 @@ class PhotoZ(object):
             
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
         
-    def residuals(self, update_zeropoints=True, update_templates=True, ref_filter=205):
+    def residuals(self, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40):
         import os
         import matplotlib as mpl
         import matplotlib.cm as cm
@@ -401,8 +457,14 @@ class PhotoZ(object):
         clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0)
         xmf, ymf, ysf, Nf = running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
         
-        Ng = 40
+        xmf = np.hstack((900, xmf, 1.e5))
+        ymf = np.hstack((1, ymf, 1.))
+        
+        #Ng = 40
         w_best, rms, locs, widths = sum_of_norms(xmf, ymf, Ng, spacing='log', full_output=True)
+        #w_best, rms, locs, widths = sum_of_norms([0.8*xmf.min(), xmf.max()/0.8], [1, 1], Ng, spacing='log', full_output=True)
+        #print(xmf.min(), xmf.max(), locs, widths)
+        
         norms = (w_best * norm(xmf[:, None], locs, widths)).sum(1)
         ax.plot(xmf, norms, color='k', linewidth=2, alpha=0.5, zorder=10)
         
@@ -540,8 +602,11 @@ class PhotoZ(object):
             templ = self.templates[0]
             tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]))
             for i in range(self.NTEMP):
-                tempflux[i, :] = self.templates[i].flux_fnu
-
+                try:
+                    tempflux[i, :] = self.templates[i].flux_fnu
+                except:
+                    tempflux[i, :] = np.interp(templ.wave, self.templates[i].wave, self.templates[i].flux_fnu)
+                    
             templz = templ.wave*(1+z)
 
             if self.tempfilt.add_igm:
@@ -552,7 +617,7 @@ class PhotoZ(object):
                 igmz = 1.
 
             templf = np.dot(coeffs_i, tempflux)*igmz
-            
+        
         fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         
         if show_fnu:
@@ -604,9 +669,12 @@ class PhotoZ(object):
         
         ax = fig.add_subplot(122)
         chi2 = np.squeeze(self.fit_chi2[ix,:])
-        pz = np.exp(-(chi2-chi2.min())/2.)
+        prior = self.full_prior[ix,:].flatten()
+        pz = np.exp(-(chi2-chi2.min())/2.)*prior
         pz /= np.trapz(pz, self.zgrid)
         ax.plot(self.zgrid, pz, color='orange')
+        ax.plot(self.zgrid, prior/prior.max()*pz.max(), color='g')
+        
         ax.fill_between(self.zgrid, pz, pz*0, color='yellow', alpha=0.5)
         if self.cat['z_spec'][ix] > 0:
             ax.vlines(self.cat['z_spec'][ix][0], 0,pz.max()*1.05, color='r')
@@ -732,7 +800,7 @@ class PhotoZ(object):
         #     draws = chain.draw_random(100)
         #     chain_rms[i] = np.std(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
         #     chain_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
-            
+     
 def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     fobs = np.dot(coeffs, A)
     return -0.5*np.sum((fobs-fnu_i)**2/efnu_i**2)
@@ -869,7 +937,7 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF):
         chi2[iobj], coeffs[iobj], fobs, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, False)
             
     return iz, chi2, coeffs
-    
+
 def _fit_obj(fnu_i, efnu_i, A, TEFz, get_err):
     from scipy.optimize import nnls
 

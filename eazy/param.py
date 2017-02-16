@@ -16,8 +16,13 @@ class EazyParam():
     '0.010'
 
     """    
-    def __init__(self, PARAM_FILE='zphot.param', read_filters=False,
+    def __init__(self, PARAM_FILE=None, read_filters=False,
                  read_templates=False):
+        
+        if PARAM_FILE is None:
+            PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/zphot.param.default')
+            print('Read default param file: '+PARAM_FILE)
+            
         self.filename = PARAM_FILE
         self.param_path = os.path.dirname(PARAM_FILE)
         
@@ -87,7 +92,7 @@ class EazyParam():
         formats = collections.OrderedDict()
         self.param_names = []
         for line in self.lines:
-            if line.startswith('#') is False:
+            if line.strip().startswith('#') is False:
                 lsplit = line.split()
                 if lsplit.__len__() >= 2:
                     params[lsplit[0]] = lsplit[1]
@@ -130,7 +135,7 @@ class EazyParam():
 
         """
         if param_name not in self.param_names:
-            print('Column {0} not found.  Check `column_names` attribute.'.format(column_name))
+            print('Column {0} not found.  Check `column_names` attribute.'.format(param_name))
             return None
         else:
             #str = 'out = self.%s*1' %column_name

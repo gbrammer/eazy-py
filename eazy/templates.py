@@ -25,7 +25,7 @@ class TemplateError():
         return self._spline(filter_wavelength/(1+z))*self.scale
     
     def __call__(self, z):
-        return self._spline(self.lc/(1+z))
+        return self._spline(self.lc/(1+z))*self.scale
         
 class Template():
     def __init__(self, sp=None, file=None, name=None):
