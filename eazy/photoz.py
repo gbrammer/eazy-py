@@ -3,6 +3,7 @@ import time
 import numpy as np
 
 from collections import OrderedDict
+from astropy.table import Table
 
 from .filters import FilterFile
 from .param import EazyParam, TranslateFile
@@ -220,6 +221,66 @@ class PhotoZ(object):
         if save_templates:
             self.save_templates()
             
+    #
+    def zphot_zspec(self, zmin=0, zmax=4):
+        #nmad = grizli.utils.nmad
+        import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
+
+        zlimits = self.pz_percentiles(percentiles=[16,84], oversample=10)
+        
+        dz = (self.zbest-self.cat['z_spec'])/(1+self.cat['z_spec'])
+        #izbest = np.argmin(self.fit_chi2, axis=1)
+
+        clip = (self.zbest > self.zgrid[0]) & (self.cat['z_spec'] > zmin) & (self.cat['z_spec'] <= zmax)
+        
+        gs = GridSpec(2,1, height_ratios=[6,1])
+        fig = plt.figure(figsize=[6,7])
+        
+        ax = fig.add_subplot(gs[0,0])
+        ax.set_title(self.param['MAIN_OUTPUT_FILE'])
+
+        #ax = fig.add_subplot(gs[:,-1])
+        #ax.scatter(np.log10(1+self.cat['z_spec'][clip]), np.log10(1+self.zbest[clip]), marker='o', alpha=0.2, color='k')
+        
+        yerr = np.log10(1+np.abs(zlimits.T-self.zbest))
+        ax.errorbar(np.log10(1+self.cat['z_spec'][clip]), np.log10(1+self.zbest[clip]), yerr=yerr[:,clip], marker='.', alpha=0.2, color='k', linestyle='None')
+
+        xt = np.arange(zmin,zmax+0.1, 0.5)
+        xl = np.log10(1+xt)
+        ax.plot(xl, xl, color='r', alpha=0.5)
+        ax.set_xlim(xl[0], xl[-1]); ax.set_ylim(xl[0],xl[-1])
+        xtl = list(xt)
+        for i in range(1,len(xt),2):
+            xtl[i] = ''
+
+        ax.set_xticks(xl); ax.set_xticklabels([]);
+        ax.set_yticks(xl); ax.set_yticklabels(xtl);
+        ax.grid()
+        ax.set_ylabel(r'$z_\mathrm{phot}$')
+
+        sample_nmad = nmad(dz[clip])
+        ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), sample_nmad), ha='left', va='top', fontsize=10, transform=ax.transAxes)
+        #ax.axis('scaled')
+        
+        ax = fig.add_subplot(gs[1,0])
+        yerr = np.abs(zlimits.T-self.zbest)#/(1+self.cat['z_spec'])
+        
+        ax.errorbar(np.log10(1+self.cat['z_spec'][clip]), dz[clip], yerr=yerr[:,clip], marker='.', alpha=0.2, color='k', linestyle='None')
+        
+        ax.set_xticks(xl); ax.set_xticklabels(xtl);
+        ax.set_xlim(xl[0], xl[-1])
+        ax.set_ylim(-6*sample_nmad, 6*sample_nmad)
+        ax.set_yticks([-3*sample_nmad, 0, 3*sample_nmad])
+        ax.set_yticklabels([r'$-3\sigma$',r'$0$',r'$+3\sigma$'])
+        ax.set_xlabel(r'$z_\mathrm{spec}$')
+        ax.set_ylabel(r'$\Delta z / 1+z_\mathrm{spec}$')
+        ax.grid()
+        
+        fig.tight_layout(pad=0.1)
+
+        return fig
+    
     def save_templates(self):
         path = os.path.dirname(self.param['TEMPLATES_FILE'])
         for templ in self.templates:
@@ -363,13 +424,16 @@ class PhotoZ(object):
         else:
             test_chi2 = self.fit_chi2
             
+        izbest0 = np.argmin(self.fit_chi2, axis=1)
         izbest = np.argmin(test_chi2, axis=1)
-            
+             
         zbest = self.zgrid[izbest]
+        zbest[izbest0 == 0] = -1
+        
         chi_best = self.fit_chi2.min(axis=1)
         
         for iobj in range(self.NOBJ):
-            iz = izbest[iobj]
+            iz = izbest0[iobj]
             if (iz == 0) | (iz == self.NZ-1):
                 continue
             
@@ -800,7 +864,186 @@ class PhotoZ(object):
         #     draws = chain.draw_random(100)
         #     chain_rms[i] = np.std(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
         #     chain_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
-     
+    
+    def compute_pz(self, prior=False):
+        pz = np.exp(-(self.fit_chi2.T-self.fit_chi2.min(axis=1))/2.).T
+        if prior:
+            pz *= self.full_prior
+        
+        dz = np.gradient(self.zgrid)
+        norm = (pz*dz).sum(axis=1)
+        self.pz = (pz.T/norm).T
+                
+    def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=10):
+        
+        import scipy.interpolate 
+                   
+        zgrid_zoom = log_zgrid(zr=[self.param['Z_MIN'], self.param['Z_MAX']], 
+                               dz=self.param['Z_STEP']/oversample)
+         
+
+        ok = self.zbest > self.zgrid[0]      
+        
+        spl = scipy.interpolate.Akima1DInterpolator(self.zgrid, self.pz[ok,:], axis=1)
+        dz_zoom = np.gradient(zgrid_zoom)
+        pzcum = np.cumsum(spl(zgrid_zoom)*dz_zoom, axis=1)
+        
+        zlimits = np.zeros((self.NOBJ, len(percentiles)))
+        Np = len(percentiles)
+        for j, i in enumerate(np.arange(self.NOBJ)[ok]):
+            zlimits[i,:] = np.interp(np.array(percentiles)/100., pzcum[j, :], zgrid_zoom)
+        
+        return zlimits
+    
+    def find_peaks(self):
+        import peakutils
+        
+        ok = self.zbest > self.zgrid[0]      
+
+        peaks = [0]*self.NOBJ
+        numpeaks = np.zeros(self.NOBJ, dtype=int)
+
+        for j, i in enumerate(np.arange(self.NOBJ)[ok]):
+            indices = peakutils.indexes(self.pz[i,:], thres=0.8, min_dist=int(0.1/self.param['Z_STEP']))
+            peaks[i] = indices
+            numpeaks[i] = len(indices)
+        
+        return peaks, numpeaks
+        
+    def sps_parameters(self, UVJ=[153,155,161], cosmology=None):
+        """
+        Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
+        """        
+        import astropy.units as u
+        import astropy.constants as const
+        
+        if cosmology is None:
+            from astropy.cosmology import Planck15 as cosmology
+            
+        rf_tempfilt, f_rest = self.rest_frame_fluxes(f_numbers=UVJ, pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
+        
+        restU = f_rest[:,0,2]
+        restV = f_rest[:,1,2]
+        restJ = f_rest[:,2,2]
+        
+        PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/spectra_kc13_12_tweak.params')
+        temp_MLv, temp_SFRv = np.loadtxt(PARAM_FILE, unpack=True)
+        
+        # Normalize fit coefficients to template V-band
+        coeffs_norm = self.coeffs_best*rf_tempfilt.tempfilt[:,1]
+        
+        # Normalize fit coefficients to unity sum
+        coeffs_norm = (coeffs_norm.T/coeffs_norm.sum(axis=1)).T
+        
+        MLv = (coeffs_norm*temp_MLv).sum(axis=1)*u.solMass/u.solLum
+        SFRv = (coeffs_norm*temp_SFRv).sum(axis=1)*u.solMass/u.yr/u.solLum
+        
+        # Convert observed maggies to fnu
+        uJy_to_cgs = u.Jy.to(u.erg/u.s/u.cm**2/u.Hz)*1.e-6
+        fnu_scl = 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))*uJy_to_cgs
+        
+        fnu = restV*fnu_scl*(u.erg/u.s/u.cm**2/u.Hz)
+        dL = cosmology.luminosity_distance(self.zbest).to(u.cm)
+        Lnu = fnu*4*np.pi*dL**2
+        pivotV = rf_tempfilt.filters[1].pivot()*u.Angstrom*(1+self.zbest)
+        nuV = (const.c/pivotV).to(u.Hz) 
+        Lv = (nuV*Lnu).to(u.L_sun)
+        
+        # dL = cosmology.luminosity_distance(self.zbest).to(u.pc)
+        # DM = 5*np.log10(dL.value)-5-2.5*np.log10(1+self.zbest)
+        # m = self.param.params['PRIOR_ABZP']-2.5*np.log10(restV)
+        # absM = m-DM
+        # fnu10 = 10**(-0.4*(absM+48.6))
+        # Lnu = fnu10*4*np.pi*(10*u.pc.to(u.cm))**2
+        # pivotV = rf_tempfilt.filters[1].pivot()*1.e-10
+        # nu = const.c.to(u.m/u.s).value / pivotV
+        # Lv = Lnu*nu/u.L_sun.to(u.erg/u.s) # In Lsun units
+        
+        mass = MLv*Lv
+        SFR = SFRv*Lv
+        
+        #sSFR = SFR/mass
+        
+        tab = Table()
+        tab['restU'] = restU
+        tab['restV'] = restV
+        tab['restJ'] = restJ
+        tab['Lv'] = Lv
+        tab['MLv'] = MLv
+        
+        for col in tab.colnames:
+            tab[col].format = '.3f'
+            
+        tab['Lv'].format = '.3e'
+        
+        tab['mass'] = mass
+        tab['mass'].format = '.3e'
+
+        tab['SFR'] = SFR
+        tab['SFR'].format = '.3e'
+        
+        tab.meta['FNUSCALE'] = (fnu_scl, 'Scale factor to f-nu CGS')
+        
+        return tab
+
+    def standard_output(self, prior=True):
+        import astropy.io.fits as pyfits
+        
+        self.best_fit(prior=prior)
+        self.compute_pz(prior=prior)
+        
+        peaks, numpeaks = self.find_peaks()
+        zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
+        
+        tab = Table()
+        tab['id'] = self.cat['id']
+        tab['z_spec'] = self.cat['z_spec']
+        tab['nusefilt'] = self.nusefilt
+        
+        tab['numpeaks'] = numpeaks
+        tab['z_phot'] = self.zbest
+        tab['z025'] = zlimits[:,0]
+        tab['z160'] = zlimits[:,1]
+        tab['z500'] = zlimits[:,2]
+        tab['z840'] = zlimits[:,3]
+        tab['z975'] = zlimits[:,4]
+        
+        for col in tab.colnames[-6:]:
+            tab[col].format='8.4f'
+            
+        tab.meta['prior'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
+        
+        sps_tab = self.sps_parameters(UVJ=[153,155,161], cosmology=None)
+        for col in sps_tab.colnames:
+            tab[col] = sps_tab[col]
+        
+        for key in sps_tab.meta:
+            tab.meta[key] = sps_tab.meta[key]
+        
+        root = self.param.params['MAIN_OUTPUT_FILE']
+        if os.path.exists('{0}.zout.fits'.format(root)):
+            os.remove('{0}.zout.fits'.format(root))
+        
+        tab.write('{0}.zout.fits'.format(root), format='fits')
+        
+        self.param.write('{0}.zphot.param'.format(root))
+        self.write_zeropoint_file('{0}.zphot.zeropoint'.format(root))
+        self.translate.write('{0}.zphot.translate'.format(root))
+        
+        hdu = pyfits.HDUList(pyfits.PrimaryHDU())
+        hdu.append(pyfits.ImageHDU(self.zbest, name='ZBEST'))
+        hdu.append(pyfits.ImageHDU(self.zgrid, name='ZGRID'))
+        hdu.append(pyfits.ImageHDU(self.pz, name='PZ'))
+        hdu[-1].header['PRIOR'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
+        
+        hdu.append(pyfits.ImageHDU(self.coeffs_best, name='COEFFS'))
+        h = hdu[-1].header
+        h['NTEMP'] = (self.NTEMP, 'Number of templates')
+        for i, t in enumerate(self.templates):
+            h['TEMP{0:04d}'.format(i)] = t.name
+        
+        hdu.writeto('{0}.data.fits'.format(root), clobber=True)
+        
 def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     fobs = np.dot(coeffs, A)
     return -0.5*np.sum((fobs-fnu_i)**2/efnu_i**2)
