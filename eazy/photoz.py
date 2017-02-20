@@ -137,7 +137,10 @@ class PhotoZ(object):
         self.efnu_orig = self.efnu*1.
         self.efnu = np.sqrt(self.efnu**2+(self.param['SYS_ERR']*self.fnu)**2)
         
-        ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD'])
+        ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
+        self.fnu[~ok_data] = -99
+        self.efnu[~ok_data] = -99
+        
         self.nusefilt = ok_data.sum(axis=1)
         
         # Translate the file itself    
@@ -167,6 +170,9 @@ class PhotoZ(object):
     
     def read_prior(self, verbose=True):
         
+        if not os.path.exists(self.param['PRIOR_FILE']):
+            return False
+            
         prior_raw = np.loadtxt(self.param['PRIOR_FILE'])
         prior_header = open(self.param['PRIOR_FILE']).readline()
         
@@ -222,7 +228,7 @@ class PhotoZ(object):
             self.save_templates()
             
     #
-    def zphot_zspec(self, zmin=0, zmax=4):
+    def zphot_zspec(self, zmin=0, zmax=4, axes=None):
         #nmad = grizli.utils.nmad
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
@@ -235,9 +241,12 @@ class PhotoZ(object):
         clip = (self.zbest > self.zgrid[0]) & (self.cat['z_spec'] > zmin) & (self.cat['z_spec'] <= zmax)
         
         gs = GridSpec(2,1, height_ratios=[6,1])
-        fig = plt.figure(figsize=[6,7])
-        
-        ax = fig.add_subplot(gs[0,0])
+        if axes is None:
+            fig = plt.figure(figsize=[6,7])
+            ax = fig.add_subplot(gs[0,0])
+        else:
+            ax = axes[0]
+            
         ax.set_title(self.param['MAIN_OUTPUT_FILE'])
 
         #ax = fig.add_subplot(gs[:,-1])
@@ -263,7 +272,11 @@ class PhotoZ(object):
         ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), sample_nmad), ha='left', va='top', fontsize=10, transform=ax.transAxes)
         #ax.axis('scaled')
         
-        ax = fig.add_subplot(gs[1,0])
+        if axes is None:
+            ax = fig.add_subplot(gs[1,0])
+        else:
+            ax = axes[1]
+            
         yerr = np.abs(zlimits.T-self.zbest)#/(1+self.cat['z_spec'])
         
         ax.errorbar(np.log10(1+self.cat['z_spec'][clip]), dz[clip], yerr=yerr[:,clip], marker='.', alpha=0.2, color='k', linestyle='None')
@@ -460,6 +473,7 @@ class PhotoZ(object):
         # Update where residual larger than uncertainty
         upd = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD'])
         upd &= (r > self.efnu) & (self.fobs > 0)
+        upd &= np.isfinite(self.fnu) & np.isfinite(self.efnu)
         
         self.efnu[upd] = r[upd] #np.sqrt(var_new[upd])
     
@@ -488,7 +502,8 @@ class PhotoZ(object):
             
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
         
-    def residuals(self, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40):
+    def residuals(self, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True):
+        
         import os
         import matplotlib as mpl
         import matplotlib.cm as cm
@@ -518,9 +533,14 @@ class PhotoZ(object):
         so = np.argsort(self.lc)
         
         lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]), self.lc[np.newaxis,:])
-        clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0)
+        clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
         xmf, ymf, ysf, Nf = running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
         
+        if correct_zp:
+            image_corrections = self.zp*0.+1
+        else:
+            image_corrections = 1/self.zp
+            
         xmf = np.hstack((900, xmf, 1.e5))
         ymf = np.hstack((1, ymf, 1.))
         
@@ -548,13 +568,17 @@ class PhotoZ(object):
             xgi = (w_best * norm(xi[:, None], locs, widths)).sum(1)
             delta = np.median(resid[clip, ifilt]-xgi+1)
             self.zp_delta[ifilt]  = delta
-            
+            if correct_zp:
+                delta_i = delta
+            else:
+                delta_i = 1.
+                
             fname = os.path.basename(self.filters[ifilt].name.split()[0])
             if fname.count('.') > 1:
                 fname = '.'.join(fname.split('.')[:-1])
             
-            ax.plot(xm, ym/delta, color=color, alpha=0.8, label='{0:30s} {1:.3f}'.format(fname, delta), linewidth=2)
-            ax.fill_between(xm, ym/delta-ys/np.sqrt(N), ym/delta+ys/np.sqrt(N), color=color, alpha=0.1) 
+            ax.plot(xm, ym/delta_i*image_corrections[i], color=color, alpha=0.8, label='{0:30s} {1:.3f}'.format(fname, delta_i/image_corrections[i]), linewidth=2)
+            ax.fill_between(xm, ym/delta_i*image_corrections[i]-ys/np.sqrt(N), ym/delta_i*image_corrections[i]+ys/np.sqrt(N), color=color, alpha=0.1) 
                     
         ax.semilogx()
         ax.set_ylim(0.8,1.2)
@@ -1033,7 +1057,7 @@ class PhotoZ(object):
         hdu = pyfits.HDUList(pyfits.PrimaryHDU())
         hdu.append(pyfits.ImageHDU(self.zbest, name='ZBEST'))
         hdu.append(pyfits.ImageHDU(self.zgrid, name='ZGRID'))
-        hdu.append(pyfits.ImageHDU(self.pz, name='PZ'))
+        hdu.append(pyfits.ImageHDU(self.pz.astype(np.float32), name='PZ'))
         hdu[-1].header['PRIOR'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         
         hdu.append(pyfits.ImageHDU(self.coeffs_best, name='COEFFS'))
@@ -1043,6 +1067,116 @@ class PhotoZ(object):
             h['TEMP{0:04d}'.format(i)] = t.name
         
         hdu.writeto('{0}.data.fits'.format(root), clobber=True)
+    
+    def rest_frame_SED(self, idx=None, norm_band=155):
+        
+        if False:
+            ok = (zout['z_phot'] > 0.4) & (zout['z_phot'] < 2)
+            col = (VJ < 1.5) & (UV > 1.5)
+            # Quiescent
+            idx = col & ok & (np.log10(sSFR) < -11.5)
+            idx = col & ok & (np.log10(sSFR) > -10.5)
+            idx = col & ok & (np.log10(sSFR) > -9.5)
+
+            idx = ok & (VJ > 1.8)
+             
+            ## Red
+            UWise = f_rest[:,0,2]/f_rest[:,2,2]
+            idx, label, c = ok & (np.log10(UWise) > -1) & (np.log10(sSFR) > -10), 'U22_blue', 'b'
+
+            idx, label, c = ok & (np.log10(UWise) < -1.8) & (np.log10(UWise) > -2.2) & (np.log10(sSFR) > -10), 'U22_mid', 'g'
+
+            idx, label, c = ok & (np.log10(UWise) < -2.4) & (np.log10(sSFR) > -10), 'U22_red', 'r'
+            
+            # Quiescent
+            idx, label, c = ok & (np.log10(zout['MLv']) > 0.4) & (np.log10(sSFR) < -11.9), 'Q', 'r'
+            
+            # Dusty
+            idx, label, c = ok & (np.log10(zout['MLv']) > 0.6) & (np.log10(sSFR) < -10.5), 'MLv_lo', 'brown'
+
+            idx, label, c = ok & (np.log10(zout['MLv']) > 0.6) & (np.abs(np.log10(sSFR)+10.5) < 0.5), 'MLv_mid', 'k'
+
+            idx, label, c = ok & (np.log10(zout['MLv']) > 0.6) & (np.log10(sSFR) > -9.5), 'MLv_hi', 'green'
+            
+            # post-SB    
+            #idx, label, c = (UV < 1.6) & ok & (np.log10(sSFR) < -11) & (VJ < 1), 'post-SB', 'orange'
+            
+            # star-forming    
+            idx, label, c = ok & (UV < 0.6) & (VJ < 0.5), 'SF0', 'purple'
+            
+            idx, label, c = ok & (np.abs(UV-0.8) < 0.2) & (np.abs(VJ-0.6) < 0.2), 'SF1', 'b'
+
+            idx, label, c = ok & (np.abs(UV-1.2) < 0.2) & (np.abs(VJ-1.0) < 0.2), 'SF2', 'orange'
+
+            idx, label, c = ok & (np.abs(UV-1.6) < 0.2) & (np.abs(VJ-1.6) < 0.2), 'SF3', 'pink'
+        
+        rf_tempfilt, f_rest = self.rest_frame_fluxes(f_numbers=[153,norm_band,247], pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
+        
+        norm_flux = f_rest[:,1,2]
+        fnu_norm = (self.fnu[idx,:].T/norm_flux[idx]).T
+        fobs_norm = (self.fobs[idx,:].T/norm_flux[idx]).T
+        
+        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])[idx,:]
+        
+        clip = (self.efnu[idx,:] > 0) & (self.fnu[idx,:] > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu[idx,:]) & np.isfinite(self.efnu[idx,:])
+        
+        sp = self.show_fit(self.cat['id'][idx][0], get_spec=True)
+        templf = []
+        for i in np.arange(self.NOBJ)[idx]:
+            sp = self.show_fit(self.cat['id'][i], get_spec=True)
+            templf.append(sp['templf']/(norm_flux[i]/(1+self.zbest[i])**2))
+            #plt.plot(self.templates[0].wave[::10], sp['templf'][::10]/(norm_flux[i]/(1+self.zbest[i])**2), alpha=0.1, color=c)
+        
+        #plt.loglog()
+        
+        fig = plt.figure(figsize=[10,4])
+        gs = GridSpec(1,2, width_ratios=[2,3])
+        
+        ax = fig.add_subplot(gs[0,0])
+        sc = ax.scatter(VJ[ok], UV[ok], c='k', vmin=-1, vmax=1., alpha=0.01, marker='.', edgecolor='k', cmap='spectral')
+        sc = ax.scatter(VJ[idx], UV[idx], c=c, vmin=-1, vmax=1., alpha=0.2, marker='o', edgecolor='k')
+
+        ax.set_xlabel(r'$V-J$ (rest)')
+        ax.set_ylabel(r'$U-V$ (rest)')
+
+        ax.set_xlim(-0.2,2.8); ax.set_ylim(-0.2,2.8)
+        ax.grid()
+        
+        ax = fig.add_subplot(gs[0,1])
+        
+        wave = lcz[clip]
+        flam = fnu_norm[clip]/(wave/rf_tempfilt.filters[1].pivot())**2
+        flam_obs = fobs_norm[clip]/(wave/rf_tempfilt.filters[1].pivot())**2
+        
+        xm, ym, ys, N = eazy.utils.running_median(wave, flam, NBIN=50, use_median=True, use_nmad=True, reverse=False)
+        #c = 'r'
+        ax.plot(xm, np.maximum(ym, 0.01), color=c, linewidth=2, alpha=0.4)
+        ax.fill_between(xm, np.maximum(ym+ys, 0.001), np.maximum(ym-ys, 0.001), color=c, alpha=0.4)
+        
+        med = np.median(np.array(templf), axis=0)/3.6
+        min = np.percentile(np.array(templf), 16, axis=0)/3.6
+        max = np.percentile(np.array(templf), 84, axis=0)/3.6
+        ax.plot(self.templates[0].wave[::5], med[::5], color=c, linewidth=1, zorder=2)
+    
+        ax.fill_between(self.templates[0].wave[::5], min[::5], max[::5], color=c, linewidth=1, zorder=2, alpha=0.1)
+
+        # MIPS
+        mips_obs = kate_sfr['f24tot']*10**(0.4*(self.param.params['PRIOR_ABZP']-23.9))/norm_flux/(24.e4/(1+self.zbest)/rf_tempfilt.filters[1].pivot())**2#/2
+        ok_mips = (mips_obs > 0)
+        
+        xm, ym, ys, N = eazy.utils.running_median(24.e4/(1+self.zbest[idx & ok_mips]), np.log10(mips_obs[idx & ok_mips]), NBIN=10, use_median=True, use_nmad=True, reverse=False)
+        ax.fill_between(xm, np.maximum(10**(ym+ys), 1.e-4), np.maximum(10**(ym-ys), 1.e-4), color=c, alpha=0.4)
+        
+        ax.scatter(24.e4/(1+self.zbest[idx & ok_mips]), mips_obs[idx & ok_mips], color=c, marker='.', alpha=0.1)
+        ax.set_xlabel(r'$\lambda_\mathrm{rest}$')
+        ax.set_ylabel(r'$f_\lambda\ /\ f_V$')
+        ax.loglog()
+        ax.set_xlim(2000,120.e5)
+        ax.set_ylim(1.e-4,4)
+        ax.grid()
+        
+        fig.tight_layout()
+        fig.savefig('gs_eazypy.RF_{0}.png'.format(label))
         
 def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     fobs = np.dot(coeffs, A)
@@ -1184,7 +1318,7 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF):
 def _fit_obj(fnu_i, efnu_i, A, TEFz, get_err):
     from scipy.optimize import nnls
 
-    ok_band = (fnu_i > -90) & (efnu_i > 0)
+    ok_band = (fnu_i > -90) & (efnu_i > 0) & np.isfinite(fnu_i) & np.isfinite(efnu_i)
     if ok_band.sum() < 3:
         return np.inf, np.zeros(A.shape[0])
         
