@@ -1302,6 +1302,8 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF):
     coeffs = np.zeros((NOBJ, NTEMP))
     TEFz = TEF(z)
     
+    print('z={0:7.3f}'.format(z))
+    
     for iobj in range(NOBJ):
         
         fnu_i = fnu_corr[iobj, :]
