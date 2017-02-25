@@ -28,7 +28,7 @@ class TemplateError():
         return self._spline(self.lc/(1+z))*self.scale
         
 class Template():
-    def __init__(self, sp=None, file=None, name=None):
+    def __init__(self, sp=None, file=None, name=None, arrays=None):
         self.wave = None
         self.flux = None
         self.flux_fnu = None
@@ -47,7 +47,11 @@ class Template():
         if file is not None:
             self.wave, self.flux = np.loadtxt(file, unpack=True)
             self.set_fnu()
-    
+        
+        if arrays is not None:
+            self.wave, self.flux = arrays
+            self.set_fnu()
+            
     def set_fnu(self):
         self.flux_fnu = self.flux * self.wave**2 / 3.e18
         
