@@ -4,6 +4,7 @@ import numpy as np
 
 from collections import OrderedDict
 from astropy.table import Table
+import astropy.io.fits as pyfits
 
 from .filters import FilterFile
 from .param import EazyParam, TranslateFile
@@ -12,7 +13,7 @@ from .templates import TemplateError
 from .utils import running_median, nmad
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, params={}):
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, params={}, load_products=True):
         
         self.param_file = param_file
         self.translate_file = translate_file
@@ -75,6 +76,10 @@ class PhotoZ(object):
         ### Template Error
         self.get_template_error()
         
+        ### Load previous products?
+        if load_products:
+            self.load_products()
+            
         #### testing
         if False:
             
@@ -84,7 +89,20 @@ class PhotoZ(object):
          
             obj_ix = 2480
             obj_ix = idx[i]
-                    
+    
+    def load_products(self):
+        zout_file = '{0}.zout.fits'.format(self.param['MAIN_OUTPUT_FILE'])
+        if os.path.exists(zout_file):
+            print('Load products: {0}'.format(zout_file))
+            self.zout = Table.read(zout_file)
+            for iter in range(2):
+                self.best_fit(zbest=self.zout['z_phot'].data, prior=False)
+                self.error_residuals()
+
+            data_file = '{0}.data.fits'.format(self.param['MAIN_OUTPUT_FILE'])
+            data = pyfits.open(data_file)
+            self.pz = data['PZ'].data*1
+                            
     def read_catalog(self, verbose=True):
         from astropy.table import Table
                
@@ -346,6 +364,8 @@ class PhotoZ(object):
             iz, chi2, coeffs = res.get(timeout=1)
             self.fit_chi2[idx,iz] = chi2
             self.fit_coeffs[idx,iz,:] = coeffs
+        
+        self.compute_pz()
         
         t1 = time.time()
         if verbose:
@@ -758,8 +778,10 @@ class PhotoZ(object):
         ax = fig.add_subplot(122)
         chi2 = np.squeeze(self.fit_chi2[ix,:])
         prior = self.full_prior[ix,:].flatten()
-        pz = np.exp(-(chi2-chi2.min())/2.)*prior
-        pz /= np.trapz(pz, self.zgrid)
+        #pz = np.exp(-(chi2-chi2.min())/2.)*prior
+        #pz /= np.trapz(pz, self.zgrid)
+        pz = self.pz[ix,:].flatten()
+        
         ax.plot(self.zgrid, pz, color='orange')
         ax.plot(self.zgrid, prior/prior.max()*pz.max(), color='g')
         
