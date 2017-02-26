@@ -12,7 +12,7 @@ from .templates import TemplateError
 from .utils import running_median, nmad
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, params={}):
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, params={}):
         
         self.param_file = param_file
         self.translate_file = translate_file
@@ -54,7 +54,8 @@ class PhotoZ(object):
         
         ### Read prior file
         self.full_prior = np.ones((self.NOBJ, self.NZ))
-        self.read_prior()
+        if load_prior:
+            self.read_prior()
         
         if zeropoint_file is not None:
             self.read_zeropoint(zeropoint_file)
@@ -207,27 +208,22 @@ class PhotoZ(object):
     
     def iterate_zp_templates(self, idx=None, update_templates=True, update_zeropoints=True, iter=0, n_proc=4, save_templates=False, error_residuals=False):
         
-        self.fit_parallel(idx=idx, n_proc=n_proc)
-        
+        self.fit_parallel(idx=idx, n_proc=n_proc)        
         self.best_fit()
-        fig = self.residuals(update_zeropoints=update_zeropoints,
-                       ref_filter=int(self.param['PRIOR_FILTER']),
-                       update_templates=update_templates, Ng=(self.zbest > 0.1).sum() // 50)
-        
-        fig.savefig('{0}_zp_{1:03d}.png'.format(self.param['MAIN_OUTPUT_FILE'], iter))
-        
         if error_residuals:
             self.error_residuals()
-                                
-        # dz = (self.zbest_grid-self.cat['z_spec'])/(1+self.cat['z_spec'])
-        # dzb = (self.zbest-self.cat['z_spec'])/(1+self.cat['z_spec'])
-        # dz2 = (zout['z_peak']-self.cat['z_spec'])/(1+self.cat['z_spec'])
-        # clip = (self.zbest_grid > self.zgrid[0]) & (self.cat['z_spec'] > 0)
-        # print('{0:.4f} {1:.4f} {2:.4f}'.format(threedhst.utils.nmad(dz[clip]), threedhst.utils.nmad(dzb[clip]), threedhst.utils.nmad(dz2[clip])))
+        
+        fig = self.residuals(update_zeropoints=update_zeropoints,
+                       ref_filter=int(self.param['PRIOR_FILTER']),
+                       update_templates=update_templates, 
+                       Ng=(self.zbest > 0.1).sum() // 50)
+        
+        fig_file = '{0}_zp_{1:03d}.png'.format(self.param['MAIN_OUTPUT_FILE'], iter)
+        fig.savefig(fig_file)
+                                        
         if save_templates:
             self.save_templates()
             
-    #
     def zphot_zspec(self, zmin=0, zmax=4, axes=None):
         #nmad = grizli.utils.nmad
         import matplotlib.pyplot as plt
@@ -502,7 +498,7 @@ class PhotoZ(object):
             
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
         
-    def residuals(self, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True):
+    def residuals(self, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True, min_width=500):
         
         import os
         import matplotlib as mpl
@@ -533,19 +529,26 @@ class PhotoZ(object):
         so = np.argsort(self.lc)
         
         lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]), self.lc[np.newaxis,:])
-        clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
+        clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0) & np.isfinite(self.fnu) & np.isfinite(self.efnu) & (self.fobs != 0)
         xmf, ymf, ysf, Nf = running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
+        
+        NBIN = (self.zbest > self.zgrid[0]).sum() // (200) #*self.NFILT)
+        #NBIN = 20*(self.NFILT // 2)
+        
+        xmf, ymf, ysf, Nf = running_median(lcz[clip], resid[clip], NBIN=NBIN, use_median=True, use_nmad=True)
         
         if correct_zp:
             image_corrections = self.zp*0.+1
         else:
             image_corrections = 1/self.zp
             
-        xmf = np.hstack((900, xmf, 1.e5))
-        ymf = np.hstack((1, ymf, 1.))
+        xmf = np.hstack((900, xmf, 8.e4, 1.e5))
+        ymf = np.hstack((1, ymf, 1., 1.))
         
         #Ng = 40
-        w_best, rms, locs, widths = sum_of_norms(xmf, ymf, Ng, spacing='log', full_output=True)
+        #w_best, rms, locs, widths = sum_of_norms(xmf, ymf, Ng, spacing='log', full_output=True)
+        w_best, rms, locs, widths = sum_of_norms(xmf, ymf, full_output=True, locs=xmf, widths=np.maximum(np.gradient(xmf), min_width))
+        
         #w_best, rms, locs, widths = sum_of_norms([0.8*xmf.min(), xmf.max()/0.8], [1, 1], Ng, spacing='log', full_output=True)
         #print(xmf.min(), xmf.max(), locs, widths)
         
@@ -564,7 +567,7 @@ class PhotoZ(object):
             xi = self.lc[ifilt]/(1+self.zgrid[izbest][clip])
             xm, ym, ys, N = running_median(xi, resid[clip, ifilt], NBIN=20, use_median=True, use_nmad=True)
             
-            # Normalize to overall mediadn
+            # Normalize to overall median
             xgi = (w_best * norm(xi[:, None], locs, widths)).sum(1)
             delta = np.median(resid[clip, ifilt]-xgi+1)
             self.zp_delta[ifilt]  = delta
