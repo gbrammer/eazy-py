@@ -13,9 +13,8 @@ from .templates import TemplateError
 from .utils import running_median, nmad
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, params={}):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, params={}, load_products=True):
-        
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}):
+                
         self.param_file = param_file
         self.translate_file = translate_file
         self.zeropoint_file = zeropoint_file
@@ -78,6 +77,8 @@ class PhotoZ(object):
         ### Template Error
         self.get_template_error()
         
+        self.ubvj = None
+        
         ### Load previous products?
         if load_products:
             self.load_products()
@@ -103,7 +104,8 @@ class PhotoZ(object):
 
             data_file = '{0}.data.fits'.format(self.param['MAIN_OUTPUT_FILE'])
             data = pyfits.open(data_file)
-            self.pz = data['PZ'].data*1
+            self.fit_chi2 = data['CHI2'].data*1
+            self.ubvj = data['REST_UBVJ'].data*1
                             
     def read_catalog(self, verbose=True):
         from astropy.table import Table
@@ -197,9 +199,14 @@ class PhotoZ(object):
         prior_header = open(self.param['PRIOR_FILE']).readline()
         
         self.prior_mags = np.cast[float](prior_header.split()[2:])
-        self.prior_z = prior_raw[:,0]
-        self.prior_data = prior_raw[:,1:]
-        self.prior_map_z = np.interp(self.zgrid, self.prior_z, np.arange(len(self.prior_z)))
+        self.prior_data = np.zeros((self.NZ, len(self.prior_mags)))
+        for i in range(self.prior_data.shape[1]):
+            self.prior_data[:,i] = np.interp(self.zgrid, prior_raw[:,0], prior_raw[:,i+1])
+            
+        # self.prior_z = prior_raw[:,0]
+        # self.prior_data = prior_raw[:,1:]
+        # self.prior_map_z = np.interp(self.zgrid, self.prior_z, np.arange(len(self.prior_z)))
+        self.prior_map_z = np.arange(self.NZ)
                 
         ix = self.f_numbers == int(self.param['PRIOR_FILTER'])
         if ix.sum() == 0:
@@ -207,20 +214,28 @@ class PhotoZ(object):
             self.prior_mag_cat = np.zeros(self.NOBJ)-1
             
         else:
-            self.prior_mag_cat = self.param['PRIOR_ABZP'] - 2.5*np.log10(self.fnu[:,ix])
+            self.prior_mag_cat = self.param['PRIOR_ABZP'] - 2.5*np.log10(np.squeeze(self.fnu[:,ix]))
             self.prior_mag_cat[~np.isfinite(self.prior_mag_cat)] = -1
             
             for i in range(self.NOBJ):
                 if self.prior_mag_cat[i] > 0:
                     #print(i)
                     self.full_prior[i,:] = self._get_prior(self.prior_mag_cat[i])
-                    
+
         if verbose:
             print('Read PRIOR_FILE: ', self.param['PRIOR_FILE'])
-            
-    def _get_prior(self, mag, **kwargs):
-        import scipy.ndimage as nd
+    
+    def _get_prior(self, mag):
+        mag_clip = np.clip(mag, self.prior_mags[0], self.prior_mags[-1]-0.02)
         
+        mag_ix = np.interp(mag_clip, self.prior_mags, np.arange(len(self.prior_mags)))
+        int_mag_ix = int(mag_ix)
+        f = mag_ix-int_mag_ix
+        prior = np.dot(self.prior_data[:,int_mag_ix:int_mag_ix+2], [f,1-f])
+        return prior
+        
+    def _x_get_prior(self, mag, **kwargs):
+        import scipy.ndimage as nd
         mag_ix = np.interp(mag, self.prior_mags, np.arange(len(self.prior_mags)))*np.ones(self.NZ)
         prior = np.maximum(nd.map_coordinates(self.prior_data, [self.prior_map_z, mag_ix], **kwargs), 1.e-8)
         return prior
@@ -960,7 +975,7 @@ class PhotoZ(object):
         
         return peaks, numpeaks
         
-    def sps_parameters(self, UVJ=[153,155,161], cosmology=None):
+    def sps_parameters(self, UBVJ=[153,154,155,161], cosmology=None):
         """
         Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
         """        
@@ -970,23 +985,46 @@ class PhotoZ(object):
         if cosmology is None:
             from astropy.cosmology import Planck15 as cosmology
             
-        rf_tempfilt, f_rest = self.rest_frame_fluxes(f_numbers=UVJ, pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
+        self.ubvj_tempfilt, self.ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
         
-        restU = f_rest[:,0,2]
-        restV = f_rest[:,1,2]
-        restJ = f_rest[:,2,2]
+        restU = self.ubvj[:,0,2]
+        restB = self.ubvj[:,1,2]
+        restV = self.ubvj[:,2,2]
+        errV = (self.ubvj[:,2,3] - self.ubvj[:,2,1])/2.
+        restJ = self.ubvj[:,3,2]
         
-        PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/spectra_kc13_12_tweak.params')
-        temp_MLv, temp_SFRv = np.loadtxt(PARAM_FILE, unpack=True)
+        #PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/spectra_kc13_12_tweak.params')
+        #temp_MLv, temp_SFRv = np.loadtxt(PARAM_FILE, unpack=True)
+        
+        tab_temp = Table.read(self.param['TEMPLATES_FILE']+'.fits')
+        temp_MLv = tab_temp['mass']/tab_temp['Lv']
+        temp_SFRv = tab_temp['sfr']
         
         # Normalize fit coefficients to template V-band
-        coeffs_norm = self.coeffs_best*rf_tempfilt.tempfilt[:,1]
+        coeffs_norm = self.coeffs_best*self.ubvj_tempfilt.tempfilt[:,2]
         
         # Normalize fit coefficients to unity sum
         coeffs_norm = (coeffs_norm.T/coeffs_norm.sum(axis=1)).T
+
+        coeffs_orig = (self.coeffs_best.T/self.coeffs_best.sum(axis=1)).T
         
-        MLv = (coeffs_norm*temp_MLv).sum(axis=1)*u.solMass/u.solLum
-        SFRv = (coeffs_norm*temp_SFRv).sum(axis=1)*u.solMass/u.yr/u.solLum
+        # Av, compute based on linearized extinction corrections
+        # NB: dust1 is tau, not Av, which differ by a factor of log(10)/2.5
+        tau_corr = np.exp(tab_temp['dust1'])
+        tau_num = np.dot(coeffs_norm, tau_corr)
+        tau_den = np.dot(coeffs_norm, tau_corr*0+1)
+        tau_dust = np.log(tau_num/tau_den)
+        Av_tau = 0.4*np.log(10)
+        Av = tau_dust / Av_tau
+        
+        # Mass & SFR, normalize to V band and then scale by V luminosity
+        #MLv = (coeffs_norm*temp_MLv).sum(axis=1)*u.solMass/u.solLum
+        mass_norm = (coeffs_norm*tab_temp['mass']).sum(axis=1)*u.solMass
+        Lv_norm = (coeffs_norm*tab_temp['Lv']).sum(axis=1)*u.solLum
+        MLv = mass_norm / Lv_norm
+        
+        SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr/u.solLum
+        SFRv = SFR_norm / Lv_norm
         
         # Convert observed maggies to fnu
         uJy_to_cgs = u.Jy.to(u.erg/u.s/u.cm**2/u.Hz)*1.e-6
@@ -995,31 +1033,30 @@ class PhotoZ(object):
         fnu = restV*fnu_scl*(u.erg/u.s/u.cm**2/u.Hz)
         dL = cosmology.luminosity_distance(self.zbest).to(u.cm)
         Lnu = fnu*4*np.pi*dL**2
-        pivotV = rf_tempfilt.filters[1].pivot()*u.Angstrom*(1+self.zbest)
+        pivotV = self.ubvj_tempfilt.filters[2].pivot()*u.Angstrom*(1+self.zbest)
         nuV = (const.c/pivotV).to(u.Hz) 
         Lv = (nuV*Lnu).to(u.L_sun)
-        
-        # dL = cosmology.luminosity_distance(self.zbest).to(u.pc)
-        # DM = 5*np.log10(dL.value)-5-2.5*np.log10(1+self.zbest)
-        # m = self.param.params['PRIOR_ABZP']-2.5*np.log10(restV)
-        # absM = m-DM
-        # fnu10 = 10**(-0.4*(absM+48.6))
-        # Lnu = fnu10*4*np.pi*(10*u.pc.to(u.cm))**2
-        # pivotV = rf_tempfilt.filters[1].pivot()*1.e-10
-        # nu = const.c.to(u.m/u.s).value / pivotV
-        # Lv = Lnu*nu/u.L_sun.to(u.erg/u.s) # In Lsun units
-        
+                
         mass = MLv*Lv
         SFR = SFRv*Lv
         
+        if False:
+            BVx = -2.5*np.log10(restB/restV)
+            plt.scatter(BVx[sample], np.log10(MLv.data)[sample], alpha=0.02, color='k', marker='s')
+            # Taylor parameterization
+            x = np.arange(-0.5,2,0.1)
+            plt.plot(x, -0.734 + 1.404*(x+0.084), color='r')
+            
         #sSFR = SFR/mass
         
         tab = Table()
         tab['restU'] = restU
+        tab['restB'] = restB
         tab['restV'] = restV
         tab['restJ'] = restJ
         tab['Lv'] = Lv
         tab['MLv'] = MLv
+        tab['Av'] = Av
         
         for col in tab.colnames:
             tab[col].format = '.3f'
@@ -1036,7 +1073,7 @@ class PhotoZ(object):
         
         return tab
 
-    def standard_output(self, prior=True):
+    def standard_output(self, prior=True, UBVJ=[153,154,155,161], cosmology=None):
         import astropy.io.fits as pyfits
         
         self.best_fit(prior=prior)
@@ -1063,7 +1100,7 @@ class PhotoZ(object):
             
         tab.meta['prior'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         
-        sps_tab = self.sps_parameters(UVJ=[153,155,161], cosmology=None)
+        sps_tab = self.sps_parameters(UBVJ=UBVJ, cosmology=cosmology)
         for col in sps_tab.colnames:
             tab[col] = sps_tab[col]
         
@@ -1083,14 +1120,23 @@ class PhotoZ(object):
         hdu = pyfits.HDUList(pyfits.PrimaryHDU())
         hdu.append(pyfits.ImageHDU(self.zbest, name='ZBEST'))
         hdu.append(pyfits.ImageHDU(self.zgrid, name='ZGRID'))
-        hdu.append(pyfits.ImageHDU(self.pz.astype(np.float32), name='PZ'))
+        hdu.append(pyfits.ImageHDU(self.fit_chi2.astype(np.float32), name='CHI2'))
         hdu[-1].header['PRIOR'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         
+        # Template coefficients 
         hdu.append(pyfits.ImageHDU(self.coeffs_best, name='COEFFS'))
         h = hdu[-1].header
         h['NTEMP'] = (self.NTEMP, 'Number of templates')
         for i, t in enumerate(self.templates):
             h['TEMP{0:04d}'.format(i)] = t.name
+        
+        # Rest-frame fluxes
+        hdu.append(pyfits.ImageHDU(self.ubvj.astype(np.float32), name='REST_UBVJ'))
+        hdu[-1].header['RESFILE'] = (self.param['FILTERS_RES'], 'Filter file')
+        hdu[-1].header['UFILT'] = (UBVJ[0], 'U-band filter ID')
+        hdu[-1].header['BFILT'] = (UBVJ[1], 'B-band filter ID')
+        hdu[-1].header['VFILT'] = (UBVJ[2], 'V-band filter ID')
+        hdu[-1].header['JFILT'] = (UBVJ[3], 'J-band filter ID')
         
         hdu.writeto('{0}.data.fits'.format(root), clobber=True)
     
