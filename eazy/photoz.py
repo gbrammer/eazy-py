@@ -82,6 +82,10 @@ class PhotoZ(object):
         ### Load previous products?
         if load_products:
             self.load_products()
+        
+        ### Flam conversion factors
+        self.to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))*3.e18/1.e-19/self.lc**2/self.ext_corr
+        
             
         #### testing
         if False:
