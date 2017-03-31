@@ -111,7 +111,13 @@ class EazyParam():
     def list_filters(self):
         for filter in self.filters:
             print(' F{0:d}, {1}, lc={2}'.format(filter.fnumber, filter.name, filter.lambda_c))
-    
+
+    def to_mJy(self):
+        """
+        Return conversion factor to mJy
+        """
+        return 10**(-0.4*(self.params['PRIOR_ABZP']-23.9))/1000.
+        
     def write(self, file=None):
         if file == None:
             print('No output file specified...')
