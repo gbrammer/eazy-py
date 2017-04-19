@@ -686,7 +686,7 @@ class PhotoZ(object):
         ax.semilogx()
         ax.set_ylim(0.8,1.2)
         ax.set_xlim(800,8.e4)
-        l = ax.legend(fontsize=8, ncol=5)
+        l = ax.legend(fontsize=8, ncol=5, loc='upper right')
         l.set_zorder(-20)
         ax.grid()
         ax.vlines([2175, 3727, 5007, 6563.], 0.8, 1.0, linestyle='--', color='k', zorder=-18)
