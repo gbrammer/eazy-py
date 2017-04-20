@@ -431,7 +431,10 @@ class PhotoZ(object):
             A = self.tempfilt(self.zgrid[iz])
             var = (0.0*fnu_i)**2 + efnu_i**2 + (self.TEF(zgrid[iz])*fnu_i)**2
             rms = np.sqrt(var)
-            coeffs_i, rnorm = nnls((A/rms).T[ok_band,:], (fnu_i/rms)[ok_band])
+            try:
+                coeffs_i, rnorm = nnls((A/rms).T[ok_band,:], (fnu_i/rms)[ok_band])
+            except:
+                coeffs_i = np.zeros(A.shape[0])
                 
             fobs = np.dot(coeffs_i, A)
             chi2[iz] = np.sum((fnu_i-fobs)**2/var*ok_band)
@@ -1090,15 +1093,19 @@ class PhotoZ(object):
         
         # Av, compute based on linearized extinction corrections
         # NB: dust1 is tau, not Av, which differ by a factor of log(10)/2.5
-        try:
-            tau_corr = np.exp(tab_temp['dust2'])
-        except:
+        Av_tau = 0.4*np.log(10)
+        if 'dust1' in tab_temp.colnames:
             tau_corr = np.exp(tab_temp['dust1'])
+        elif 'dust2' in tab_temp.colnames:
+            tau_corr = np.exp(tab_temp['dust2'])
+        elif 'Av' in tab_temp.colnames:
+            tau_corr = np.exp(tab_temp['Av']*Av_tau)
+        else:
+            tau_corr = 1.
             
         tau_num = np.dot(coeffs_norm, tau_corr)
         tau_den = np.dot(coeffs_norm, tau_corr*0+1)
         tau_dust = np.log(tau_num/tau_den)
-        Av_tau = 0.4*np.log(10)
         Av = tau_dust / Av_tau
         
         # Mass & SFR, normalize to V band and then scale by V luminosity
@@ -1493,7 +1500,11 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
     rms = np.sqrt(var)
     
     Ax = (A/rms).T[ok_band,:]
-    coeffs_i, rnorm = nnls(Ax, (fnu_i/rms)[ok_band])
+    try:
+        coeffs_i, rnorm = nnls(Ax, (fnu_i/rms)[ok_band])
+    except:
+        coeffs_i = np.zeros(A.shape[0])
+        
     fobs = np.dot(coeffs_i, A)
     chi2_i = np.sum((fnu_i-fobs)**2/var*ok_band)
     
