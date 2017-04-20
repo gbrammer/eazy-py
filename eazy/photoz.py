@@ -886,7 +886,7 @@ class PhotoZ(object):
         
         ax.fill_between(self.zgrid, pz, pz*0, color='yellow', alpha=0.5)
         if self.cat['z_spec'][ix] > 0:
-            ax.vlines(self.cat['z_spec'][ix][0], 0,pz.max()*1.05, color='r')
+            ax.vlines(self.cat['z_spec'][ix][0], 1.e-5, pz.max()*1.05, color='r')
         
         ax.set_ylim(0,pz.max()*1.05)
         ax.set_xlim(0,self.zgrid[-1])
