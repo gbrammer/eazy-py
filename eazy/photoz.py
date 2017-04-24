@@ -281,7 +281,7 @@ class PhotoZ(object):
                                         
         if save_templates:
             self.save_templates()
-            
+    
     def zphot_zspec(self, zmin=0, zmax=4, axes=None):
         #nmad = grizli.utils.nmad
         import matplotlib.pyplot as plt
@@ -823,7 +823,9 @@ class PhotoZ(object):
                 igmz = 1.
 
             templf = np.dot(coeffs_i, tempflux)*igmz
-        
+            if draws is not None:
+                templf_draws = np.dot(draws, tempflux)*igmz
+                
         fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         
         if show_fnu:
@@ -862,7 +864,11 @@ class PhotoZ(object):
             ax.errorbar(self.lc/1.e4, fobs*fnu_factor*flam_sed, efobs*fnu_factor*flam_sed, color='r', marker='o', linestyle='None')
         
         ax.errorbar(self.lc/1.e4, fnu_i*fnu_factor*flam_sed, efnu_i*fnu_factor*flam_sed, color='k', marker='s', linestyle='None')
-        ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
+        pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
+        if draws is not None:
+            templf_width = np.percentile(templf_draws*fnu_factor*flam_spec, [16,84], axis=0)
+            ax.fill_between(templz/1.e4, templf_width[0,:], templf_width[1,:], color=pl[0].get_color(), alpha=0.1)
+            
         ax.set_xlim(xlim)
         xt = np.array([0.5, 1, 2, 4])*1.e4
         
@@ -1098,10 +1104,12 @@ class PhotoZ(object):
             tau_corr = np.exp(tab_temp['dust1'])
         elif 'dust2' in tab_temp.colnames:
             tau_corr = np.exp(tab_temp['dust2'])
-        elif 'Av' in tab_temp.colnames:
-            tau_corr = np.exp(tab_temp['Av']*Av_tau)
         else:
             tau_corr = 1.
+        
+        # Force use Av if available
+        if 'Av' in tab_temp.colnames:
+            tau_corr = np.exp(tab_temp['Av']*Av_tau)
             
         tau_num = np.dot(coeffs_norm, tau_corr)
         tau_den = np.dot(coeffs_norm, tau_corr*0+1)

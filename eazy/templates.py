@@ -59,8 +59,8 @@ class Template():
         """
         Integrate the template through a `FilterDefinition` filter object.
         
-        "unicorn" is part of a yet non-public module.  np.interp can 
-        stand in for the meantime.
+        The `grizli` interpolation module should be used if possible: 
+        https://github.com/gbrammer/grizli/
         """
         try:
             import grizli.utils_c
