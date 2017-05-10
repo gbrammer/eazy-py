@@ -358,7 +358,7 @@ class PhotoZ(object):
             np.savetxt(templ_file, np.array([templ.wave, templ.flux]).T,
                        fmt='%.6e')
                            
-    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True):
+    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False):
 
         import numpy as np
         import matplotlib.pyplot as plt
@@ -401,7 +401,7 @@ class PhotoZ(object):
             self.fit_chi2[idx,iz] = chi2
             self.fit_coeffs[idx,iz,:] = coeffs
         
-        self.compute_pz()
+        self.compute_pz(prior=prior)
         
         t1 = time.time()
         if verbose:
@@ -468,7 +468,10 @@ class PhotoZ(object):
             self.zbest, self.chi_best = self.best_redshift(prior=prior)
         else:
             self.zbest = zbest
-                
+        
+        # Compute Risk function at z=zbest
+        self.zbest_risk = self.compute_best_risk()
+        
         fnu_corr = self.fnu*self.ext_corr*self.zp
         efnu_corr = self.efnu*self.ext_corr*self.zp
         
@@ -1027,7 +1030,52 @@ class PhotoZ(object):
         dz = np.gradient(self.zgrid)
         norm = (pz*dz).sum(axis=1)
         self.pz = (pz.T/norm).T
-                
+    
+    def compute_full_risk(self):
+        
+        dz = np.gradient(self.zgrid)
+        
+        zsq = np.dot(self.zgrid[:,None], np.ones_like(self.zgrid)[None,:])
+        L = self._loss((zsq-self.zgrid)/(1+self.zgrid))
+        
+        pzi = self.pz[0,:]
+        Rz = self.pz*0.
+        
+        hasz = self.zbest > 0
+        idx = np.arange(self.NOBJ)[hasz]
+        
+        for i in idx:
+            Rz[i,:] = np.dot(self.pz[i,:]*L, dz)
+        
+    def compute_best_risk(self):
+        """
+        "Risk" function from Tanaka et al. 2017
+        """
+        zbest_grid = np.dot(self.zbest[:,None], np.ones_like(self.zgrid)[None,:])
+        L = self._loss((zbest_grid-self.zgrid)/(1+self.zgrid))
+        dz = np.gradient(self.zgrid)
+        
+        zbest_risk = np.dot(self.pz*L, dz)
+        zbest_risk[self.zbest < 0] = -1
+        return zbest_risk
+        
+    @staticmethod    
+    def _loss(dz, gamma=0.15):
+        return 1-1/(1+(dz/gamma)**2)
+    
+    def PIT(self, zspec):
+        """
+        PIT function for evaluating the calibration of p(z), 
+        as described in Tanaka (2017).
+        """
+        zspec_grid = np.dot(zspec[:,None], np.ones_like(self.zgrid)[None,:])
+        zlim = zspec_grid >= self.zgrid
+        dz = np.gradient(self.zgrid)
+        PIT = np.dot(self.pz*zlim, dz)
+
+        return PIT
+        
+        
     def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=10):
         
         import scipy.interpolate 
