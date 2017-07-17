@@ -1411,7 +1411,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     return -0.5*np.sum((fobs-fnu_i)**2/efnu_i**2)
              
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES, f_numbers, add_igm=True, galactic_ebv=0, n_proc=4, Eb=0):
+    def __init__(self, zgrid, templates, RES, f_numbers, add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None):
         import multiprocessing as mp
         import scipy.interpolate 
         import specutils.extinction
@@ -1464,12 +1464,17 @@ class TemplateGrid(object):
                 self.tempfilt[:,itemp,:] = tf_i        
         
         # Spline interpolator        
-        self.spline = scipy.interpolate.CubicSpline(self.zgrid, self.tempfilt)
-        
+        if interpolator is None:
+            self.spline = scipy.interpolate.Akima1DInterpolator(self.zgrid, self.tempfilt, axis=0)
+            #self.spline = scipy.interpolate.CubicSpline(self.zgrid, self.tempfilt)
+        else:
+            self.spline = interpolator(self.zgrid, self.tempfilt)
+            
     def __call__(self, z):
         """
         Return interpolated filter fluxes
         """
+        
         return self.spline(z)
                         
 def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb):

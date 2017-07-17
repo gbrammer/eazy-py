@@ -125,7 +125,6 @@ class FilterDefinition:
         self.bp = S.ArrayBandpass(wave=self.wave, throughput=self.throughput, name='')
         return self.bp.rectwidth()
 
-    #
     def ctw95(self):
         """
         95% cumulative throughput width
