@@ -101,16 +101,18 @@ class PhotoZ(object):
         zout_file = '{0}.zout.fits'.format(self.param['MAIN_OUTPUT_FILE'])
         if os.path.exists(zout_file):
             print('Load products: {0}'.format(zout_file))
-            self.zout = Table.read(zout_file)
-            for iter in range(2):
-                self.best_fit(zbest=self.zout['z_phot'].data, prior=False)
-                self.error_residuals()
 
             data_file = '{0}.data.fits'.format(self.param['MAIN_OUTPUT_FILE'])
             data = pyfits.open(data_file)
             self.fit_chi2 = data['CHI2'].data*1
+            self.compute_pz()
             self.ubvj = data['REST_UBVJ'].data*1
-                            
+            
+            self.zout = Table.read(zout_file)
+            for iter in range(2):
+                self.best_fit(zbest=self.zout['z_phot'].data, prior=False)
+                self.error_residuals()
+               
     def read_catalog(self, verbose=True):
         from astropy.table import Table
                
@@ -466,6 +468,8 @@ class PhotoZ(object):
         self.zbest_grid = self.zgrid[izbest]
         if zbest is None:
             self.zbest, self.chi_best = self.best_redshift(prior=prior)
+            # No prior, redshift at minimum chi-2
+            self.zchi2, self.chi2_noprior = self.best_redshift(prior=False)
         else:
             self.zbest = zbest
         
@@ -510,20 +514,20 @@ class PhotoZ(object):
         else:
             test_chi2 = self.fit_chi2
             
-        izbest0 = np.argmin(self.fit_chi2, axis=1)
+        #izbest0 = np.argmin(self.fit_chi2, axis=1)
         izbest = np.argmin(test_chi2, axis=1)
              
         zbest = self.zgrid[izbest]
-        zbest[izbest0 == 0] = -1
-        
+        zbest[izbest == 0] = self.zgrid[0]
         chi_best = self.fit_chi2.min(axis=1)
         
         for iobj in range(self.NOBJ):
-            iz = izbest0[iobj]
+            iz = izbest[iobj]
             if (iz == 0) | (iz == self.NZ-1):
                 continue
             
-            c = polyfit(self.zgrid[iz-1:iz+2], test_chi2[iobj, iz-1:iz+2], 2)
+            #c = polyfit(self.zgrid[iz-1:iz+2], test_chi2[iobj, iz-1:iz+2], 2)
+            c = polyfit(self.zgrid[iz-1:iz+2], self.fit_chi2[iobj, iz-1:iz+2], 2)
             
             zbest[iobj] = -c[1]/(2*c[0])
             chi_best[iobj] = polyval(c, zbest[iobj])
@@ -775,7 +779,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
         
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False):
         import matplotlib.pyplot as plt
         
         if False:
@@ -789,9 +793,13 @@ class PhotoZ(object):
             
             j+=1; id = ids[j]; self.show_fit(id, show_fnu=show_fnu)
             
-        ix = self.cat['id'] == id
-        z = self.zbest[ix][0]
-                
+        if id_is_idx:
+            ix = id
+            z = self.zbest[ix]
+        else:
+            ix = self.cat['id'] == id
+            z = self.zbest[ix][0]
+        
         ## SED
         A = np.squeeze(self.tempfilt(z))
         fnu_i = np.squeeze(self.fnu[ix, :])*self.ext_corr*self.zp
@@ -898,7 +906,7 @@ class PhotoZ(object):
         
         ax.fill_between(self.zgrid, pz, pz*0, color='yellow', alpha=0.5)
         if self.cat['z_spec'][ix] > 0:
-            ax.vlines(self.cat['z_spec'][ix][0], 1.e-5, pz.max()*1.05, color='r')
+            ax.vlines(self.cat['z_spec'][ix], 1.e-5, pz.max()*1.05, color='r')
         
         ax.set_ylim(0,pz.max()*1.05)
         ax.set_xlim(0,self.zgrid[-1])
@@ -1046,6 +1054,11 @@ class PhotoZ(object):
         
         for i in idx:
             Rz[i,:] = np.dot(self.pz[i,:]*L, dz)
+        
+        return Rz
+        
+        #self.full_risk = Rz
+        #self.min_risk = self.zgrid[np.argmin(Rz, axis=1)]
         
     def compute_best_risk(self):
         """
@@ -1223,8 +1236,8 @@ class PhotoZ(object):
     def standard_output(self, prior=True, UBVJ=[153,154,155,161], cosmology=None):
         import astropy.io.fits as pyfits
         
-        self.best_fit(prior=prior)
         self.compute_pz(prior=prior)
+        self.best_fit(prior=prior)
         
         peaks, numpeaks = self.find_peaks()
         zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
@@ -1236,6 +1249,16 @@ class PhotoZ(object):
         
         tab['numpeaks'] = numpeaks
         tab['z_phot'] = self.zbest
+        tab['z_phot_chi2'] = self.chi_best #fit_chi2.min(axis=1)
+        tab['z_phot_risk'] = self.zbest_risk
+        
+        self.Rz = self.compute_full_risk()
+        tab['z_min_risk'] = self.zgrid[np.argmin(self.Rz, axis=1)]
+        tab['min_risk'] = self.Rz.min(axis=1)
+                
+        tab['z_chi2_noprior'] = self.zchi2
+        tab['chi2_noprior'] = self.chi2_noprior
+        
         tab['z025'] = zlimits[:,0]
         tab['z160'] = zlimits[:,1]
         tab['z500'] = zlimits[:,2]
