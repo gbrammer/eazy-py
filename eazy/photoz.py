@@ -70,7 +70,7 @@ class PhotoZ(object):
         #self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.filters, add_igm=True, galactic_ebv=0.0354)
 
         t0 = time.time()
-        self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.param['FILTERS_RES'], self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
+        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
         t1 = time.time()
         print('Process templates: {0:.3f} s'.format(t1-t0))
         
@@ -747,7 +747,7 @@ class PhotoZ(object):
                 templ.flux_fnu /= templ_tweak
             
             # Recompute filter fluxes from tweaked templates    
-            self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.param['FILTERS_RES'], self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
         
         return fig
         
@@ -923,7 +923,7 @@ class PhotoZ(object):
         Rest-frame colors
         """
         print('Rest-frame filters: {0}'.format(f_numbers))
-        rf_tempfilt = TemplateGrid(np.array([0,0.1]), self.templates, self.param['FILTERS_RES'], np.array(f_numbers), add_igm=False, galactic_ebv=0, Eb=self.param['SCALE_2175_BUMP'], n_proc=-1)
+        rf_tempfilt = TemplateGrid(np.array([0,0.1]), self.templates, RES=self.param['FILTERS_RES'], f_numbers=np.array(f_numbers), add_igm=False, galactic_ebv=0, Eb=self.param['SCALE_2175_BUMP'], n_proc=-1)
         rf_tempfilt.tempfilt = np.squeeze(rf_tempfilt.tempfilt[0,:,:])
         
         NREST = len(f_numbers)
@@ -1434,7 +1434,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     return -0.5*np.sum((fobs-fnu_i)**2/efnu_i**2)
              
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES, f_numbers, add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None):
+    def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None):
         import multiprocessing as mp
         import scipy.interpolate 
         import specutils.extinction
@@ -1449,19 +1449,21 @@ class TemplateGrid(object):
         
         self.NTEMP = len(templates)
         self.NZ = len(zgrid)
-        self.NFILT = len(f_numbers)
         
         self.zgrid = zgrid
         self.dz = np.diff(zgrid)
         self.idx = np.arange(self.NZ, dtype=int)
+                
+        if filters is None:
+            all_filters = np.load(RES+'.npy')[0]
+            filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
         
-        self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT))
-        
-        all_filters = np.load(RES+'.npy')[0]
-        filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
         self.lc = np.array([f.pivot() for f in filters])
         self.filter_names = np.array([f.name for f in filters])
         self.filters = filters
+        self.NFILT = len(self.filters)
+        
+        self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT))
         
         if n_proc >= 0:
             # Parallel            
@@ -1470,7 +1472,7 @@ class TemplateGrid(object):
             else:
                 pool = mp.Pool(processes=n_proc)
                 
-            results = [pool.apply_async(_integrate_tempfilt, (itemp, templates[itemp], zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb)) for itemp in range(self.NTEMP)]
+            results = [pool.apply_async(_integrate_tempfilt, (itemp, templates[itemp], zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters)) for itemp in range(self.NTEMP)]
 
             pool.close()
             pool.join()
@@ -1482,7 +1484,7 @@ class TemplateGrid(object):
         else:
             # Serial
             for itemp in range(self.NTEMP):
-                itemp, tf_i = _integrate_tempfilt(itemp, templates[itemp], zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb)
+                itemp, tf_i = _integrate_tempfilt(itemp, templates[itemp], zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters)
                 print('Process template {0}.'.format(templates[itemp].name))
                 self.tempfilt[:,itemp,:] = tf_i        
         
@@ -1500,15 +1502,16 @@ class TemplateGrid(object):
         
         return self.spline(z)
                         
-def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb):
+def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters):
     """
     For multiprocessing filter integration
     """
     import specutils.extinction
     import astropy.units as u
     
-    all_filters = np.load(RES+'.npy')[0]
-    filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
+    if filters is None:
+        all_filters = np.load(RES+'.npy')[0]
+        filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
     
     NZ = len(zgrid)
     NFILT = len(filters)
