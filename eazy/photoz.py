@@ -3,7 +3,12 @@ import time
 import numpy as np
 
 from collections import OrderedDict
-from astropy.table import Table
+
+try:
+    from grizli.utils import GTable as Table
+except:
+    from astropy.table import Table
+
 import astropy.io.fits as pyfits
 
 from .filters import FilterFile
@@ -114,7 +119,7 @@ class PhotoZ(object):
                 self.error_residuals()
                
     def read_catalog(self, verbose=True):
-        from astropy.table import Table
+        #from astropy.table import Table
                
         if verbose:
             print('Read CATALOG_FILE:', self.param['CATALOG_FILE'])
@@ -1319,6 +1324,57 @@ class PhotoZ(object):
         
         hdu.writeto('{0}.data.fits'.format(root), clobber=True)
     
+    def get_match_index(self, id=None, rd=None, verbose=True):
+        import astropy.units as u
+        
+        if id is not None:
+            ix = np.where(self.cat['id'] == id)[0][0]
+            if verbose:
+                print('ID={0}, idx={1}'.format(id, ix))
+                
+            return ix
+        
+        # From RA / DEC
+        idx, dr = self.cat.match_to_catalog_sky([rd[0]*u.deg, rd[1]*u.deg])
+        if verbose:
+            print('ID={0}, idx={1}, dr={2:.3f}'.format(self.cat['id'][idx[0]], 
+                                                   idx[0], dr[0]))
+            
+        return idx[0]
+        
+    def to_prospector(self, id=None, rd=None):
+        """
+        Get the photometry and filters in a format that 
+        Prospector can use
+        """
+        from sedpy.observate import Filter
+        
+        ix = self.get_match_index(id, rd)
+        
+        ZP = self.param['PRIOR_ABZP']
+        maggies = self.fnu[ix,:]*10**(-0.4*ZP)
+        maggies_unc = self.efnu[ix,:]*10**(-0.4*ZP)
+        dq = (self.fnu[ix,:] > -90) & (self.efnu[ix,:] > 0) & np.isfinite(self.fnu[ix,:]) & np.isfinite(self.efnu[ix,:])
+        
+        sedpy_filters = []
+        for i in range(self.NFILT):
+            if dq[i]:
+                filt = self.filters[i]
+                sedpy_filters.append(Filter(data=[filt.wave, filt.throughput], kname=filt.name.split()[0]))
+        
+        pivot = np.array([f.wave_pivot for f in sedpy_filters])
+        lightspeed = 2.998e18  # AA/s
+        conv = pivot**2 / lightspeed * 1e23 / 3631 
+        
+        pdict = {'maggies': maggies[dq],
+                 'maggies_unc': maggies_unc[dq],
+                 'maggies_toflam':1/conv,
+                 'filters':sedpy_filters,
+                 'wave_pivot':pivot,
+                 'phot_catalog_id':self.cat['id'][ix]}
+        
+        return pdict
+        
     def rest_frame_SED(self, idx=None, norm_band=155):
         
         if False:

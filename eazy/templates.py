@@ -67,7 +67,7 @@ class Template():
             interp = grizli.utils_c.interp.interp_conserve_c
         except ImportError:
             interp = np.interp
-            
+        
         templ_filter = interp(filter.wave, self.wave*(1+z),
                               self.flux_fnu*scale)
                 
