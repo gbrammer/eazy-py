@@ -557,27 +557,51 @@ class PhotoZ(object):
     
     def check_uncertainties(self):
         import astropy.stats
+        from scipy.interpolate import UnivariateSpline, LSQUnivariateSpline
         
         TEF_scale = 1.
         
+        izbest = np.argmin(self.fit_chi2, axis=1)
+        zbest = self.zgrid[izbest]
+        
         full_err = self.efnu*0.
         teff_err = self.efnu*0
-        for i in range(self.NOBJ):
-            teff_err[i,:] = self.TEF(self.zbest[i])*TEF_scale
         
-        full_err = np.sqrt(self.efnu**2+(self.fnu*teff_err)**2)
+        teff_err = self.TEF(self.zbest[:,None])
+        
+        # for i in range(self.NOBJ):
+        #     teff_err[i,:] = self.TEF(self.zbest[i])*TEF_scale
+        
+        full_err = np.sqrt(self.efnu_orig**2+(self.fnu*teff_err)**2)
             
-        resid = (self.fobs - self.fnu*self.ext_corr*self.zp)/full_err
+        resid = (self.fobs - self.fnu*self.ext_corr*self.zp)/self.fobs
+        #eresid = np.clip(full_err/self.fobs, 0.02, 0.2)
         
-        okz = (self.zbest > 0.1)
+        self.efnu_i = self.efnu_orig*1
+        
+        eresid = np.sqrt((self.efnu_i/self.fobs)**2+self.param.params['SYS_ERR']**2)
+        
+        okz = (self.zbest > 0.1) & (self.zbest < 3)
         scale_errors = self.lc*0.
         
         for ifilt in range(self.NFILT):
-            iok = okz & (self.efnu[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
-            print('{0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], nmad(resid[iok,ifilt])))
-            scale_errors[ifilt] = nmad(resid[iok,ifilt])
+            iok = okz & (self.efnu_orig[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
+            
+            # Spline interp
+            xw = self.lc[ifilt]/(1+self.zbest[iok])
+            so = np.argsort(xw)
+            #spl = UnivariateSpline(xw[so], resid[iok,ifilt][so], w=1/np.clip(eresid[iok,ifilt][so], 0.002, 0.1), s=iok.sum()*4)
+            spl = LSQUnivariateSpline(xw[so], resid[iok,ifilt][so], np.exp(np.arange(np.log(xw.min()+100), np.log(xw.max()-100), 0.05)), w=1/eresid[iok,ifilt][so])#, s=10)
+            
+            nm = nmad((resid[iok,ifilt]-spl(xw))/eresid[iok,ifilt])
+            print('{3}: {0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], nm, ifilt))
+            scale_errors[ifilt] = nm
+            self.efnu_i[:,ifilt] *= nm
             
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
+        
+        # Overall average
+        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
         
     def residuals(self, selection=None, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True, min_width=500, NBIN=None):
         """
@@ -610,7 +634,7 @@ class PhotoZ(object):
             idx = np.arange(self.NOBJ)[izbest > 0]
             
         resid = (self.fobs - self.fnu*self.ext_corr*self.zp)/self.fobs+1
-        eresid = (self.fobs - self.efnu*self.ext_corr*self.zp)/self.fobs+1
+        eresid = (self.efnu_orig*self.ext_corr*self.zp)/self.fobs
 
         sn = self.fnu/self.efnu
                 
