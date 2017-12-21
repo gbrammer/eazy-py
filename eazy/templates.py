@@ -9,10 +9,14 @@ class TemplateError():
     """
     Make an easy (spline) interpolator for the template error function
     """
-    def __init__(self, file='templates/TEMPLATE_ERROR.eazy_v1.0', lc=[5500.], scale=1.):
+    def __init__(self, file='templates/TEMPLATE_ERROR.eazy_v1.0', arrays=None, lc=[5500.], scale=1.):
         from scipy import interpolate
         self.file = file
-        self.te_x, self.te_y = np.loadtxt(file, unpack=True)
+        if arrays is None:
+            self.te_x, self.te_y = np.loadtxt(file, unpack=True)
+        else:
+            self.te_x, self.te_y = arrays
+            
         self.scale = scale
         self._spline = interpolate.CubicSpline(self.te_x, self.te_y)
         self.lc = lc
