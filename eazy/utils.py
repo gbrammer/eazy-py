@@ -51,6 +51,26 @@ def nmad(arr):
     import astropy.stats
     return 1.48*astropy.stats.median_absolute_deviation(arr)
 
+def log_zgrid(zr=[0.7,3.4], dz=0.01):
+    """Make a logarithmically spaced redshift grid
+    
+    Parameters
+    ----------
+    zr : [float, float]
+        Minimum and maximum of the desired grid
+    
+    dz : float
+        Step size, dz/(1+z)
+    
+    Returns
+    -------
+    zgrid : array-like
+        Redshift grid
+    
+    """
+    zgrid = np.exp(np.arange(np.log(1+zr[0]), np.log(1+zr[1]), dz))-1
+    return zgrid
+    
 def clipLog(im, lexp=1000, cmap=[-1.4914, 0.6273], scale=[-0.1,10]):
     """
     Return normalized array like DS9 log
