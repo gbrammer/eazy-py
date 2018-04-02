@@ -63,6 +63,47 @@ def clipLog(im, lexp=1000, cmap=[-1.4914, 0.6273], scale=[-0.1,10]):
     
     return clip_log
 
+def get_irsa_dust(ra=53.1227, dec=-27.805089, type='SandF'):
+    """
+    Get Galactic dust reddening from NED/IRSA at a given position
+    http://irsa.ipac.caltech.edu/applications/DUST/docs/dustProgramInterface.html
+    
+    Parameters
+    ----------
+    ra, dec : float
+        RA/Dec in decimal degrees.
+        
+    type : 'SFD' or 'SandF'
+        Dust model, with        
+            SandF = Schlafly & Finkbeiner 2011 (ApJ 737, 103) 
+              SFD = Schlegel et al. 1998 (ApJ 500, 525)
+    
+    Returns
+    -------
+    ebv : float
+        Color excess E(B-V), in magnitudes
+    
+    """
+    import os
+    import tempfile   
+    import urllib.request
+    from astropy.table import Table
+    from lxml import objectify
+    
+    query = 'http://irsa.ipac.caltech.edu/cgi-bin/DUST/nph-dust?locstr={0:.4f}+{1:.4f}+equ+j2000'.format(ra, dec)
+    
+    req = urllib.request.Request(query)
+    response = urllib.request.urlopen(req)
+    resp_text = response.read().decode('utf-8')
+    
+    root = objectify.fromstring(resp_text)
+    stats = root.result.statistics
+
+    if type == 'SFD':
+        return float(str(stats.refPixelValueSFD).split()[0])
+    else:
+        return float(str(stats.refPixelValueSandF).split()[0])
+        
 def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
     """
     Make `fill_between` work like linestyle='steps-mid'.
