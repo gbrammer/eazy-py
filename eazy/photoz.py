@@ -11,11 +11,13 @@ except:
 
 import astropy.io.fits as pyfits
 
-from .filters import FilterFile
-from .param import EazyParam, TranslateFile
-from .igm import Inoue14
-from .templates import TemplateError
-from .utils import running_median, nmad
+from . import filters
+from . import param 
+from . import igm as igm_module
+from . import templates as templates_module 
+from . import utils 
+
+__all__ = ["PhotoZ", "TemplateGrid"]
 
 class PhotoZ(object):
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}):
@@ -36,8 +38,8 @@ class PhotoZ(object):
             # from eazypy.photoz import TemplateGrid
             
         ### Read parameters
-        self.param = EazyParam(param_file, read_templates=False, read_filters=False)
-        self.translate = TranslateFile(translate_file)
+        self.param = param.EazyParam(param_file, read_templates=False, read_filters=False)
+        self.translate = param.TranslateFile(translate_file)
                 
         if 'MW_EBV' not in self.param.params:
             self.param.params['MW_EBV'] = 0.0354 # MACS0416
@@ -130,7 +132,7 @@ class PhotoZ(object):
             self.cat = Table.read(self.param['CATALOG_FILE'], format='ascii.commented_header')
         self.NOBJ = len(self.cat)
         
-        all_filters = FilterFile(self.param['FILTERS_RES'])
+        all_filters = filters.FilterFile(self.param['FILTERS_RES'])
         np.save(self.param['FILTERS_RES']+'.npy', [all_filters])
 
         self.filters = []
@@ -214,11 +216,11 @@ class PhotoZ(object):
                 self.zp[ix] = float(line.split()[1])
                 
     def get_template_error(self):
-        self.TEF = TemplateError(self.param['TEMP_ERR_FILE'], lc=self.lc, scale=self.param['TEMP_ERR_A2'])
+        self.TEF = templates_module.TemplateError(self.param['TEMP_ERR_FILE'], lc=self.lc, scale=self.param['TEMP_ERR_A2'])
             
     def get_zgrid(self):
-        self.zgrid = log_zgrid(zr=[self.param['Z_MIN'], self.param['Z_MAX']], 
-                               dz = self.param['Z_STEP'])
+        zr = [self.param['Z_MIN'], self.param['Z_MAX']]
+        self.zgrid = utils.log_zgrid(zr=zr, dz=self.param['Z_STEP'])
         self.NZ = len(self.zgrid)
     
     def read_prior(self, verbose=True):
@@ -290,7 +292,7 @@ class PhotoZ(object):
             self.save_templates()
     
     def zphot_zspec(self, zmin=0, zmax=4, axes=None):
-        #nmad = grizli.utils.nmad
+
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
 
@@ -329,7 +331,7 @@ class PhotoZ(object):
         ax.grid()
         ax.set_ylabel(r'$z_\mathrm{phot}$')
 
-        sample_nmad = nmad(dz[clip])
+        sample_nmad = utils.nmad(dz[clip])
         ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), sample_nmad), ha='left', va='top', fontsize=10, transform=ax.transAxes)
         #ax.axis('scaled')
         
@@ -562,27 +564,51 @@ class PhotoZ(object):
     
     def check_uncertainties(self):
         import astropy.stats
+        from scipy.interpolate import UnivariateSpline, LSQUnivariateSpline
         
         TEF_scale = 1.
         
+        izbest = np.argmin(self.fit_chi2, axis=1)
+        zbest = self.zgrid[izbest]
+        
         full_err = self.efnu*0.
         teff_err = self.efnu*0
-        for i in range(self.NOBJ):
-            teff_err[i,:] = self.TEF(self.zbest[i])*TEF_scale
         
-        full_err = np.sqrt(self.efnu**2+(self.fnu*teff_err)**2)
+        teff_err = self.TEF(self.zbest[:,None])
+        
+        # for i in range(self.NOBJ):
+        #     teff_err[i,:] = self.TEF(self.zbest[i])*TEF_scale
+        
+        full_err = np.sqrt(self.efnu_orig**2+(self.fnu*teff_err)**2)
             
-        resid = (self.fobs - self.fnu*self.ext_corr*self.zp)/full_err
+        resid = (self.fobs - self.fnu*self.ext_corr*self.zp)/self.fobs
+        #eresid = np.clip(full_err/self.fobs, 0.02, 0.2)
         
-        okz = (self.zbest > 0.1)
+        self.efnu_i = self.efnu_orig*1
+        
+        eresid = np.sqrt((self.efnu_i/self.fobs)**2+self.param.params['SYS_ERR']**2)
+        
+        okz = (self.zbest > 0.1) & (self.zbest < 3)
         scale_errors = self.lc*0.
         
         for ifilt in range(self.NFILT):
-            iok = okz & (self.efnu[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
-            print('{0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], nmad(resid[iok,ifilt])))
-            scale_errors[ifilt] = nmad(resid[iok,ifilt])
+            iok = okz & (self.efnu_orig[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
+            
+            # Spline interp
+            xw = self.lc[ifilt]/(1+self.zbest[iok])
+            so = np.argsort(xw)
+            #spl = UnivariateSpline(xw[so], resid[iok,ifilt][so], w=1/np.clip(eresid[iok,ifilt][so], 0.002, 0.1), s=iok.sum()*4)
+            spl = LSQUnivariateSpline(xw[so], resid[iok,ifilt][so], np.exp(np.arange(np.log(xw.min()+100), np.log(xw.max()-100), 0.05)), w=1/eresid[iok,ifilt][so])#, s=10)
+            
+            nm = utils.nmad((resid[iok,ifilt]-spl(xw))/eresid[iok,ifilt])
+            print('{3}: {0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], nm, ifilt))
+            scale_errors[ifilt] = nm
+            self.efnu_i[:,ifilt] *= nm
             
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
+        
+        # Overall average
+        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
         
     def residuals(self, selection=None, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True, min_width=500, NBIN=None):
         """
@@ -615,7 +641,7 @@ class PhotoZ(object):
             idx = np.arange(self.NOBJ)[izbest > 0]
             
         resid = (self.fobs - self.fnu*self.ext_corr*self.zp)/self.fobs+1
-        eresid = (self.fobs - self.efnu*self.ext_corr*self.zp)/self.fobs+1
+        eresid = (self.efnu_orig*self.ext_corr*self.zp)/self.fobs
 
         sn = self.fnu/self.efnu
                 
@@ -630,13 +656,13 @@ class PhotoZ(object):
         
         lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]), self.lc[np.newaxis,:])
         clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0) & np.isfinite(self.fnu) & np.isfinite(self.efnu) & (self.fobs != 0)
-        xmf, ymf, ysf, Nf = running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
+        xmf, ymf, ysf, Nf = utils.running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
         
         if NBIN is None:
             NBIN = (self.zbest > self.zgrid[0]).sum() // (100) #*self.NFILT)
         #NBIN = 20*(self.NFILT // 2)
         
-        xmf, ymf, ysf, Nf = running_median(lcz[clip], resid[clip], NBIN=NBIN, use_median=True, use_nmad=True)
+        xmf, ymf, ysf, Nf = utils.running_median(lcz[clip], resid[clip], NBIN=NBIN, use_median=True, use_nmad=True)
         
         clip = (xmf > 950) & (xmf < 7.9e4)
         xmf = xmf[clip]
@@ -679,7 +705,7 @@ class PhotoZ(object):
                 continue
                 
             xi = self.lc[ifilt]/(1+self.zgrid[izbest][clip])
-            xm, ym, ys, N = running_median(xi, resid[clip, ifilt], NBIN=20, use_median=True, use_nmad=True)
+            xm, ym, ys, N = utils.running_median(xi, resid[clip, ifilt], NBIN=20, use_median=True, use_nmad=True)
             
             # Normalize to overall median
             #xgi = (w_best * norm(xi[:, None], locs, widths)).sum(1)
@@ -728,7 +754,7 @@ class PhotoZ(object):
         ax.set_xlabel(r'$z_\mathrm{spec}$')
         ax.set_ylabel(r'$z_\mathrm{phot}$')
         
-        ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), nmad(dz[clip])), ha='left', va='top', fontsize=10, transform=ax.transAxes)
+        ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), utils.nmad(dz[clip])), ha='left', va='top', fontsize=10, transform=ax.transAxes)
         fig.tight_layout(pad=0.1)
         
         # update zeropoints in self.zp
@@ -777,7 +803,7 @@ class PhotoZ(object):
         if self.tempfilt.add_igm:
             igmz = templ.wave*0.+1
             lyman = templ.wave < 1300
-            igmz[lyman] = Inoue14().full_IGM(z, templz[lyman])
+            igmz[lyman] = igm_module.Inoue14().full_IGM(z, templz[lyman])
         else:
             igmz = 1.
         
@@ -834,7 +860,7 @@ class PhotoZ(object):
             if self.tempfilt.add_igm:
                 igmz = templ.wave*0.+1
                 lyman = templ.wave < 1300
-                igmz[lyman] = Inoue14().full_IGM(z, templz[lyman])
+                igmz[lyman] = igm_module.Inoue14().full_IGM(z, templz[lyman])
             else:
                 igmz = 1.
 
@@ -1097,9 +1123,9 @@ class PhotoZ(object):
     def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=10):
         
         import scipy.interpolate 
-                   
-        zgrid_zoom = log_zgrid(zr=[self.param['Z_MIN'], self.param['Z_MAX']], 
-                               dz=self.param['Z_STEP']/oversample)
+        
+        zr = [self.param['Z_MIN'], self.param['Z_MAX']]
+        zgrid_zoom = utils.log_zgrid(zr=zr,dz=self.param['Z_STEP']/oversample)
          
 
         ok = self.zbest > self.zgrid[0]      
@@ -1462,7 +1488,7 @@ class PhotoZ(object):
         flam = fnu_norm[clip]/(wave/rf_tempfilt.filters[1].pivot())**2
         flam_obs = fobs_norm[clip]/(wave/rf_tempfilt.filters[1].pivot())**2
         
-        xm, ym, ys, N = eazy.utils.running_median(wave, flam, NBIN=50, use_median=True, use_nmad=True, reverse=False)
+        xm, ym, ys, N = utils.running_median(wave, flam, NBIN=50, use_median=True, use_nmad=True, reverse=False)
         #c = 'r'
         ax.plot(xm, np.maximum(ym, 0.01), color=c, linewidth=2, alpha=0.4)
         ax.fill_between(xm, np.maximum(ym+ys, 0.001), np.maximum(ym-ys, 0.001), color=c, alpha=0.4)
@@ -1478,7 +1504,7 @@ class PhotoZ(object):
         mips_obs = kate_sfr['f24tot']*10**(0.4*(self.param.params['PRIOR_ABZP']-23.9))/norm_flux/(24.e4/(1+self.zbest)/rf_tempfilt.filters[1].pivot())**2#/2
         ok_mips = (mips_obs > 0)
         
-        xm, ym, ys, N = eazy.utils.running_median(24.e4/(1+self.zbest[idx & ok_mips]), np.log10(mips_obs[idx & ok_mips]), NBIN=10, use_median=True, use_nmad=True, reverse=False)
+        xm, ym, ys, N = utils.running_median(24.e4/(1+self.zbest[idx & ok_mips]), np.log10(mips_obs[idx & ok_mips]), NBIN=10, use_median=True, use_nmad=True, reverse=False)
         ax.fill_between(xm, np.maximum(10**(ym+ys), 1.e-4), np.maximum(10**(ym-ys), 1.e-4), color=c, alpha=0.4)
         
         ax.scatter(24.e4/(1+self.zbest[idx & ok_mips]), mips_obs[idx & ok_mips], color=c, marker='.', alpha=0.1)
@@ -1580,7 +1606,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     NFILT = len(filters)
         
     if add_igm:
-        igm = Inoue14()
+        igm = igm_module.Inoue14()
     else:
         igm = 1.
 
@@ -1670,25 +1696,5 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
             coeffs_draw = None
             
     return chi2_i, coeffs_i, fobs, coeffs_draw
-                   
-def log_zgrid(zr=[0.7,3.4], dz=0.01):
-    """Make a logarithmically spaced redshift grid
-    
-    Parameters
-    ----------
-    zr : [float, float]
-        Minimum and maximum of the desired grid
-    
-    dz : float
-        Step size, dz/(1+z)
-    
-    Returns
-    -------
-    zgrid : array-like
-        Redshift grid
-    
-    """
-    zgrid = np.exp(np.arange(np.log(1+zr[0]), np.log(1+zr[1]), dz))-1
-    return zgrid
 
         

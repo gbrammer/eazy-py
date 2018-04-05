@@ -1,0 +1,7 @@
+Cython
+matplotlib
+numpy
+scikit-image
+scipy
+astropy==2.0.2
+sphinx_astropy

@@ -3,7 +3,7 @@ import numpy as np
 
 from . import __file__ as filepath
 
-__all__ = ["InoueIGM"]
+__all__ = ["Inoue14"]
 
 class Inoue14(object):
     def __init__(self):

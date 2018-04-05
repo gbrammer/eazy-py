@@ -5,6 +5,8 @@ import numpy as np
 from .filters import FilterDefinition, FilterFile, ParamFilter
 from .templates import TemplateError, Template
 
+__all__ = ["EazyParam", "TranslateFile"]
+
 class EazyParam():
     """
     Read an Eazy zphot.param file.

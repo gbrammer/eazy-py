@@ -46,13 +46,13 @@ def read(fname):
 
 setup(
     name = "eazy",
-    version = "0.0.1",
+    version = "0.1.0",
     author = "Gabriel Brammer",
     author_email = "gbrammer@gmail.com",
     description = "Pythonic photo-zs modeled after EAZY",
     license = "MIT",
     url = "https://github.com/gbrammer/eazy-py",
-    download_url = "https://github.com/gbrammer/eazy-py/tarball/0.0.1",
+    download_url = "https://github.com/gbrammer/eazy-py/tarball/0.1.0",
     packages=['eazy'],
     # requires=['numpy', 'scipy', 'astropy', 'drizzlepac', 'stwcs'],
     # long_description=read('README.rst'),
