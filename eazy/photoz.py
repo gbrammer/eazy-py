@@ -1188,6 +1188,9 @@ class PhotoZ(object):
         Lv_norm = (coeffs_norm*tab_temp['Lv']).sum(axis=1)*u.solLum
         MLv = mass_norm / Lv_norm
         
+        LIR_norm = (coeffs_norm*tab_temp['LIR']).sum(axis=1)*u.solLum
+        LIRv = LIR_norm / Lv_norm
+        
         SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr/u.solLum
         SFRv = SFR_norm / Lv_norm
         
@@ -1204,6 +1207,7 @@ class PhotoZ(object):
                 
         mass = MLv*Lv
         SFR = SFRv*Lv
+        LIR = LIRv*Lv
         
         if False:
             BVx = -2.5*np.log10(restB/restV)
@@ -1233,6 +1237,9 @@ class PhotoZ(object):
 
         tab['SFR'] = SFR
         tab['SFR'].format = '.3e'
+        
+        tab['LIR'] = LIR
+        tab['LIR'].format = '.3e'
         
         tab.meta['FNUSCALE'] = (fnu_scl, 'Scale factor to f-nu CGS')
         
