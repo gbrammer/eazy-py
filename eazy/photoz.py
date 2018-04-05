@@ -20,11 +20,13 @@ from . import utils
 __all__ = ["PhotoZ", "TemplateGrid"]
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}):
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0):
                 
         self.param_file = param_file
         self.translate_file = translate_file
         self.zeropoint_file = zeropoint_file
+        
+        self.random_seed = random_seed
         
         # param_file='zphot.param.m0416.uvista'; translate_file='zphot.translate.m0416.uvista'; zeropoint_file='zphot.zeropoint.m0416.uvista'
         # 
@@ -488,7 +490,13 @@ class PhotoZ(object):
         
         self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
         
+        self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
+        
         idx = np.arange(self.NOBJ)[self.zbest > self.zgrid[0]]
+        
+        # Set seed
+        np.random.seed(self.random_seed)
+        
         for iobj in idx:
             #A = self.tempfilt(self.zgrid[izbest[iobj]])
             #self.fobs[iobj,:] = np.dot(self.fit_coeffs[iobj, izbest[iobj],:], A) 
@@ -505,7 +513,7 @@ class PhotoZ(object):
                 else:
                     #tf = self.tempfilt(zi)
                     self.efobs[iobj,:] = np.diff(np.percentile(np.dot(draws, A), [16,84], axis=0), axis=0)/2.
-                    
+                    self.coeffs_draws[iobj, :, :] = draws
             else:
                 chi2, self.coeffs_best[iobj,:], self.fobs[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False)
                 
