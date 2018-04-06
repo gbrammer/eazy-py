@@ -7,7 +7,7 @@ SMOOTH_FILTERS       n                  # Smooth filter curves with Gaussian
 SMOOTH_SIGMA         100.               # Gaussian sigma (in Angstroms) to smooth filters
 
 ## Templates
-TEMPLATES_FILE       templates/uvista_nmf/spectra_kc13_12_tweak.param # Template definition file
+TEMPLATES_FILE       templates/fsps_full/tweak_fsps_QSF_12_v3.param # Template definition file
 TEMPLATE_COMBOS      a                  # Template combination options: 
                                         #         1 : one template at a time
                                         #         2 : two templates, read allowed combinations from TEMPLATES_FILE
