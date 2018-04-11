@@ -1,5 +1,7 @@
 #### EAZY Default parameters
 
+VERBOSITY            2                  # Print information
+
 ## Filters
 FILTERS_RES          FILTER.RES.latest  # Filter transmission data
 FILTER_FORMAT        1                  # Format of FILTERS_RES file -- 0: energy-  1: photon-counting detector

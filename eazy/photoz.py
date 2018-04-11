@@ -293,7 +293,7 @@ class PhotoZ(object):
         if save_templates:
             self.save_templates()
     
-    def zphot_zspec(self, zmin=0, zmax=4, axes=None):
+    def zphot_zspec(self, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2):
 
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
@@ -307,7 +307,7 @@ class PhotoZ(object):
         
         gs = GridSpec(2,1, height_ratios=[6,1])
         if axes is None:
-            fig = plt.figure(figsize=[6,7])
+            fig = plt.figure(figsize=figsize)
             ax = fig.add_subplot(gs[0,0])
         else:
             ax = axes[0]
@@ -320,13 +320,15 @@ class PhotoZ(object):
         yerr = np.log10(1+np.abs(zlimits.T-self.zbest))
         ax.errorbar(np.log10(1+self.cat['z_spec'][clip]), np.log10(1+self.zbest[clip]), yerr=yerr[:,clip], marker='.', alpha=0.2, color='k', linestyle='None')
 
-        xt = np.arange(zmin,zmax+0.1, 0.5)
+        xt = np.arange(zmin,zmax+0.1, minor)
         xl = np.log10(1+xt)
         ax.plot(xl, xl, color='r', alpha=0.5)
         ax.set_xlim(xl[0], xl[-1]); ax.set_ylim(xl[0],xl[-1])
         xtl = list(xt)
-        for i in range(1,len(xt),2):
-            xtl[i] = ''
+        
+        if skip > 0:
+            for i in range(1, len(xt), skip):
+                xtl[i] = ''
 
         ax.set_xticks(xl); ax.set_xticklabels([]);
         ax.set_yticks(xl); ax.set_yticklabels(xtl);
@@ -402,7 +404,7 @@ class PhotoZ(object):
         t0 = time.time()
         pool = mp.Pool(processes=n_proc)
         
-        results = [pool.apply_async(_fit_vertical, (iz, self.zgrid[iz],  self.tempfilt(self.zgrid[iz]), fnu_corr, efnu_corr, self.TEF, self.zp)) for iz in range(self.NZ)]
+        results = [pool.apply_async(_fit_vertical, (iz, self.zgrid[iz],  self.tempfilt(self.zgrid[iz]), fnu_corr, efnu_corr, self.TEF, self.zp, self.param.params['VERBOSITY'])) for iz in range(self.NZ)]
 
         pool.close()
         pool.join()
@@ -984,7 +986,7 @@ class PhotoZ(object):
                         
         indices = np.where(self.zbest > self.zgrid[0])[0]
         for ix in indices:
-            print(ix)
+
             fnu_i = fnu_corr[ix,:]*1
             efnu_i = efnu_corr[ix,:]*1
             z = self.zbest[ix]
@@ -1164,7 +1166,7 @@ class PhotoZ(object):
         
         return peaks, numpeaks
         
-    def sps_parameters(self, UBVJ=[153,154,155,161], cosmology=None):
+    def sps_parameters(self, UBVJ=[153,154,155,161], LIR_wave=[8,1000], cosmology=None):
         """
         Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
         """        
@@ -1225,7 +1227,17 @@ class PhotoZ(object):
         LIR_norm = (coeffs_norm*tab_temp['LIR']).sum(axis=1)*u.solLum
         LIRv = LIR_norm / Lv_norm
         
-        SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr/u.solLum
+        # Comute LIR directly from templates as tab_temp['LIR'] was 8-100 um
+        templ_LIR = np.zeros(self.NTEMP)
+        for j in range(self.NTEMP):
+            templ = self.templates[j]
+            clip = (templ.wave > LIR_wave[0]*1e4) & (templ.wave < LIR_wave[1]*1e4)
+            templ_LIR[j] = np.trapz(templ.flux[clip], templ.wave[clip])
+        
+        LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
+        LIRv = LIR_norm / Lv_norm
+         
+        SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr
         SFRv = SFR_norm / Lv_norm
         
         # Convert observed maggies to fnu
@@ -1243,6 +1255,19 @@ class PhotoZ(object):
         SFR = SFRv*Lv
         LIR = LIRv*Lv
         
+        # Emission line fluxes
+        line_flux = {}
+        line_EW = {}
+        emission_lines = ['Ha', 'O3', 'Hb', 'O2', 'Lya']
+        
+        fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
+        
+        for line in emission_lines:
+            line_flux_norm = (self.coeffs_best*tab_temp['line_flux_{0}'.format(line)]).sum(axis=1)
+            line_cont_norm = (self.coeffs_best*tab_temp['line_C_{0}'.format(line)]).sum(axis=1)
+            line_EW[line] = line_flux_norm/line_cont_norm*u.AA
+            line_flux[line] = line_flux_norm*fnu_factor/(1+self.zbest)*u.erg/u.second/u.cm**2
+            
         if False:
             BVx = -2.5*np.log10(restB/restV)
             plt.scatter(BVx[sample], np.log10(MLv.data)[sample], alpha=0.02, color='k', marker='s')
@@ -1275,11 +1300,15 @@ class PhotoZ(object):
         tab['LIR'] = LIR
         tab['LIR'].format = '.3e'
         
+        for line in emission_lines:
+            tab['line_flux_{0}'.format(line)] = line_flux[line]
+            tab['line_EW_{0}'.format(line)] = line_EW[line]
+            
         tab.meta['FNUSCALE'] = (fnu_scl, 'Scale factor to f-nu CGS')
         
         return tab
 
-    def standard_output(self, prior=True, UBVJ=[153,154,155,161], cosmology=None):
+    def standard_output(self, prior=True, UBVJ=[153,154,155,161], cosmology=None, LIR_wave=[8, 1000]):
         import astropy.io.fits as pyfits
         
         self.compute_pz(prior=prior)
@@ -1316,7 +1345,7 @@ class PhotoZ(object):
             
         tab.meta['prior'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         
-        sps_tab = self.sps_parameters(UBVJ=UBVJ, cosmology=cosmology)
+        sps_tab = self.sps_parameters(UBVJ=UBVJ, cosmology=cosmology, LIR_wave=LIR_wave)
         for col in sps_tab.colnames:
             tab[col] = sps_tab[col]
         
@@ -1650,7 +1679,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     
     return itemp, tempfilt
             
-def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp):
+def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose):
     
     NOBJ, NFILT = fnu_corr.shape#[0]
     NTEMP = A.shape[0]
@@ -1658,7 +1687,8 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp):
     coeffs = np.zeros((NOBJ, NTEMP))
     TEFz = TEF(z)
     
-    print('z={0:7.3f}'.format(z))
+    if verbose > 1:
+        print('z={0:7.3f}'.format(z))
     
     for iobj in range(NOBJ):
         
