@@ -1181,8 +1181,12 @@ class PhotoZ(object):
         restU = self.ubvj[:,0,2]
         restB = self.ubvj[:,1,2]
         restV = self.ubvj[:,2,2]
-        errV = (self.ubvj[:,2,3] - self.ubvj[:,2,1])/2.
         restJ = self.ubvj[:,3,2]
+
+        errU = (self.ubvj[:,0,3] - self.ubvj[:,0,1])/2.
+        errB = (self.ubvj[:,1,3] - self.ubvj[:,1,1])/2.
+        errV = (self.ubvj[:,2,3] - self.ubvj[:,2,1])/2.
+        errJ = (self.ubvj[:,3,3] - self.ubvj[:,3,1])/2.
         
         #PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/spectra_kc13_12_tweak.params')
         #temp_MLv, temp_SFRv = np.loadtxt(PARAM_FILE, unpack=True)
@@ -1278,10 +1282,16 @@ class PhotoZ(object):
         #sSFR = SFR/mass
         
         tab = Table()
+        
         tab['restU'] = restU
+        tab['restU_err'] = errU
         tab['restB'] = restB
+        tab['restB_err'] = errB
         tab['restV'] = restV
+        tab['restV_err'] = errV
         tab['restJ'] = restJ
+        tab['restJ_err'] = errJ
+
         tab['Lv'] = Lv
         tab['MLv'] = MLv
         tab['Av'] = Av
