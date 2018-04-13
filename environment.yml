@@ -1,0 +1,16 @@
+name: eazypy
+channels:
+- astropy
+- http://ssb.stsci.edu/astroconda
+- defaults
+dependencies:
+- astropy=2.0.2
+- matplotlib=2.0.2
+- numpy=1.10.2
+- python=3.5.4
+- pysynphot=0.9.8.7
+- scipy=0.19.1
+- specutils=0.2.2
+- pip:
+  - peakutils==1.0.3
+
