@@ -820,7 +820,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
         
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False):
         import matplotlib.pyplot as plt
         
         if False:
@@ -917,6 +917,11 @@ class PhotoZ(object):
         
         ax.errorbar(self.lc/1.e4, fnu_i*fnu_factor*flam_sed, efnu_i*fnu_factor*flam_sed, color='k', marker='s', linestyle='None')
         pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
+        
+        if show_components:
+            for i in range(self.NTEMP):
+                pi = ax.plot(templz/1.e4, coeffs_i[i]*tempflux[i,:]*igmz*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
+                
         if draws is not None:
             templf_width = np.percentile(templf_draws*fnu_factor*flam_spec, [16,84], axis=0)
             ax.fill_between(templz/1.e4, templf_width[0,:], templf_width[1,:], color=pl[0].get_color(), alpha=0.1)
