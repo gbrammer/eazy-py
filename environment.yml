@@ -13,4 +13,5 @@ dependencies:
 - specutils=0.2.2
 - pip:
   - peakutils==1.0.3
+  - "git+https://github.com/gbrammer/eazy-py.git"
 
