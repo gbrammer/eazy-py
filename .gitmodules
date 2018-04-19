@@ -1,3 +1,6 @@
 [submodule "astropy_helpers"]
 	path = astropy_helpers
 	url = https://github.com/astropy/astropy-helpers.git
+[submodule "eazy-photoz"]
+	path = eazy-photoz
+	url = https://github.com/gbrammer/eazy-photoz.git

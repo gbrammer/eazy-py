@@ -1,6 +1,10 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+def path_to_eazy_data():
+    return os.path.join(os.path.dirname(__file__), 'data')
+    
 def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=False, bins=None):
     """
     Running median/biweight/nmad

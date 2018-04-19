@@ -61,7 +61,9 @@ setup(
         'Intended Audience :: Science/Research',
         'Topic :: Scientific/Engineering :: Astronomy',
     ],
-    package_data={'eazy': ['data/*']},
+    package_data={'eazy': ['data/*', 'data/filters/*', 'data/templates/*',
+                           'data/hdfn_fs99/*', 'data/templates/fsps_full/*',
+                           'data/templates/uvista_nmf/*']},
     # scripts=['grizli/scripts/flt_info.sh'],
     # ext_modules = extensions,
 )
