@@ -971,7 +971,11 @@ class PhotoZ(object):
         else:
             ax.errorbar(self.lc/1.e4, fmodel*fnu_factor*flam_sed, efmodel*fnu_factor*flam_sed, color='r', marker='o', linestyle='None')
         
-        ax.errorbar(self.lc/1.e4, fnu_i*fnu_factor*flam_sed, efnu_i*fnu_factor*flam_sed, color='k', marker='s', linestyle='None')
+        missing = (fnu_i < -90) | (efnu_i < -90)
+        
+        ax.errorbar(self.lc[~missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[~missing], (efnu_i*fnu_factor*flam_sed)[~missing], color='k', marker='s', linestyle='None')
+        ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing], (efnu_i*fnu_factor*flam_sed)[missing], color='0.5', marker='s', linestyle='None', alpha=0.4)
+        
         pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
         
         if show_components:
@@ -1518,6 +1522,45 @@ class PhotoZ(object):
                  'phot_catalog_id':self.cat['id'][ix]}
         
         return pdict
+    
+    
+    def get_grizli_photometry(self, id=1, rd=None, grizli_templates=None):
+        from collections import OrderedDict
+        from grizli import utils
+        import astropy.units as u
+        
+        if grizli_templates is not None:
+            template_list = [templates_module.Template(arrays=(grizli_templates[k].wave, grizli_templates[k].flux), name=k) for k in grizli_templates]
+            
+            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'])
+        else:
+            tempfilt = None
+        
+        if rd is not None:
+            ti = utils.GTable()
+            ti['ra'] = [rd[0]]
+            ti['dec'] = [rd[1]]
+            
+            idx, dr = self.cat.match_to_catalog_sky(ti)
+            idx = idx[0]
+            dr = dr[0]
+        else:
+            idx = np.where(self.cat['id'] == id)[0][0]
+            dr = 0
+        
+        notobs_mask =  self.fnu[idx,:] < -90
+        sed = self.show_fit(idx, show_fnu=False, xlim=[0.3, 9], get_spec=True, id_is_idx=True)
+        sed['fobs'][notobs_mask] = -99
+        sed['efobs'][notobs_mask] = -99
+        
+        photom = OrderedDict()
+        photom['flam'] = sed['fobs']*1.e-19
+        photom['eflam'] = sed['efobs']*1.e-19
+        photom['filters'] = self.filters
+        photom['tempfilt'] = tempfilt
+        photom['pz'] = self.zgrid, self.pz[idx,:]
+        
+        return photom, self.cat['id'][idx], dr
         
     def rest_frame_SED(self, idx=None, norm_band=155, c='k'):
         
@@ -1776,7 +1819,7 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose):
         efnu_i = efnu_corr[iobj,:]
         ok_band = (fnu_i > -90) & (efnu_i > 0)
         
-        if ok_band.sum() < 3:
+        if ok_band.sum() < 2:
             continue
         
         chi2[iobj], coeffs[iobj], fmodel, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, False)
@@ -1787,7 +1830,7 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
     from scipy.optimize import nnls
 
     ok_band = (fnu_i/zp > -90) & (efnu_i/zp > 0) & np.isfinite(fnu_i) & np.isfinite(efnu_i)
-    if ok_band.sum() < 3:
+    if ok_band.sum() < 2:
         return np.inf, np.zeros(A.shape[0])
         
     var = efnu_i**2 + (TEFz*fnu_i)**2
