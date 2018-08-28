@@ -488,7 +488,7 @@ class PhotoZ(object):
         else:
             self.zbest = zbest
         
-        if (self.param['FIX_ZSPEC']) & ('z_spec' in self.cat.colnames):
+        if (self.param['FIX_ZSPEC'] in [True, 'y', 'yes', 'Y', 'Yes']) & ('z_spec' in self.cat.colnames):
             #print('USE ZSPEC!')
             has_zsp = self.cat['z_spec'] > 0
             self.zbest[has_zsp] = self.cat['z_spec'][has_zsp]
