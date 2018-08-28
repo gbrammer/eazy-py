@@ -488,6 +488,11 @@ class PhotoZ(object):
         else:
             self.zbest = zbest
         
+        if (self.param['FIX_ZSPEC']) & ('z_spec' in self.cat.colnames):
+            #print('USE ZSPEC!')
+            has_zsp = self.cat['z_spec'] > 0
+            self.zbest[has_zsp] = self.cat['z_spec'][has_zsp]
+            
         # Compute Risk function at z=zbest
         self.zbest_risk = self.compute_best_risk()
         
