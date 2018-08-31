@@ -1,6 +1,8 @@
 from distutils.core import setup
 from distutils.extension import Extension
 
+import subprocess
+
 import os
 import numpy
 
@@ -44,15 +46,29 @@ import numpy
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
+args = 'git describe --tags'
+p = subprocess.Popen(args.split(), stdout=subprocess.PIPE)
+version = p.communicate()[0].decode("utf-8").strip()
+
+version = '0.2.0'
+
+version_str = """# git describe --tags
+__version__ = "{0}"\n""".format(version)
+
+fp = open('eazy/version.py','w')
+fp.write(version_str)
+fp.close()
+print('Git version: {0}'.format(version))
+
 setup(
     name = "eazy",
-    version = "0.1.0",
+    version = version,
     author = "Gabriel Brammer",
     author_email = "gbrammer@gmail.com",
     description = "Pythonic photo-zs modeled after EAZY",
     license = "MIT",
     url = "https://github.com/gbrammer/eazy-py",
-    download_url = "https://github.com/gbrammer/eazy-py/tarball/0.1.0",
+    download_url = "https://github.com/gbrammer/eazy-py/tarball/"+version,
     packages=['eazy'],
     # requires=['numpy', 'scipy', 'astropy', 'drizzlepac', 'stwcs'],
     # long_description=read('README.rst'),
