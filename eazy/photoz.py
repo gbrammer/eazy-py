@@ -17,6 +17,8 @@ from . import igm as igm_module
 from . import templates as templates_module 
 from . import utils 
 
+TRUE_VALUES = [True, 'y', 'yes', 'Y', 'Yes']
+
 __all__ = ["PhotoZ", "TemplateGrid"]
 
 class PhotoZ(object):
@@ -178,12 +180,21 @@ class PhotoZ(object):
         self.f_numbers = np.array(self.f_numbers)
         
         self.lc = np.array([f.pivot() for f in self.filters])
-        self.ext_corr = np.array([10**(0.4*f.extinction_correction(self.param.params['MW_EBV'])) for f in self.filters])
-        self.zp = self.ext_corr*0+1
-        
+                
         self.NFILT = len(self.filters)
         self.fnu = np.zeros((self.NOBJ, self.NFILT))
         self.efnu = np.zeros((self.NOBJ, self.NFILT))
+        
+        # Does catalog already have extinction correction applied?
+        if self.param.params['CAT_HAS_EXTCORR'] in TRUE_VALUES:
+            ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) for f in self.filters]
+            self.ext_corr = 10**(0.4*np.array(ext_mag))
+        else:
+            self.ext_corr = np.ones(self.NFILT)
+            
+        #self.ext_corr = np.array([10**(0.4*f.extinction_correction(self.param.params['MW_EBV'])) for f in self.filters])
+        
+        self.zp = self.ext_corr*0+1
         
         for i in range(self.NFILT):
             self.fnu[:,i] = self.cat[self.flux_columns[i]]
@@ -229,6 +240,63 @@ class PhotoZ(object):
         self.zgrid = utils.log_zgrid(zr=zr, dz=self.param['Z_STEP'])
         self.NZ = len(self.zgrid)
     
+    def prior_beta(self, w1=1350, w2=1800, dw=100, width_params={'k':-5, 'z_split':4, 'sigma0':100, 'sigma1':1, 'center':-1.5}):
+        """
+        Prior on UV slope beta to try to fix red low-z galaxies put at z>4.  
+        
+        Beta is defined here as the logarithmic slope between two filters 
+        with width `dw` evaluated at wavelengths `w1` and `w2`, set closer
+        to the Lyman break than the usual definition to handle cases at 
+        z>10 where the slope might be constrained by only a single filter.
+        
+        To evaluate the prior, the likelihood of the observed beta(z) is 
+        computed from a normal distribution with redshift-dependent width set
+        by a logistic function
+        
+            >>> sigma_beta_z = 1./(1+np.exp(-k*(self.zgrid - z_split)))*sigma0 + sigma1
+        
+        that has width sigma0 at z < z_split and sigma1 otherwise. `center` 
+        specifies the middle of the beta distribution.
+        
+        The prior function is the observed beta drawn from this distribution
+        at each redshift.
+        
+        """        
+        # dw = 100
+        # w1 = 1600
+        # w2 = 2400
+
+        wx = np.arange(-0.7*dw, 0.7*dw)
+        wy = wx*0.
+        wy[np.abs(wx) <= dw/2.] = 1
+        
+        f1 = filters.FilterDefinition(wave=wx+w1, throughput=wy)
+        f2 = filters.FilterDefinition(wave=wx+w2, throughput=wy)
+        
+        y1 = [t.integrate_filter(f1)*3.e18/w1**2 for t in self.templates]
+        y2 = [t.integrate_filter(f2)*3.e18/w2**2 for t in self.templates]
+        ln_beta_x = np.log([w1, w2])
+        beta_y = np.array([y1, y2]).T
+        
+        fit_beta_y = np.dot(self.fit_coeffs, beta_y)
+        ln_fit_beta_y = np.log(fit_beta_y)
+        out_beta_y = np.squeeze(np.diff(ln_fit_beta_y, axis=2))/np.diff(ln_beta_x)[0]
+        
+        # Width of beta distribution, logistic
+        #k = -5
+        width = {'k':-5, 'z_split':4, 'sigma0':100, 'sigma1':1, 'center':-1.5}
+        for k in width_params:
+            width[k] = width_params[k]
+            
+        sigma_z = 1./(1+np.exp(-width['k']*(self.zgrid - width['z_split'])))*width['sigma0']+width['sigma1']
+        p_beta = np.zeros_like(out_beta_y)
+        for i in range(self.NZ):
+            p_beta[:,i] = (1 - norm(loc=width['center'], scale=sigma_z[i]).cdf(out_beta_y[:,i]))
+            
+        return p_beta
+        
+        
+        
     def read_prior(self, verbose=True):
         
         if not os.path.exists(self.param['PRIOR_FILE']):
@@ -241,7 +309,14 @@ class PhotoZ(object):
         self.prior_data = np.zeros((self.NZ, len(self.prior_mags)))
         for i in range(self.prior_data.shape[1]):
             self.prior_data[:,i] = np.interp(self.zgrid, prior_raw[:,0], prior_raw[:,i+1])
-            
+        
+        self.prior_data /= np.trapz(self.prior_data, self.zgrid, axis=0)
+        
+        if 'PRIOR_FLOOR' in self.param.params:
+            prior_floor = self.param['PRIOR_FLOOR']
+            self.prior_data += prior_floor
+            self.prior_data /= np.trapz(self.prior_data, self.zgrid, axis=0)
+  
         # self.prior_z = prior_raw[:,0]
         # self.prior_data = prior_raw[:,1:]
         # self.prior_map_z = np.interp(self.zgrid, self.prior_z, np.arange(len(self.prior_z)))
@@ -488,7 +563,7 @@ class PhotoZ(object):
         else:
             self.zbest = zbest
         
-        if (self.param['FIX_ZSPEC'] in [True, 'y', 'yes', 'Y', 'Yes']) & ('z_spec' in self.cat.colnames):
+        if (self.param['FIX_ZSPEC'] in TRUE_VALUES) & ('z_spec' in self.cat.colnames):
             #print('USE ZSPEC!')
             has_zsp = self.cat['z_spec'] > 0
             self.zbest[has_zsp] = self.cat['z_spec'][has_zsp]
@@ -994,7 +1069,7 @@ class PhotoZ(object):
         ax.set_xlim(xlim)
         xt = np.array([0.5, 1, 2, 4])*1.e4
         
-        ymax = (fmodel*fnu_factor*flam_sed).max()
+        ymax = (fmodel*fnu_factor*flam_sed)[~missing].max()
         ax.set_ylim(-0.1*ymax, 1.2*ymax)
         ax.semilogx()
 
