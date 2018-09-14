@@ -60,7 +60,7 @@ class PhotoZ(object):
         ### Set redshift fit grid
         #self.param['Z_STEP'] = 0.003
         self.get_zgrid()
-        
+                
         ### Read catalog and filters
         self.read_catalog()
         
@@ -68,6 +68,9 @@ class PhotoZ(object):
         self.full_prior = np.ones((self.NOBJ, self.NZ))
         if load_prior:
             self.read_prior()
+        
+        self.pz = np.ones_like(self.full_prior)
+        self.p_beta = 1.
         
         if zeropoint_file is not None:
             self.read_zeropoint(zeropoint_file)
@@ -185,12 +188,16 @@ class PhotoZ(object):
         self.fnu = np.zeros((self.NOBJ, self.NFILT))
         self.efnu = np.zeros((self.NOBJ, self.NFILT))
         
+        # MW extinction correction: dered = fnu/self.ext_corr
+        ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) for f in self.filters]
+        self.ext_corr = 10**(0.4*np.array(ext_mag))
+
         # Does catalog already have extinction correction applied?
+        # If so, then set an array to put fluxes back in reddened space
         if self.param.params['CAT_HAS_EXTCORR'] in TRUE_VALUES:
-            ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) for f in self.filters]
-            self.ext_corr = 10**(0.4*np.array(ext_mag))
+            self.ext_redden = self.ext_corr
         else:
-            self.ext_corr = np.ones(self.NFILT)
+            self.ext_redden = np.ones(self.NFILT)
             
         #self.ext_corr = np.array([10**(0.4*f.extinction_correction(self.param.params['MW_EBV'])) for f in self.filters])
         
@@ -240,7 +247,7 @@ class PhotoZ(object):
         self.zgrid = utils.log_zgrid(zr=zr, dz=self.param['Z_STEP'])
         self.NZ = len(self.zgrid)
     
-    def prior_beta(self, w1=1350, w2=1800, dw=100, width_params={'k':-5, 'z_split':4, 'sigma0':100, 'sigma1':1, 'center':-1.5}):
+    def prior_beta(self, w1=1350, w2=1800, dw=100, width_params={'k':-5, 'z_split':4, 'sigma0':20, 'sigma1':0.5, 'center':-1.5}):
         """
         Prior on UV slope beta to try to fix red low-z galaxies put at z>4.  
         
@@ -265,7 +272,8 @@ class PhotoZ(object):
         # dw = 100
         # w1 = 1600
         # w2 = 2400
-
+        from scipy.stats import norm as normal_distribution
+        
         wx = np.arange(-0.7*dw, 0.7*dw)
         wy = wx*0.
         wy[np.abs(wx) <= dw/2.] = 1
@@ -291,7 +299,8 @@ class PhotoZ(object):
         sigma_z = 1./(1+np.exp(-width['k']*(self.zgrid - width['z_split'])))*width['sigma0']+width['sigma1']
         p_beta = np.zeros_like(out_beta_y)
         for i in range(self.NZ):
-            p_beta[:,i] = (1 - norm(loc=width['center'], scale=sigma_z[i]).cdf(out_beta_y[:,i]))
+            n_i = normal_distribution(loc=width['center'], scale=sigma_z[i])
+            p_beta[:,i] = (1 - n_i.cdf(out_beta_y[:,i]))
             
         return p_beta
         
@@ -477,8 +486,8 @@ class PhotoZ(object):
         # 
         #     idx = np.arange(self.NOBJ)[idx]
 
-        fnu_corr = self.fnu[idx,:]*self.ext_corr*self.zp
-        efnu_corr = self.efnu[idx,:]*self.ext_corr*self.zp
+        fnu_corr = self.fnu[idx,:]*self.ext_redden*self.zp
+        efnu_corr = self.efnu[idx,:]*self.ext_redden*self.zp
             
         t0 = time.time()
         pool = mp.Pool(processes=n_proc)
@@ -509,8 +518,8 @@ class PhotoZ(object):
         from scipy.optimize import nnls
         #import np.linalg
                 
-        fnu_i = self.fnu[iobj, :]*self.ext_corr
-        efnu_i = self.efnu[iobj,:]*self.ext_corr
+        fnu_i = self.fnu[iobj, :]*self.ext_redden
+        efnu_i = self.efnu[iobj,:]*self.ext_redden
         ok_band = (fnu_i > -90) & (efnu_i > 0)
         
         A = self.tempfilt(z)
@@ -549,7 +558,7 @@ class PhotoZ(object):
             fig.axes[0].scatter(self.lc, model*flam_factor, color='orange')
             fig.axes[0].errorbar(self.lc, fnu_i*flam_factor, rms*flam_factor, color='g', marker='s', linestyle='None')
     
-    def best_fit(self, zbest=None, prior=False, get_err=False):
+    def best_fit(self, zbest=None, prior=False, beta_prior=True, get_err=False):
         self.fmodel = self.fnu*0.
         self.efmodel = self.fnu*0.
         
@@ -557,9 +566,11 @@ class PhotoZ(object):
 
         self.zbest_grid = self.zgrid[izbest]
         if zbest is None:
-            self.zbest, self.chi_best = self.best_redshift(prior=prior)
+            self.zbest, self.chi_best = self.best_redshift(prior=prior,
+                                                    beta_prior=beta_prior)
             # No prior, redshift at minimum chi-2
-            self.zchi2, self.chi2_noprior = self.best_redshift(prior=False)
+            self.zchi2, self.chi2_noprior = self.best_redshift(prior=False,
+                                                    beta_prior=False)
         else:
             self.zbest = zbest
         
@@ -571,8 +582,8 @@ class PhotoZ(object):
         # Compute Risk function at z=zbest
         self.zbest_risk = self.compute_best_risk()
         
-        fnu_corr = self.fnu*self.ext_corr*self.zp
-        efnu_corr = self.efnu*self.ext_corr*self.zp
+        fnu_corr = self.fnu*self.ext_redden*self.zp
+        efnu_corr = self.efnu*self.ext_redden*self.zp
         
         self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
         
@@ -603,17 +614,22 @@ class PhotoZ(object):
             else:
                 chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False)
                 
-    def best_redshift(self, prior=True):
+    def best_redshift(self, prior=True, beta_prior=True):
         """Fit parabola to chi2 to get best minimum
         
         TBD: include prior
         """
         from scipy import polyfit, polyval
         
-        if prior:
-            test_chi2 = self.fit_chi2-2*np.log(self.full_prior)
+        if beta_prior:
+            p_beta = self.p_beta
         else:
-            test_chi2 = self.fit_chi2
+            p_beta = 1
+            
+        if prior:
+            test_chi2 = self.fit_chi2-2*np.log(self.full_prior*p_beta)
+        else:
+            test_chi2 = self.fit_chi2-2*np.log(p_beta)
             
         #izbest0 = np.argmin(self.fit_chi2, axis=1)
         izbest = np.argmin(test_chi2, axis=1)
@@ -646,7 +662,7 @@ class PhotoZ(object):
         self.efnu = self.efnu_orig*1
 
         # residual
-        r = np.abs(self.fmodel - self.fnu*self.ext_corr*self.zp)
+        r = np.abs(self.fmodel - self.fnu*self.ext_redden*self.zp)
         
         # Update where residual larger than uncertainty
         upd = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD'])
@@ -675,7 +691,7 @@ class PhotoZ(object):
         
         full_err = np.sqrt(self.efnu_orig**2+(self.fnu*teff_err)**2)
             
-        resid = (self.fmodel - self.fnu*self.ext_corr*self.zp)/self.fmodel
+        resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel
         #eresid = np.clip(full_err/self.fmodel, 0.02, 0.2)
         
         self.efnu_i = self.efnu_orig*1
@@ -734,8 +750,8 @@ class PhotoZ(object):
         else:
             idx = np.arange(self.NOBJ)[izbest > 0]
             
-        resid = (self.fmodel - self.fnu*self.ext_corr*self.zp)/self.fmodel+1
-        eresid = (self.efnu_orig*self.ext_corr*self.zp)/self.fmodel
+        resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel+1
+        eresid = (self.efnu_orig*self.ext_redden*self.zp)/self.fmodel
 
         sn = self.fnu/self.efnu
                 
@@ -971,8 +987,8 @@ class PhotoZ(object):
             
         ## SED
         A = np.squeeze(self.tempfilt(z))
-        fnu_i = np.squeeze(self.fnu[ix, :])*self.ext_corr*self.zp
-        efnu_i = np.squeeze(self.efnu[ix,:])*self.ext_corr*self.zp
+        fnu_i = np.squeeze(self.fnu[ix, :])*self.ext_redden*self.zp
+        efnu_i = np.squeeze(self.efnu[ix,:])*self.ext_redden*self.zp
         
         ok_band = (fnu_i/self.zp > -90) & (efnu_i/self.zp > 0)
         
@@ -1052,8 +1068,13 @@ class PhotoZ(object):
             ax.errorbar(self.lc/1.e4, fmodel*fnu_factor*flam_sed, efmodel*fnu_factor*flam_sed, color='r', marker='o', linestyle='None')
         
         missing = (fnu_i < -90) | (efnu_i < -90)
+        sn2_detection = (~missing) & (fnu_i/efnu_i > 2)
+        sn2_not = (~missing) & (fnu_i/efnu_i <= 2)
         
-        ax.errorbar(self.lc[~missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[~missing], (efnu_i*fnu_factor*flam_sed)[~missing], color='k', marker='s', linestyle='None')
+        ax.errorbar(self.lc[sn2_detection]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_detection], (efnu_i*fnu_factor*flam_sed)[sn2_detection], color='k', marker='s', linestyle='None')
+
+        ax.errorbar(self.lc[sn2_not]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_not], (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', marker='s', alpha=0.4, linestyle='None')
+
         ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing], (efnu_i*fnu_factor*flam_sed)[missing], color='0.5', marker='s', linestyle='None', alpha=0.4)
         
         pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
@@ -1069,7 +1090,7 @@ class PhotoZ(object):
         ax.set_xlim(xlim)
         xt = np.array([0.5, 1, 2, 4])*1.e4
         
-        ymax = (fmodel*fnu_factor*flam_sed)[~missing].max()
+        ymax = (fmodel*fnu_factor*flam_sed)[sn2_detection].max()
         ax.set_ylim(-0.1*ymax, 1.2*ymax)
         ax.semilogx()
 
@@ -1117,8 +1138,8 @@ class PhotoZ(object):
         
         NREST = len(f_numbers)
         
-        fnu_corr = self.fnu*self.ext_corr*self.zp
-        efnu_corr = self.efnu*self.ext_corr*self.zp
+        fnu_corr = self.fnu*self.ext_redden*self.zp
+        efnu_corr = self.efnu*self.ext_redden*self.zp
         
         f_rest = np.zeros((self.NOBJ, NREST, len(percentiles)))
         
@@ -1219,11 +1240,16 @@ class PhotoZ(object):
         #     chain_rms[i] = np.std(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
         #     chain_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
     
-    def compute_pz(self, prior=False):
+    def compute_pz(self, prior=False, beta_prior=False):
         pz = np.exp(-(self.fit_chi2.T-self.fit_chi2.min(axis=1))/2.).T
+        
         if prior:
             pz *= self.full_prior
         
+        if beta_prior:
+            self.p_beta = self.prior_beta(w1=1350, w2=1800)
+            pz *= self.p_beta
+            
         dz = np.gradient(self.zgrid)
         norm = (pz*dz).sum(axis=1)
         self.pz = (pz.T/norm).T
@@ -1466,10 +1492,10 @@ class PhotoZ(object):
         
         return tab
 
-    def standard_output(self, prior=True, UBVJ=[153,154,155,161], cosmology=None, LIR_wave=[8, 1000]):
+    def standard_output(self, prior=True, UBVJ=[153,154,155,161], cosmology=None, LIR_wave=[8, 1000], beta_prior=False):
         import astropy.io.fits as pyfits
         
-        self.compute_pz(prior=prior)
+        self.compute_pz(prior=prior, beta_prior=beta_prior)
         self.best_fit(prior=prior)
         
         peaks, numpeaks = self.find_peaks()
