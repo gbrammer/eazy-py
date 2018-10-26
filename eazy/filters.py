@@ -34,19 +34,21 @@ class FilterDefinition:
             self.norm = np.trapz(self.throughput/self.wave, self.wave)
         
     def get_extinction(self, EBV=0, Rv=3.1):
+        import astropy.units as u
         try:
             import specutils.extinction
-            import astropy.units as u
             HAS_SPECUTILS = True
         except:
+            from extinction import Fitzpatrick99
             HAS_SPECUTILS = False
-        
+            
         Av = EBV*Rv
         if HAS_SPECUTILS:
             f99 = specutils.extinction.ExtinctionF99(EBV*Rv)
             self.Alambda = f99(self.wave*u.angstrom)
         else:
-            self.Alambda = milkyway_extinction(lamb=self.wave, Rv=Rv)*Av
+            f99 = Fitzpatrick99(Rv)
+            self.Alambda = f99(self.wave*u.angstrom, Av)
         
         self.Aflux = 10**(-0.4*self.Alambda)
         
@@ -56,11 +58,12 @@ class FilterDefinition:
         
         Optionally supply a source spectrum.
         """
+        import astropy.units as u
         try:
             import specutils.extinction
-            import astropy.units as u
             HAS_SPECUTILS = True
         except:
+            from extinction import Fitzpatrick99
             HAS_SPECUTILS = False
              
         if self.wave is None:
@@ -74,14 +77,18 @@ class FilterDefinition:
             
         Av = EBV*Rv
         if HAS_SPECUTILS:
-            f99 = specutils.extinction.ExtinctionF99(EBV*3.1)
             if (self.wave.min() < 910) | (self.wave.max() > 6.e4):
                 Alambda = 0.
             else:
+                f99 = specutils.extinction.ExtinctionF99(EBV*3.1)
                 Alambda = f99(self.wave*u.angstrom)
         else:
-            Alambda = milkyway_extinction(lamb = self.wave, Rv=Rv)*Av
-            
+            if (self.wave.min() < 910) | (self.wave.max() > 6.e4):
+                Alambda = 0.
+            else:
+                f99 = Fitzpatrick99(Rv)
+                Alambda = f99(self.wave*u.angstrom, Av)
+             
         delta = np.trapz(self.throughput*source_flux*10**(-0.4*Alambda), self.wave) / np.trapz(self.throughput*source_flux, self.wave)
         
         if mag:
