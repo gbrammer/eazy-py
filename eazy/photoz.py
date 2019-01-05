@@ -164,13 +164,19 @@ class PhotoZ(object):
                 self.f_numbers.append(f_number)
                 print('{0} {1} ({2:3d}): {3}'.format(k, ke, f_number, self.filters[-1].name.split()[0]))
                 
-                
+        # Apply translation       
         for k in self.translate.trans:
             fcol = self.translate.trans[k]
             if fcol.startswith('F') & ('FTOT' not in fcol):
-                f_number = int(fcol[1:])
+                try:
+                    f_number = int(fcol[1:])
+                except:
+                    # Has character at the end
+                    f_number = int(fcol[1:-1])
+                    
                 for ke in self.translate.trans:
-                    if self.translate.trans[ke] == 'E{0}'.format(f_number):
+                    #if self.translate.trans[ke] == 'E{0}'.format(f_number):
+                    if self.translate.trans[ke] == fcol.replace('F','E'):
                         break
                                  
                 if (k in self.cat.colnames) & (ke in self.cat.colnames):
@@ -204,8 +210,8 @@ class PhotoZ(object):
         self.zp = self.ext_corr*0+1
         
         for i in range(self.NFILT):
-            self.fnu[:,i] = self.cat[self.flux_columns[i]]
-            self.efnu[:,i] = self.cat[self.err_columns[i]]
+            self.fnu[:,i] = self.cat[self.flux_columns[i]]*1
+            self.efnu[:,i] = self.cat[self.err_columns[i]]*1
             if self.err_columns[i] in self.translate.error:
                 self.efnu[:,i] *= self.translate.error[self.err_columns[i]]
                 
@@ -219,10 +225,10 @@ class PhotoZ(object):
         self.nusefilt = ok_data.sum(axis=1)
         
         # Translate the file itself    
-        for k in self.translate.trans:
-            if k in self.cat.colnames:
-                #self.cat.rename_column(k, self.translate.trans[k])
-                self.cat[self.translate.trans[k]] = self.cat[k]
+        # for k in self.translate.trans:
+        #     if k in self.cat.colnames:
+        #         #self.cat.rename_column(k, self.translate.trans[k])
+        #         self.cat[self.translate.trans[k]] = self.cat[k]
         
     def read_zeropoint(self, zeropoint_file='zphot.zeropoint'):
         lines = open(zeropoint_file).readlines()
@@ -330,10 +336,16 @@ class PhotoZ(object):
         # self.prior_data = prior_raw[:,1:]
         # self.prior_map_z = np.interp(self.zgrid, self.prior_z, np.arange(len(self.prior_z)))
         self.prior_map_z = np.arange(self.NZ)
-                
-        ix = self.f_numbers == int(self.param['PRIOR_FILTER'])
+
+        if isinstance(self.param['PRIOR_FILTER'], str):
+            ix = self.flux_columns.index(self.param['PRIOR_FILTER'])
+            ix = np.arange(self.NFILT) == ix
+        else:
+            ix = self.f_numbers == int(self.param['PRIOR_FILTER'])
+            
         if ix.sum() == 0:
-            print('PRIOR_FILTER {0:d} not found in the catalog!')
+            print('PRIOR_FILTER ({0}) not found in the catalog!'.format(self.param['PRIOR_FILTER']))
+            
             self.prior_mag_cat = np.zeros(self.NOBJ)-1
             
         else:
@@ -363,21 +375,32 @@ class PhotoZ(object):
         prior = np.maximum(nd.map_coordinates(self.prior_data, [self.prior_map_z, mag_ix], **kwargs), 1.e-8)
         return prior
     
-    def iterate_zp_templates(self, idx=None, update_templates=True, update_zeropoints=True, iter=0, n_proc=4, save_templates=False, error_residuals=False, prior=True):
+    def iterate_zp_templates(self, idx=None, update_templates=True, update_zeropoints=True, iter=0, n_proc=4, save_templates=False, error_residuals=False, prior=True, max_Ng=180, NBIN=None, get_spatial_offset=False, spatial_offset_keys={'apply':True}):
         
         self.fit_parallel(idx=idx, n_proc=n_proc, prior=prior)        
         #self.best_fit()
         if error_residuals:
             self.error_residuals()
         
+        if idx is not None:
+            selection = np.zeros(self.NOBJ, dtype=bool)
+            selection[idx] = True
+        else:
+            selection = None
+             
         fig = self.residuals(update_zeropoints=update_zeropoints,
                        ref_filter=int(self.param['PRIOR_FILTER']),
+                       selection=selection, 
                        update_templates=update_templates,
-                       Ng=(self.zbest > 0.1).sum() // 50, min_width=500)
+                       Ng=np.minimum((self.zbest > 0.1).sum()//50, max_Ng),
+                       min_width=500,  NBIN=NBIN)
         
         fig_file = '{0}_zp_{1:03d}.png'.format(self.param['MAIN_OUTPUT_FILE'], iter)
         fig.savefig(fig_file)
-                                        
+        
+        if get_spatial_offset:
+            self.spatial_statistics(catalog_mask=selection, output_suffix='_{0:03d}'.format(iter), **spatial_offset_keys)
+            
         if save_templates:
             self.save_templates()
     
@@ -449,10 +472,11 @@ class PhotoZ(object):
 
         return fig
     
-    def save_templates(self):
+    def save_templates(self, prefix='tweak_'):
         path = os.path.dirname(self.param['TEMPLATES_FILE'])
         for templ in self.templates:
-            templ_file = os.path.join('{0}/tweak_{1}'.format(path,templ.name))
+            templ_file = os.path.join('{0}/{1}{2}'.format(path,prefix,
+                                                          templ.name))
             
             print('Save tweaked template {0}'.format(templ_file))
                                       
@@ -532,8 +556,17 @@ class PhotoZ(object):
             A = self.tempfilt(self.zgrid[iz])
             var = (0.0*fnu_i)**2 + efnu_i**2 + (self.TEF(zgrid[iz])*fnu_i)**2
             rms = np.sqrt(var)
+            
+            ok_temp = (np.sum(A, axis=1) > 0)
+            if ok_temp.sum() == 0:
+                chi2[iz] = np.inf
+                coeffs[iz, :] = 0.
+                continue
+                
             try:
-                coeffs_i, rnorm = nnls((A/rms).T[ok_band,:], (fnu_i/rms)[ok_band])
+                coeffs_x, rnorm = nnls((A/rms).T[ok_band,:][:,ok_temp], (fnu_i/rms)[ok_band])
+                coeffs_i = np.zeros(A.shape[0])
+                coeffs_i[ok_temp] = coeffs_x
             except:
                 coeffs_i = np.zeros(A.shape[0])
                 
@@ -766,7 +799,7 @@ class PhotoZ(object):
         
         lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]), self.lc[np.newaxis,:])
         clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0) & np.isfinite(self.fnu) & np.isfinite(self.efnu) & (self.fmodel != 0)
-        xmf, ymf, ysf, Nf = utils.running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
+        #xmf, ymf, ysf, Nf = utils.running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
         
         if NBIN is None:
             NBIN = (self.zbest > self.zgrid[0]).sum() // (100) #*self.NFILT)
@@ -837,7 +870,7 @@ class PhotoZ(object):
         ax.semilogx()
         ax.set_ylim(0.8,1.2)
         ax.set_xlim(800,8.e4)
-        l = ax.legend(fontsize=8, ncol=5, loc='upper right')
+        l = ax.legend(fontsize=6, ncol=5, loc='upper right', handlelength=0.4)
         l.set_zorder(-20)
         ax.grid()
         ax.vlines([2175, 3727, 5007, 6563.], 0.8, 1.0, linestyle='--', color='k', zorder=-18)
@@ -1781,7 +1814,131 @@ class PhotoZ(object):
         return fig
         
         #fig.savefig('gs_eazypy.RF_{0}.png'.format(label))
+    
+    def spatial_statistics(self, band_indices=None, xycols=('ra','dec'), is_sky=True, nbin=(50,50), bins=None, apply=False, min_sn=10, catalog_mask=None, statistic='median', zrange=[0.05, 4], verbose=True, vm=(0.92, 1.08), output_suffix='', save_results=True, make_plot=True, cmap='plasma', figsize=5, plot_format='png', close=True):
+        """
+        Show statistics as a function of position
         
+        band_indices : list of int, None
+            Indices of the bands to process, in the order of the 
+            `self.lc`, `self.filters`, etc. lists.  If None, do all of them.
+        
+        statistic : str
+            See `~scipy.stats.binned_statistic_2d`.
+            
+        
+        """
+        from scipy.stats import binned_statistic_2d
+        import matplotlib.pyplot as plt
+        
+        # Coordinate things
+        xc = self.cat[xycols[0]]
+        yc = self.cat[xycols[1]]
+        
+        xr = [xc.min(), xc.max()]
+        yr = [yc.min(), yc.max()]
+        dx, dy = xr[1]-xr[0], yr[1]-yr[0]
+        aspect = dy/dx
+
+        if bins is None:
+            px, py = 1/nbin[0], 1/nbin[1]
+            xbins = np.linspace(xr[0]-px*dx, xr[1]+px*dx, nbin[0])
+            ybins = np.linspace(yr[0]-py*dy, yr[1]+py*dy, nbin[1])
+        else:
+            xbins, ybins = bins
+            
+        if is_sky:
+            xr = xr[::-1]
+            cosd = np.cos(np.mean(yc)/180*np.pi)
+            aspect /= cosd
+
+        # Residuals
+        resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel
+        
+        # Data mask
+        mask = (self.fnu/self.efnu > min_sn) & (self.efnu > 0) & (self.fnu > -98) & np.isfinite(resid)
+        
+        object_mask = (self.zbest > zrange[0]) & (self.zbest < zrange[1])
+        if catalog_mask is not None:
+            object_mask &= catalog_mask
+
+        mask = (mask.T & object_mask).T
+        
+        # By filter
+        if band_indices is None:
+            band_indices = range(self.NFILT)
+        
+        for i in band_indices:
+            col_i = self.flux_columns[i]
+            f_name = self.tempfilt.filter_names[i].split()[0]
+            msum = mask[:,i].sum()
+            
+            label = '{0} / {1} (N={2:>6d})'.format(col_i, f_name, msum)
+            if verbose:
+                print(label)
+            
+            if msum == 0:
+                continue
+                
+            ret = binned_statistic_2d(xc[mask[:,i]], yc[mask[:,i]], resid[mask[:,i],i]+1, bins=(xbins, ybins), statistic=statistic)
+            
+            if apply & (statistic in ['mean', 'median']):
+                self.apply_spatial_offset(i, ret, xycols=xycols)
+                
+            if save_results:
+                save_file = '{0}_{1}{2}.{3}'.format(self.param.params['MAIN_OUTPUT_FILE'], col_i, output_suffix, 'npy')
+                np.save(save_file, [[i, col_i, f_name, msum, min_sn], ret])
+                
+            if make_plot:
+                fig = plt.figure(figsize=[figsize, figsize*aspect])
+                ax = fig.add_subplot(111)
+                ax.imshow(ret.statistic.T, vmin=vm[0], vmax=vm[1], extent=(ret.x_edge[0], ret.x_edge[-1], ret.y_edge[0], ret.y_edge[-1]), origin='lower', cmap=cmap)
+                
+                ax.set_xlim(xr)
+                ax.set_ylim(yr)
+                #ax.set_title(label)
+                ax.text(0.05, 0.97, label, ha='left', va='top', transform=ax.transAxes, fontsize=8, zorder=2000, bbox=dict(facecolor='w', alpha=0.8))
+                ax.set_xlabel(xycols[0])
+                ax.set_ylabel(xycols[1])
+                ax.grid(zorder=500)
+                
+                fig.tight_layout(pad=0.1)
+                fig_file = '{0}_{1}{2}.{3}'.format(self.param.params['MAIN_OUTPUT_FILE'], col_i, output_suffix, plot_format)
+                fig.savefig(fig_file)
+                if close:
+                    plt.close()
+        
+    def apply_spatial_offset(self, f_ix, bin2d, xycols=('ra','dec')):
+            """
+            Apply a spatial zeropoint offset determined from    
+            spatial_statistics.
+            """
+            xc = self.cat[xycols[0]]
+            yc = self.cat[xycols[1]]
+            
+            nx = len(bin2d.x_edge)
+            ny = len(bin2d.y_edge)
+            
+            ex = np.arange(nx)
+            ey = np.arange(ny)
+            
+            ix = np.cast[int](np.interp(xc, bin2d.x_edge, ex))
+            iy = np.cast[int](np.interp(yc, bin2d.y_edge, ey))
+            
+            corr = bin2d.statistic[ix, iy]
+            corr[~np.isfinite(corr)] = 1
+            
+            try:
+                self.spatial_offset[:,f_ix] *= corr
+            except:
+                self.spatial_offset = np.ones_like(self.fnu)
+                self.spatial_offset[:,f_ix] *= corr
+                
+            mask = (self.fnu[:,f_ix] > -98) & (self.efnu_orig[:,f_ix] > 0)
+            self.fnu[mask,f_ix] *= corr[mask]
+            self.efnu_orig[mask,f_ix] *= corr[mask]
+            
+            
 def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     fmodel = np.dot(coeffs, A)
     return -0.5*np.sum((fmodel-fnu_i)**2/efnu_i**2)
@@ -1789,7 +1946,6 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 class TemplateGrid(object):
     def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2):
         import multiprocessing as mp
-        import scipy.interpolate 
         import specutils.extinction
         import astropy.units as u
                 
@@ -1843,13 +1999,57 @@ class TemplateGrid(object):
                     print('Process template {0}.'.format(templates[itemp].name))
                 self.tempfilt[:,itemp,:] = tf_i        
         
+        self.interpolator_function = interpolator
+        self.init_interpolator(interpolator=interpolator)
+        
+    def init_interpolator(self, interpolator=None):
+        import scipy.interpolate 
+        
         # Spline interpolator        
         if interpolator is None:
             self.spline = scipy.interpolate.Akima1DInterpolator(self.zgrid, self.tempfilt, axis=0)
             #self.spline = scipy.interpolate.CubicSpline(self.zgrid, self.tempfilt)
         else:
             self.spline = interpolator(self.zgrid, self.tempfilt)
+    
+    def apply_SFH_constraint(self, max_mass_frac=0.5, cosmology=None, sfh_file='templates/fsps_full/fsps_QSF_12_v3.sfh.fits'):
+        """
+        Set interpolated template fluxes to zero for a given redshift/tmeplate
+        combination if the accumulated stellar mass fraction at ages older
+        than the age of the universe is greater than `max_mass_frac`.
+        
+        Requires the "sfh.fits" file.
+        
+        .. warning::
             
+            The implementation seems to work but the results when applied to 
+            running on a full catalog don't seem very reliable, probably 
+            caused by the effect of clipping out templates at discrete
+            redshifts.
+            
+        """
+        from astropy.table import Table
+        import astropy.units as u
+        
+        if cosmology is None:
+            from astropy.cosmology import WMAP9 as cosmology
+        
+        sfh = Table.read(sfh_file)
+        mass_accum = np.cumsum(sfh['SFH'][::-1,:], axis=0)
+        mass_accum = (mass_accum / mass_accum[-1,:])[::-1,:]
+        t_accum = sfh['time']
+        
+        t_lb = cosmology.age(self.zgrid)
+        for iz in range(self.NZ):
+            t_ix = np.where(t_accum.data*u.Gyr <= t_lb[iz])[0][-1]
+            mass_ix = mass_accum[t_ix,:]
+            clip = mass_ix > max_mass_frac
+            
+            self.tempfilt[iz,clip,:] *= 0
+        
+        # Reinit interpolator
+        self.init_interpolator(interpolator=self.interpolator_function)
+        
     def __call__(self, z):
         """
         Return interpolated filter fluxes
@@ -1935,6 +2135,7 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose):
 def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
     from scipy.optimize import nnls
 
+    # Valid fluxes
     ok_band = (fnu_i/zp > -90) & (efnu_i/zp > 0) & np.isfinite(fnu_i) & np.isfinite(efnu_i)
     if ok_band.sum() < 2:
         return np.inf, np.zeros(A.shape[0])
@@ -1942,11 +2143,20 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
     var = efnu_i**2 + (TEFz*fnu_i)**2
     rms = np.sqrt(var)
     
+    # Nonzero templates
+    sh = A.shape
+    ok_temp = (np.sum(A, axis=1) > 0)
+    if ok_temp.sum() == 0:
+        return np.inf, np.zeros(A.shape[0])
+    
+    # Least-squares fit    
     Ax = (A/rms).T[ok_band,:]
     try:
-        coeffs_i, rnorm = nnls(Ax, (fnu_i/rms)[ok_band])
+        coeffs_x, rnorm = nnls(Ax[:,ok_temp], (fnu_i/rms)[ok_band])
+        coeffs_i = np.zeros(sh[0])
+        coeffs_i[ok_temp] = coeffs_x
     except:
-        coeffs_i = np.zeros(A.shape[0])
+        coeffs_i = np.zeros(sh[0])
         
     fmodel = np.dot(coeffs_i, A)
     chi2_i = np.sum((fnu_i-fmodel)**2/var*ok_band)
