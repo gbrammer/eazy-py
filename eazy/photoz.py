@@ -1281,12 +1281,15 @@ class PhotoZ(object):
         
         if beta_prior:
             self.p_beta = self.prior_beta(w1=1350, w2=1800)
+            self.p_beta[~np.isfinite(self.p_beta)] = 1.e-10
             pz *= self.p_beta
             
         dz = np.gradient(self.zgrid)
         norm = (pz*dz).sum(axis=1)
         self.pz = (pz.T/norm).T
-    
+        self.pz_with_prior = prior
+        self.pz_with_beta_prior = beta_prior
+        
     def compute_full_risk(self):
         
         dz = np.gradient(self.zgrid)
@@ -1529,7 +1532,7 @@ class PhotoZ(object):
         import astropy.io.fits as pyfits
         
         self.compute_pz(prior=prior, beta_prior=beta_prior)
-        self.best_fit(prior=prior)
+        self.best_fit(prior=prior, beta_prior=beta_prior)
         
         peaks, numpeaks = self.find_peaks()
         zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
@@ -2135,19 +2138,24 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose):
 def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
     from scipy.optimize import nnls
 
+    sh = A.shape
+
     # Valid fluxes
     ok_band = (fnu_i/zp > -90) & (efnu_i/zp > 0) & np.isfinite(fnu_i) & np.isfinite(efnu_i)
     if ok_band.sum() < 2:
-        return np.inf, np.zeros(A.shape[0])
+        coeffs_i = np.zeros(sh[0])
+        fmodel = np.dot(coeffs_i, A)
+        return np.inf, np.zeros(A.shape[0]), fmodel, None
         
     var = efnu_i**2 + (TEFz*fnu_i)**2
     rms = np.sqrt(var)
     
     # Nonzero templates
-    sh = A.shape
     ok_temp = (np.sum(A, axis=1) > 0)
     if ok_temp.sum() == 0:
-        return np.inf, np.zeros(A.shape[0])
+        coeffs_i = np.zeros(sh[0])
+        fmodel = np.dot(coeffs_i, A)
+        return np.inf, np.zeros(A.shape[0]), fmodel, None
     
     # Least-squares fit    
     Ax = (A/rms).T[ok_band,:]
