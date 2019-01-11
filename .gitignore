@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+# Demo things
+docs/examples/inputs
+docs/examples/templates
+docs/examples/hdfn*
+docs/examples/FILTER*
+docs/examples/zphot*
+
 # Distribution / packaging
 .Python
 env/
