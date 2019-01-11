@@ -423,12 +423,13 @@ class PhotoZ(object):
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
 
-        zlimits = self.pz_percentiles(percentiles=[16,84], oversample=10)
+        clip = (self.zbest > self.zgrid[0]) & (self.cat['z_spec'] > zmin) & (self.cat['z_spec'] <= zmax)
+
+        zlimits = self.pz_percentiles(percentiles=[16,84], oversample=10,
+                                      selection=clip)
         
         dz = (self.zbest-self.cat['z_spec'])/(1+self.cat['z_spec'])
         #izbest = np.argmin(self.fit_chi2, axis=1)
-
-        clip = (self.zbest > self.zgrid[0]) & (self.cat['z_spec'] > zmin) & (self.cat['z_spec'] <= zmax)
         
         gs = GridSpec(2,1, height_ratios=[6,1])
         if axes is None:
@@ -1385,7 +1386,8 @@ class PhotoZ(object):
         return PIT
         
         
-    def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=10):
+    def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=10,
+                       selection=None):
         
         import scipy.interpolate 
         
@@ -1394,7 +1396,9 @@ class PhotoZ(object):
          
 
         ok = self.zbest > self.zgrid[0]      
-        
+        if selection is not None:
+            ok &= selection
+            
         spl = scipy.interpolate.Akima1DInterpolator(self.zgrid, self.pz[ok,:], axis=1)
         dz_zoom = np.gradient(zgrid_zoom)
         pzcum = np.cumsum(spl(zgrid_zoom)*dz_zoom, axis=1)
@@ -1602,7 +1606,7 @@ class PhotoZ(object):
                 
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5):
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True):
         import astropy.io.fits as pyfits
         from .version import __version__
         
@@ -1651,7 +1655,7 @@ class PhotoZ(object):
         for col in tab.colnames[-6:]:
             tab[col].format='8.4f'
             
-        tab.meta['version'] (__version__, 'Eazy-py version')
+        tab.meta['version'] = (__version__, 'Eazy-py version')
         tab.meta['prior'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         tab.meta['betprior'] = (beta_prior, 'Beta prior applied')
         
@@ -1664,6 +1668,9 @@ class PhotoZ(object):
         
         for key in sps_tab.meta:
             tab.meta[key] = sps_tab.meta[key]
+
+        if not save_fits:
+            return tab, None
         
         root = self.param.params['MAIN_OUTPUT_FILE']
         if os.path.exists('{0}.zout.fits'.format(root)):
