@@ -21,6 +21,13 @@ TRUE_VALUES = [True, 'y', 'yes', 'Y', 'Yes']
 
 __all__ = ["PhotoZ", "TemplateGrid"]
 
+DEFAULT_UBVJ_FILTERS = [153,154,155,161] # Maiz-Appellaniz & 2MASS
+
+DEFAULT_RF_FILTERS = [270, 274] # UV tophat
+DEFAULT_RF_FILTERS += [120, 121] # GALEX
+DEFAULT_RF_FILTERS += [156, 157, 158, 159, 160] #SDSS
+DEFAULT_RF_FILTERS += [161, 162, 163] # 2MASS
+
 class PhotoZ(object):
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0):
                 
@@ -64,13 +71,15 @@ class PhotoZ(object):
         ### Read catalog and filters
         self.read_catalog()
         
+        self.idx = np.arange(self.NOBJ, dtype=int)
+        
         ### Read prior file
         self.full_prior = np.ones((self.NOBJ, self.NZ))
         if load_prior:
             self.read_prior()
         
         self.pz = np.ones_like(self.full_prior)
-        self.p_beta = 1.
+        self.p_beta = self.pz*0.
         
         if zeropoint_file is not None:
             self.read_zeropoint(zeropoint_file)
@@ -78,6 +87,7 @@ class PhotoZ(object):
             self.zp = self.f_numbers*0+1.
             
         self.fit_chi2 = np.zeros((self.NOBJ, self.NZ))
+        self.pz = np.zeros((self.NOBJ, self.NZ))
         self.fit_coeffs = np.zeros((self.NOBJ, self.NZ, self.NTEMP))
         
         ### Interpolate templates
@@ -104,7 +114,7 @@ class PhotoZ(object):
         #### testing
         if False:
             
-            idx = np.arange(self.NOBJ)[self.cat['z_spec'] > 0]
+            idx = self.idx[self.cat['z_spec'] > 0]
             i=37
             fig = eazy.plotExampleSED(idx[i], MAIN_OUTPUT_FILE='m0416.uvista.full')
          
@@ -218,11 +228,11 @@ class PhotoZ(object):
         self.efnu_orig = self.efnu*1.
         self.efnu = np.sqrt(self.efnu**2+(self.param['SYS_ERR']*self.fnu)**2)
         
-        ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
-        self.fnu[~ok_data] = -99
-        self.efnu[~ok_data] = -99
+        self.ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
+        self.fnu[~self.ok_data] = -99
+        self.efnu[~self.ok_data] = -99
         
-        self.nusefilt = ok_data.sum(axis=1)
+        self.nusefilt = self.ok_data.sum(axis=1)
         
         # Translate the file itself    
         # for k in self.translate.trans:
@@ -253,7 +263,7 @@ class PhotoZ(object):
         self.zgrid = utils.log_zgrid(zr=zr, dz=self.param['Z_STEP'])
         self.NZ = len(self.zgrid)
     
-    def prior_beta(self, w1=1350, w2=1800, dw=100, width_params={'k':-5, 'z_split':4, 'sigma0':20, 'sigma1':0.5, 'center':-1.5}):
+    def prior_beta(self, w1=1350, w2=1800, dw=100, sample=None, width_params={'k':-5, 'z_split':4, 'sigma0':20, 'sigma1':0.5, 'center':-1.5}):
         """
         Prior on UV slope beta to try to fix red low-z galaxies put at z>4.  
         
@@ -292,7 +302,11 @@ class PhotoZ(object):
         ln_beta_x = np.log([w1, w2])
         beta_y = np.array([y1, y2]).T
         
-        fit_beta_y = np.dot(self.fit_coeffs, beta_y)
+        if sample is not None:
+            fit_beta_y = np.dot(self.fit_coeffs[sample,:,:], beta_y)
+        else:
+            fit_beta_y = np.dot(self.fit_coeffs, beta_y)
+
         ln_fit_beta_y = np.log(fit_beta_y)
         out_beta_y = np.squeeze(np.diff(ln_fit_beta_y, axis=2))/np.diff(ln_beta_x)[0]
         
@@ -395,7 +409,7 @@ class PhotoZ(object):
                        Ng=np.minimum((self.zbest > 0.1).sum()//50, max_Ng),
                        min_width=500,  NBIN=NBIN)
         
-        fig_file = '{0}_zp_{1:03d}.png'.format(self.param['MAIN_OUTPUT_FILE'], iter)
+        fig_file = '{0}_zpoint_{1:03d}.png'.format(self.param['MAIN_OUTPUT_FILE'], iter)
         fig.savefig(fig_file)
         
         if get_spatial_offset:
@@ -483,7 +497,7 @@ class PhotoZ(object):
             np.savetxt(templ_file, np.array([templ.wave, templ.flux]).T,
                        fmt='%.6e')
                            
-    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False):
+    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False):
 
         import numpy as np
         import matplotlib.pyplot as plt
@@ -491,8 +505,13 @@ class PhotoZ(object):
         import multiprocessing as mp
         
         if idx is None:
-            idx = np.arange(self.NOBJ)
-        
+            idx_fit = self.idx
+        else:
+            if idx.dtype == bool:
+                idx_fit = self.idx[idx]
+            else:
+                idx_fit = idx
+                
         # Setup
         # if False:
         #     hmag = 25-2.5*np.log10(self.cat['f_F160W'])
@@ -510,8 +529,8 @@ class PhotoZ(object):
         # 
         #     idx = np.arange(self.NOBJ)[idx]
 
-        fnu_corr = self.fnu[idx,:]*self.ext_redden*self.zp
-        efnu_corr = self.efnu[idx,:]*self.ext_redden*self.zp
+        fnu_corr = self.fnu[idx_fit,:]*self.ext_redden*self.zp
+        efnu_corr = self.efnu[idx_fit,:]*self.ext_redden*self.zp
             
         t0 = time.time()
         pool = mp.Pool(processes=n_proc)
@@ -523,17 +542,20 @@ class PhotoZ(object):
                 
         for res in results:
             iz, chi2, coeffs = res.get(timeout=1)
-            self.fit_chi2[idx,iz] = chi2
-            self.fit_coeffs[idx,iz,:] = coeffs
+            self.fit_chi2[idx_fit,iz] = chi2
+            self.fit_coeffs[idx_fit,iz,:] = coeffs
         
-        self.compute_pz(prior=prior)
+        self.compute_pz(prior=prior, beta_prior=beta_prior)
+                
+        if get_best_fit:
+            if verbose:
+                print('Compute best fits')
+            
+            self.best_fit(prior=prior, beta_prior=beta_prior)
         
         t1 = time.time()
         if verbose:
-            print('Fit {1:.1f} s (n_proc={0}, NOBJ={2})'.format(n_proc, t1-t0, len(idx)))
-        
-        if get_best_fit:
-            self.best_fit()
+            print('Fit {1:.1f} s (n_proc={0}, NOBJ={2})'.format(n_proc, t1-t0, len(idx_fit)))
             
     def fit_object(self, iobj=0, z=0, show=False):
         """
@@ -596,17 +618,27 @@ class PhotoZ(object):
         self.efmodel = self.fnu*0.
         
         izbest = np.argmin(self.fit_chi2, axis=1)
+        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
 
         self.zbest_grid = self.zgrid[izbest]
         if zbest is None:
             self.zbest, self.chi_best = self.best_redshift(prior=prior,
                                                     beta_prior=beta_prior)
+            
+            self.zbest_with_prior = prior
+            self.zbest_with_beta_prior = beta_prior
+            self.zbest[~has_chi2] = -1
+            
             # No prior, redshift at minimum chi-2
             self.zchi2, self.chi2_noprior = self.best_redshift(prior=False,
                                                     beta_prior=False)
+            self.zchi2[~has_chi2] = -1
         else:
             self.zbest = zbest
-        
+            self.chi_best = np.zeros_like(self.zbest)-1
+            self.zchi2 = np.zeros_like(self.zbest)-1
+            self.chi2_noprior = np.zeros_like(self.zbest)-1
+            
         if (self.param['FIX_ZSPEC'] in TRUE_VALUES) & ('z_spec' in self.cat.colnames):
             #print('USE ZSPEC!')
             has_zsp = self.cat['z_spec'] > 0
@@ -622,7 +654,7 @@ class PhotoZ(object):
         
         self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
         
-        idx = np.arange(self.NOBJ)[self.zbest > self.zgrid[0]]
+        idx = self.idx[(self.zbest > self.zgrid[0])]
         
         # Set seed
         np.random.seed(self.random_seed)
@@ -653,11 +685,13 @@ class PhotoZ(object):
         TBD: include prior
         """
         from scipy import polyfit, polyval
-        
+                
         if beta_prior:
             p_beta = self.p_beta
         else:
             p_beta = 1
+        
+        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
             
         if prior:
             test_chi2 = self.fit_chi2-2*np.log(self.full_prior*p_beta)
@@ -665,19 +699,18 @@ class PhotoZ(object):
             test_chi2 = self.fit_chi2-2*np.log(p_beta)
             
         #izbest0 = np.argmin(self.fit_chi2, axis=1)
-        izbest = np.argmin(test_chi2, axis=1)
-             
+        izbest = np.argmin(test_chi2, axis=1)*has_chi2
+        
         zbest = self.zgrid[izbest]
-        zbest[izbest == 0] = self.zgrid[0]
+        zbest[izbest == 0] = -1
         chi_best = self.fit_chi2.min(axis=1)
         
-        for iobj in range(self.NOBJ):
+        mask = (izbest > 0) & (izbest < self.NZ-1) & has_chi2
+        for iobj in self.idx[mask]:
             iz = izbest[iobj]
-            if (iz == 0) | (iz == self.NZ-1):
-                continue
             
-            #c = polyfit(self.zgrid[iz-1:iz+2], test_chi2[iobj, iz-1:iz+2], 2)
-            c = polyfit(self.zgrid[iz-1:iz+2], self.fit_chi2[iobj, iz-1:iz+2], 2)
+            c = polyfit(self.zgrid[iz-1:iz+2], test_chi2[iobj, iz-1:iz+2], 2)
+            #c = polyfit(self.zgrid[iz-1:iz+2], self.fit_chi2[iobj, iz-1:iz+2], 2)
             
             zbest[iobj] = -c[1]/(2*c[0])
             chi_best[iobj] = polyval(c, zbest[iobj])
@@ -779,9 +812,9 @@ class PhotoZ(object):
         zbest = self.zgrid[izbest]
                 
         if selection is not None:
-            idx = np.arange(self.NOBJ)[(izbest > 0) & selection]
+            idx = self.idx[(izbest > 0) & selection]
         else:
-            idx = np.arange(self.NOBJ)[izbest > 0]
+            idx = self.idx[izbest > 0]
             
         resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel+1
         eresid = (self.efnu_orig*self.ext_redden*self.zp)/self.fmodel
@@ -1154,20 +1187,21 @@ class PhotoZ(object):
         ax.set_ylim(0,pz.max()*1.05)
         ax.set_xlim(0,self.zgrid[-1])
             
-        ax.set_xlabel('z'); ax.set_ylabel('p(z)/dz')
+        ax.set_xlabel('z'); ax.set_ylabel('p(z)')
         ax.grid()
         
         fig.tight_layout(pad=0.5)
         
         return fig
         
-    def rest_frame_fluxes(self, f_numbers=[153,155,161], pad_width=0.5, percentiles=[2.5,16,50,84,97.5]):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], verbose=1):
         """
         Rest-frame colors
         """
         print('Rest-frame filters: {0}'.format(f_numbers))
-        rf_tempfilt = TemplateGrid(np.array([0,0.1]), self.templates, RES=self.param['FILTERS_RES'], f_numbers=np.array(f_numbers), add_igm=False, galactic_ebv=0, Eb=self.param['SCALE_2175_BUMP'], n_proc=-1)
-        rf_tempfilt.tempfilt = np.squeeze(rf_tempfilt.tempfilt[0,:,:])
+        rf_tempfilt = TemplateGrid(np.array([0,0.1]), self.templates, RES=self.param['FILTERS_RES'], f_numbers=np.array(f_numbers), add_igm=False, galactic_ebv=0, Eb=self.param['SCALE_2175_BUMP'], n_proc=-1, verbose=verbose)
+        #rf_tempfilt.tempfilt = np.squeeze(rf_tempfilt.tempfilt[0,:,:])
+        rf_tempfilt.tempfilt = rf_tempfilt.tempfilt[0,:,:]*1
         
         NREST = len(f_numbers)
         
@@ -1182,11 +1216,11 @@ class PhotoZ(object):
         if False:
             j+=1; id = ids[j]; fig = self.show_fit(id, show_fnu=show_fnu, xlim=[0.1,10])
         
-            ix = np.arange(self.NOBJ)[self.cat['id'] == id][0]
+            ix = self.idx[self.cat['id'] == id][0]
             z = self.zbest[ix]
             iz = np.argmin(self.fit_chi2[ix,:])
                         
-        indices = np.where(self.zbest > self.zgrid[0])[0]
+        indices = self.idx[self.zbest > self.zgrid[0]]
         for ix in indices:
 
             fnu_i = fnu_corr[ix,:]*1
@@ -1197,8 +1231,13 @@ class PhotoZ(object):
             for i in range(NREST):
                 ## Grow uncertainties away from RF band
                 lc_i = rf_tempfilt.lc[i]
-                grow = np.exp(-(lc_i-self.lc/(1+z))**2/2/(pad_width*lc_i)**2)
-                TEFz = (2/(1+grow/grow.max())-1)*0.5
+                #grow = np.exp(-(lc_i-self.lc/(1+z))**2/2/(pad_width*lc_i)**2)
+                
+                # Normal in log wavelength
+                x = np.log(lc_i/(self.lc/(1+z)))
+                grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
+
+                TEFz = (2/(1+grow/grow.max())-1)*max_err
             
                 chi2_i, coeffs_i, fmodel_i, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100)
                 if draws is None:
@@ -1274,19 +1313,21 @@ class PhotoZ(object):
         #     chain_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
     
     def compute_pz(self, prior=False, beta_prior=False):
-        pz = np.exp(-(self.fit_chi2.T-self.fit_chi2.min(axis=1))/2.).T
+        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
+        min_chi2 = self.fit_chi2[has_chi2,:].min(axis=1)
+        pz = np.exp(-(self.fit_chi2[has_chi2,:].T-min_chi2)/2.).T
         
         if prior:
-            pz *= self.full_prior
+            pz *= self.full_prior[has_chi2,:]
         
         if beta_prior:
-            self.p_beta = self.prior_beta(w1=1350, w2=1800)
+            self.p_beta[has_chi2,:] = self.prior_beta(w1=1350, w2=1800, sample=has_chi2)
             self.p_beta[~np.isfinite(self.p_beta)] = 1.e-10
-            pz *= self.p_beta
-            
+            pz *= self.p_beta[has_chi2,:]
+        
         dz = np.gradient(self.zgrid)
         norm = (pz*dz).sum(axis=1)
-        self.pz = (pz.T/norm).T
+        self.pz[has_chi2,:] = (pz.T/norm).T
         self.pz_with_prior = prior
         self.pz_with_beta_prior = beta_prior
         
@@ -1300,8 +1341,9 @@ class PhotoZ(object):
         pzi = self.pz[0,:]
         Rz = self.pz*0.
         
-        hasz = self.zbest > 0
-        idx = np.arange(self.NOBJ)[hasz]
+        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
+        hasz = self.zbest > self.zgrid[0]
+        idx = self.idx[hasz & (has_chi2)]
         
         for i in idx:
             Rz[i,:] = np.dot(self.pz[i,:]*L, dz)
@@ -1315,12 +1357,15 @@ class PhotoZ(object):
         """
         "Risk" function from Tanaka et al. 2017
         """
-        zbest_grid = np.dot(self.zbest[:,None], np.ones_like(self.zgrid)[None,:])
+        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
+        mask = (has_chi2) & (self.zbest > self.zgrid[0])
+        
+        zbest_grid = np.dot(self.zbest[mask, None], np.ones_like(self.zgrid)[None,:])
         L = self._loss((zbest_grid-self.zgrid)/(1+self.zgrid))
         dz = np.gradient(self.zgrid)
         
-        zbest_risk = np.dot(self.pz*L, dz)
-        zbest_risk[self.zbest < 0] = -1
+        zbest_risk = np.zeros(self.NOBJ)-1
+        zbest_risk[mask] = np.dot(self.pz[mask,:]*L, dz)
         return zbest_risk
         
     @staticmethod    
@@ -1356,7 +1401,7 @@ class PhotoZ(object):
         
         zlimits = np.zeros((self.NOBJ, len(percentiles)))
         Np = len(percentiles)
-        for j, i in enumerate(np.arange(self.NOBJ)[ok]):
+        for j, i in enumerate(self.idx[ok]):
             zlimits[i,:] = np.interp(np.array(percentiles)/100., pzcum[j, :], zgrid_zoom)
         
         return zlimits
@@ -1369,14 +1414,14 @@ class PhotoZ(object):
         peaks = [0]*self.NOBJ
         numpeaks = np.zeros(self.NOBJ, dtype=int)
 
-        for j, i in enumerate(np.arange(self.NOBJ)[ok]):
+        for j, i in enumerate(self.idx[ok]):
             indices = peakutils.indexes(self.pz[i,:], thres=0.8, min_dist=int(0.1/self.param['Z_STEP']))
             peaks[i] = indices
             numpeaks[i] = len(indices)
         
         return peaks, numpeaks
         
-    def sps_parameters(self, UBVJ=[153,154,155,161], LIR_wave=[8,1000], cosmology=None):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5):
         """
         Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
         """        
@@ -1384,9 +1429,9 @@ class PhotoZ(object):
         import astropy.constants as const
         
         if cosmology is None:
-            from astropy.cosmology import Planck15 as cosmology
+            from astropy.cosmology import WMAP9 as cosmology
             
-        self.ubvj_tempfilt, self.ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
+        self.ubvj_tempfilt, self.ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[2.5,16,50,84,97.5]) 
         
         restU = self.ubvj[:,0,2]
         restB = self.ubvj[:,1,2]
@@ -1397,7 +1442,7 @@ class PhotoZ(object):
         errB = (self.ubvj[:,1,3] - self.ubvj[:,1,1])/2.
         errV = (self.ubvj[:,2,3] - self.ubvj[:,2,1])/2.
         errJ = (self.ubvj[:,3,3] - self.ubvj[:,3,1])/2.
-        
+                    
         #PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/spectra_kc13_12_tweak.params')
         #temp_MLv, temp_SFRv = np.loadtxt(PARAM_FILE, unpack=True)
         
@@ -1459,7 +1504,10 @@ class PhotoZ(object):
         fnu_scl = 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))*uJy_to_cgs
         
         fnu = restV*fnu_scl*(u.erg/u.s/u.cm**2/u.Hz)
-        dL = cosmology.luminosity_distance(self.zbest).to(u.cm)
+        dL = np.zeros(self.NOBJ)*u.cm
+        mask = self.zbest > 0
+        dL[mask] = cosmology.luminosity_distance(self.zbest[mask]).to(u.cm)
+        
         Lnu = fnu*4*np.pi*dL**2
         pivotV = self.ubvj_tempfilt.filters[2].pivot()*u.Angstrom*(1+self.zbest)
         nuV = (const.c/pivotV).to(u.Hz) 
@@ -1502,6 +1550,8 @@ class PhotoZ(object):
         tab['restJ'] = restJ
         tab['restJ_err'] = errJ
 
+        tab['dL'] = dL.to(u.Mpc)
+
         tab['Lv'] = Lv
         tab['MLv'] = MLv
         tab['Av'] = Av
@@ -1510,6 +1560,7 @@ class PhotoZ(object):
             tab[col].format = '.3f'
             
         tab['Lv'].format = '.3e'
+        tab['dL'].format = '.1f'
         
         tab['mass'] = mass
         tab['mass'].format = '.3e'
@@ -1523,24 +1574,61 @@ class PhotoZ(object):
         for line in emission_lines:
             tab['line_flux_{0}'.format(line)] = line_flux[line]
             tab['line_EW_{0}'.format(line)] = line_EW[line]
+        
+        for col in tab.colnames:
+            bad = ~np.isfinite(tab[col])
+            tab[col][bad] = -999
             
         tab.meta['FNUSCALE'] = (fnu_scl, 'Scale factor to f-nu CGS')
+        tab.meta['COSMOL'] = (cosmology.name, 'Cosmological model')
+        tab.meta['COS_OM'] = (cosmology.Om0, 'Omega matter')
+        tab.meta['COS_OL'] = (cosmology.Ode0, 'Omega lambda')
+        tab.meta['COS_H0'] = (cosmology.H0.value, 'Hubble constant')
         
+        tab.meta['RF_PADW'] = (rf_pad_width, 'pad_width for RF fluxes')
+        tab.meta['RF_PADM'] = (rf_max_err, 'max_err for RF fluxes')
+        
+        # Additional Rest-frame filters
+        if len(extra_rf_filters) > 0:
+            extra_tempfilt, extra_rest = self.rest_frame_fluxes(f_numbers=extra_rf_filters, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[16,50,84]) 
+            for ir, f_n in enumerate(extra_rf_filters):
+                tab['rest{0}'.format(f_n)] = extra_rest[:,ir,1]
+                tab['rest{0}_err'.format(f_n)] = (extra_rest[:,ir,2]-extra_rest[:,ir,0])/2.
+                tab['rest{0}'.format(f_n)].format = '.3f'
+                tab['rest{0}_err'.format(f_n)].format = '.3f'
+                
+                tab.meta['name{0}'.format(f_n)] = (extra_tempfilt.filter_names[ir].split(' lambda_c')[0], 'Filter name')
+                tab.meta['pivot{0}'.format(f_n)] = (extra_tempfilt.filters[ir].pivot(), 'Pivot wavelength, Angstrom')
+                
         return tab
 
-    def standard_output(self, prior=True, UBVJ=[153,154,155,161], cosmology=None, LIR_wave=[8, 1000], beta_prior=False):
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5):
         import astropy.io.fits as pyfits
+        from .version import __version__
         
-        self.compute_pz(prior=prior, beta_prior=beta_prior)
-        self.best_fit(prior=prior, beta_prior=beta_prior)
+        if verbose:
+            print('Get best fit coeffs & best redshifts')
+        
+        self.compute_pz(prior=prior, beta_prior=beta_prior)    
+        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior)
         
         peaks, numpeaks = self.find_peaks()
         zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
         
         tab = Table()
         tab['id'] = self.cat['id']
+        for col in ['ra', 'dec']:
+            if col in self.cat.colnames:
+                tab[col] = self.cat[col]
+                
         tab['z_spec'] = self.cat['z_spec']
         tab['nusefilt'] = self.nusefilt
+        
+        # min/max observed wavelengths of valid data
+        lc_full = np.dot(np.ones((self.NOBJ, 1)), self.lc[np.newaxis,:])
+        tab['lc_min'] = (lc_full*(self.ok_data + 1e10*(~self.ok_data))).min(axis=1)
+        tab['lc_max'] = (lc_full*self.ok_data).max(axis=1)
+        tab['lc_max'].format = tab['lc_min'].format = '.1f'
         
         tab['numpeaks'] = numpeaks
         tab['z_phot'] = self.zbest
@@ -1563,9 +1651,14 @@ class PhotoZ(object):
         for col in tab.colnames[-6:]:
             tab[col].format='8.4f'
             
+        tab.meta['version'] (__version__, 'Eazy-py version')
         tab.meta['prior'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
+        tab.meta['betprior'] = (beta_prior, 'Beta prior applied')
         
-        sps_tab = self.sps_parameters(UBVJ=UBVJ, cosmology=cosmology, LIR_wave=LIR_wave)
+        if verbose:
+            print('Get parameters (UBVJ={0}, LIR={1})'.format(UBVJ, LIR_wave))
+            
+        sps_tab = self.sps_parameters(UBVJ=UBVJ, extra_rf_filters=extra_rf_filters, cosmology=cosmology, LIR_wave=LIR_wave, rf_pad_width=rf_pad_width, rf_max_err=rf_max_err)
         for col in sps_tab.colnames:
             tab[col] = sps_tab[col]
         
@@ -1612,8 +1705,9 @@ class PhotoZ(object):
         hdu[-1].header['VFILT'] = (UBVJ[2], 'V-band filter ID')
         hdu[-1].header['JFILT'] = (UBVJ[3], 'J-band filter ID')
         
-        hdu.writeto('{0}.data.fits'.format(root), clobber=True)
-    
+        hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
+        return tab, hdu
+        
     def get_match_index(self, id=None, rd=None, verbose=True):
         import astropy.units as u
         
@@ -1760,7 +1854,7 @@ class PhotoZ(object):
         
         sp = self.show_fit(self.cat['id'][idx][0], get_spec=True)
         templf = []
-        for i in np.arange(self.NOBJ)[idx]:
+        for i in self.idx[idx]:
             sp = self.show_fit(self.cat['id'][i], get_spec=True)
             templf.append(sp['templf']/(norm_flux[i]/(1+self.zbest[i])**2))
             #plt.plot(self.templates[0].wave[::10], sp['templf'][::10]/(norm_flux[i]/(1+self.zbest[i])**2), alpha=0.1, color=c)
