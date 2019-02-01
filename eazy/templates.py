@@ -55,7 +55,7 @@ class Template():
         if arrays is not None:
             self.wave, self.flux = arrays
             self.set_fnu()
-            
+                
     def set_fnu(self):
         self.flux_fnu = self.flux * self.wave**2 / 3.e18
         

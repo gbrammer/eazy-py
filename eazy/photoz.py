@@ -90,6 +90,10 @@ class PhotoZ(object):
         self.pz = np.zeros((self.NOBJ, self.NZ))
         self.fit_coeffs = np.zeros((self.NOBJ, self.NZ, self.NTEMP))
         
+        self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
+        self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
+        self.get_err = False
+        
         ### Interpolate templates
         #self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.filters, add_igm=True, galactic_ebv=0.0354)
 
@@ -620,7 +624,9 @@ class PhotoZ(object):
         
         izbest = np.argmin(self.fit_chi2, axis=1)
         has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
-
+        
+        self.get_err = get_err
+        
         self.zbest_grid = self.zgrid[izbest]
         if zbest is None:
             self.zbest, self.chi_best = self.best_redshift(prior=prior,
@@ -651,9 +657,9 @@ class PhotoZ(object):
         fnu_corr = self.fnu*self.ext_redden*self.zp
         efnu_corr = self.efnu*self.ext_redden*self.zp
         
-        self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
-        
-        self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
+        # self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
+        # self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
+        # self.get_err = False
         
         idx = self.idx[(self.zbest > self.zgrid[0])]
         
@@ -968,7 +974,6 @@ class PhotoZ(object):
     
     def full_sed(self, z, coeffs_i):
         import astropy.units as u
-        import specutils.extinction
         
         templ = self.templates[0]
         tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]))
@@ -987,7 +992,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
         
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4]):
         """
         Show SED and p(z) of a single object
         
@@ -1022,6 +1027,17 @@ class PhotoZ(object):
             If a value is supplied, compute the best-fit SED at this redshift,
             rather than the value in the `self.zbest` array.
         
+        showpz : bool
+            Include p(z) panel.
+        
+        zr : None or [z0, z1]
+            Range of redshifts to show in p(z) panel.  If None, then show
+            the full range in `self.zgrid`.
+        
+        axes : None or list
+            If provided, draw the SED and p(z) panels into the provided axes.
+            If just one axis is provided, then just plot the SED.
+            
         Returns
         -------
         fig : `~matplotlib.figure.Figure`
@@ -1030,6 +1046,7 @@ class PhotoZ(object):
         """
         import matplotlib.pyplot as plt
         import astropy.units as u
+        from cycler import cycler
         
         if False:
             ids = self.cat['id'][(self.cat['z_spec'] > 1.9) & (self.zbest > 0.8)]
@@ -1046,12 +1063,18 @@ class PhotoZ(object):
             ix = id
             z = self.zbest[ix]
         else:
-            ix = self.cat['id'] == id
-            z = self.zbest[ix][0]
+            ix = self.idx[self.cat['id'] == id][0]
+            z = self.zbest[ix]
         
         if zshow is not None:
             z = zshow
-            
+        
+        if ds9 is not None:
+            if ds9_sky:
+                ds9.set('pan to {0} {1} fk5'.format(self.cat['x_world'][ix], self.cat['y_world'][ix]))
+            else:
+                ds9.set('pan to {0} {1}'.format(self.cat['x_image'][ix], self.cat['y_image'][ix]))
+                
         ## SED
         A = np.squeeze(self.tempfilt(z))
         fnu_i = np.squeeze(self.fnu[ix, :])*self.ext_redden*self.zp
@@ -1105,96 +1128,151 @@ class PhotoZ(object):
         else:
             flam_spec = 3.e18/templz**2/1.e-19
             flam_sed = 3.e18/self.lc**2/self.ext_corr/1.e-19
-            ylabel = (r'$f_\lambda\times10^{-19}$ cgs')
+            ylabel = (r'$f_\lambda [10^{-19}$ erg/s/cm$^2$]')
             
             flux_unit = 1.e-19*u.erg/u.s/u.cm**2/u.AA
-            
-        if get_spec:
-            
-            data = OrderedDict(lc=self.lc, model=fmodel*fnu_factor*flam_sed,
-                               emodel=efmodel*fnu_factor*flam_sed,
-                               fobs=fnu_i*fnu_factor*flam_sed, 
-                               efobs=efnu_i*fnu_factor*flam_sed,
-                               templz=templz,
-                               templf=templf*fnu_factor*flam_spec,
-                               unit=show_fnu*1,
-                               flux_unit=flux_unit,
-                               wave_unit=u.AA)
-                               
+                        
+        data = OrderedDict(ix=ix, id=self.cat['id'][ix], z=z,
+                           lc=self.lc, model=fmodel*fnu_factor*flam_sed,
+                           emodel=efmodel*fnu_factor*flam_sed,
+                           fobs=fnu_i*fnu_factor*flam_sed, 
+                           efobs=efnu_i*fnu_factor*flam_sed,
+                           templz=templz,
+                           templf=templf*fnu_factor*flam_spec,
+                           unit=show_fnu*1,
+                           flux_unit=flux_unit,
+                           wave_unit=u.AA)
+
+        if get_spec:            
             return data
         
-        
-        fig = plt.figure(figsize=[8,4])
-        ax = fig.add_subplot(121)
-        
-        ax.set_ylabel(ylabel)
-            
-        if efmodel is None:
-            ax.scatter(self.lc/1.e4, fmodel*fnu_factor*flam_sed, color='r')
+        if axes is None:
+            fig = plt.figure(figsize=figsize)
+            ax = fig.add_subplot(111+10*showpz)
         else:
-            ax.errorbar(self.lc/1.e4, fmodel*fnu_factor*flam_sed, efmodel*fnu_factor*flam_sed, color='r', marker='o', linestyle='None')
+            fig = None
+            ax = axes[0]
+                        
+        ax.scatter(self.lc/1.e4, fmodel*fnu_factor*flam_sed, 
+                   color='w', label=None, zorder=1, s=120, marker='o')
+        
+        ax.scatter(self.lc/1.e4, fmodel*fnu_factor*flam_sed, marker='o',
+                  color=template_color, label=None, zorder=2, s=50, 
+                  alpha=0.8)
+
+        if efmodel is None:
+            ax.errorbar(self.lc/1.e4, fmodel*fnu_factor*flam_sed,
+                        efmodel*fnu_factor*flam_sed, alpha=0.8,
+                        color=template_color, zorder=2,
+                        marker='None', linestyle='None', label=None)
         
         missing = (fnu_i < -90) | (efnu_i < -90)
         sn2_detection = (~missing) & (fnu_i/efnu_i > 2)
         sn2_not = (~missing) & (fnu_i/efnu_i <= 2)
         
-        ax.errorbar(self.lc[sn2_detection]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_detection], (efnu_i*fnu_factor*flam_sed)[sn2_detection], color='k', marker='s', linestyle='None')
+        ax.errorbar(self.lc[sn2_detection]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_detection], (efnu_i*fnu_factor*flam_sed)[sn2_detection], color='k', marker='s', linestyle='None', label=None, zorder=10)
 
-        ax.errorbar(self.lc[sn2_not]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_not], (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', marker='s', alpha=0.4, linestyle='None')
+        ax.errorbar(self.lc[sn2_not]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_not], (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', marker='s', alpha=0.4, linestyle='None', label=None)
 
-        ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing], (efnu_i*fnu_factor*flam_sed)[missing], color='0.5', marker='s', linestyle='None', alpha=0.4)
+        ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing], (efnu_i*fnu_factor*flam_sed)[missing], color='0.7', marker='x', linestyle='None', alpha=0.4, label=None)
         
-        pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
+        pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1, color=template_color, label='z={0:.2f}'.format(z))
         
         if show_components:
+            colors = ['#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+            
             for i in range(self.NTEMP):
-                pi = ax.plot(templz/1.e4, coeffs_i[i]*tempflux[i,:]*igmz*fnu_factor*flam_spec, alpha=0.5, zorder=-1)
-                
+                if coeffs_i[i] != 0:
+                    pi = ax.plot(templz/1.e4, coeffs_i[i]*tempflux[i,:]*igmz*fnu_factor*flam_spec, alpha=0.5, zorder=-1, label=self.templates[i].name.split('.dat')[0], color=colors[i % len(colors)])
+                    
         if draws is not None:
             templf_width = np.percentile(templf_draws*fnu_factor*flam_spec, [16,84], axis=0)
-            ax.fill_between(templz/1.e4, templf_width[0,:], templf_width[1,:], color=pl[0].get_color(), alpha=0.1)
+            ax.fill_between(templz/1.e4, templf_width[0,:], templf_width[1,:], color=pl[0].get_color(), alpha=0.1, label=None)
             
-        ax.set_xlim(xlim)
-        xt = np.array([0.5, 1, 2, 4])*1.e4
-        
-        ymax = (fmodel*fnu_factor*flam_sed)[sn2_detection].max()
-        ax.set_ylim(-0.1*ymax, 1.2*ymax)
-        ax.semilogx()
+        if axes is None:
+            ax.set_xlim(xlim)
+            xt = np.array([0.5, 1, 2, 4])*1.e4
+            
+            ax.set_ylabel(ylabel)
+            
+            ymax = (fmodel*fnu_factor*flam_sed)[sn2_detection].max()
+            ax.set_ylim(-0.1*ymax, 1.2*ymax)
+            ax.semilogx()
 
-        ax.set_xticks(xt/1.e4)
-        ax.set_xticklabels(xt/1.e4)
+            ax.set_xticks(xt/1.e4)
+            ax.set_xticklabels(xt/1.e4)
 
-        ax.set_xlabel(r'$\lambda_\mathrm{obs}$')
-        
+            ax.set_xlabel(r'$\lambda_\mathrm{obs}$')
+            ax.grid()
+            
+            if add_label:
+                txt = '{0}\nID={1}, mag={2:.1f}'
+                txt = txt.format(self.param.params['MAIN_OUTPUT_FILE'], 
+                                 self.cat['id'][ix], self.prior_mag_cat[ix])
+                                 
+                ax.text(0.95, 0.95, txt, ha='right', va='top', fontsize=7,
+                        transform=ax.transAxes, 
+                        bbox=dict(facecolor='w', alpha=0.5), zorder=10)
+                
+                ax.legend(fontsize=7, loc='upper left')
+                    
         ## P(z)
+        if not showpz:
+            return fig, data
+            
+        if axes is not None:
+            if len(axes) == 1:
+                return fig, data
+            else:
+                ax = axes[1]
+        else:
+            ax = fig.add_subplot(122)
         
-        ax = fig.add_subplot(122)
         chi2 = np.squeeze(self.fit_chi2[ix,:])
         prior = self.full_prior[ix,:].flatten()
         #pz = np.exp(-(chi2-chi2.min())/2.)*prior
         #pz /= np.trapz(pz, self.zgrid)
         pz = self.pz[ix,:].flatten()
         
-        ax.plot(self.zgrid, pz, color='orange')
-        ax.plot(self.zgrid, prior/prior.max()*pz.max(), color='g')
+        ax.plot(self.zgrid, pz, color='orange', label=None)
+        ax.plot(self.zgrid, prior/prior.max()*pz.max(), color='g',
+                label='prior')
         
-        ax.fill_between(self.zgrid, pz, pz*0, color='yellow', alpha=0.5)
+        ax.fill_between(self.zgrid, pz, pz*0, color='yellow', alpha=0.5, 
+                        label=None)
         if self.cat['z_spec'][ix] > 0:
-            ax.vlines(self.cat['z_spec'][ix], 1.e-5, pz.max()*1.05, color='r')
+            ax.vlines(self.cat['z_spec'][ix], 1.e-5, pz.max()*1.05, color='r',
+                      label='zsp={0:.3f}'.format(self.cat['z_spec'][ix]))
         
         if zshow is not None:
-            ax.vlines(zshow, 1.e-5, pz.max()*1.05, color='purple')
+            ax.vlines(zshow, 1.e-5, pz.max()*1.05, color='purple', 
+                      label='z={0:.3f}'.format(zshow))
             
-        ax.set_ylim(0,pz.max()*1.05)
-        ax.set_xlim(0,self.zgrid[-1])
+        if axes is None:
+            ax.set_ylim(0,pz.max()*1.05)
             
-        ax.set_xlabel('z'); ax.set_ylabel('p(z)')
-        ax.grid()
-        
-        fig.tight_layout(pad=0.5)
-        
-        return fig
-        
+            if logpz:
+                ax.semilogy()
+                ymax = np.minimum(ax.get_ylim()[1], 100)
+                ax.set_ylim(1.e-3*ymax, 1.8*ymax)
+                
+            if zr is None:
+                ax.set_xlim(0,self.zgrid[-1])
+            else:
+                ax.set_xlim(zr)
+                
+            ax.set_xlabel('z'); ax.set_ylabel('p(z)')
+            ax.grid()
+            
+            fig.tight_layout(pad=0.5)
+            
+            if add_label:
+                ax.legend(fontsize=7, loc='upper left')
+                
+            return fig, data
+        else:
+            return fig, data
+            
     def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], verbose=1):
         """
         Rest-frame colors
@@ -1456,10 +1534,10 @@ class PhotoZ(object):
         
         # Normalize fit coefficients to template V-band
         coeffs_norm = self.coeffs_best*self.ubvj_tempfilt.tempfilt[:,2]
-        
+                
         # Normalize fit coefficients to unity sum
         coeffs_norm = (coeffs_norm.T/coeffs_norm.sum(axis=1)).T
-
+        
         coeffs_orig = (self.coeffs_best.T/self.coeffs_best.sum(axis=1)).T
         
         # Av, compute based on linearized extinction corrections
@@ -1502,7 +1580,7 @@ class PhotoZ(object):
          
         SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr
         SFRv = SFR_norm / Lv_norm
-        
+                    
         # Convert observed maggies to fnu
         uJy_to_cgs = u.Jy.to(u.erg/u.s/u.cm**2/u.Hz)*1.e-6
         fnu_scl = 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))*uJy_to_cgs
@@ -1520,7 +1598,7 @@ class PhotoZ(object):
         mass = MLv*Lv
         SFR = SFRv*Lv
         LIR = LIRv*Lv
-        
+                    
         # Emission line fluxes
         line_flux = {}
         line_EW = {}
@@ -1575,6 +1653,31 @@ class PhotoZ(object):
         tab['LIR'] = LIR
         tab['LIR'].format = '.3e'
         
+        if self.get_err:
+            # Propagate coeff covariance to parameters
+            
+            coeffs_draws = self.coeffs_draws*self.ubvj_tempfilt.tempfilt[:,2]
+            #coeffs_draws = np.maximum(coeffs_draws, 0)
+            draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
+        
+            massv_draws = (draws_norm*tab_temp['mass']).sum(axis=2)*u.solMass
+            Lv_draws= (draws_norm*tab_temp['Lv']).sum(axis=2)*u.solLum
+            LIR_draws = (draws_norm*templ_LIR).sum(axis=2)*u.solLum
+            SFR_draws = (draws_norm*tab_temp['sfr']).sum(axis=2)*u.solMass/u.yr
+            
+            mass_err  = np.percentile(((massv_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
+            LIR_err = np.percentile(((LIR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
+            SFR_err = np.percentile(((SFR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
+            
+            tab['massp'] = mass_err
+            tab['massp'].format = '.2e'
+
+            tab['SFRp'] = SFR_err
+            tab['SFRp'].format = '.2e'
+            
+            tab['LIRp'] = LIR_err
+            tab['LIRp'].format = '.2e'
+            
         for line in emission_lines:
             tab['line_flux_{0}'.format(line)] = line_flux[line]
             tab['line_EW_{0}'.format(line)] = line_EW[line]
@@ -1606,7 +1709,7 @@ class PhotoZ(object):
                 
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True):
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True):
         import astropy.io.fits as pyfits
         from .version import __version__
         
@@ -1614,7 +1717,7 @@ class PhotoZ(object):
             print('Get best fit coeffs & best redshifts')
         
         self.compute_pz(prior=prior, beta_prior=beta_prior)    
-        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior)
+        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior, get_err=get_err)
         
         peaks, numpeaks = self.find_peaks()
         zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
@@ -2050,7 +2153,6 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 class TemplateGrid(object):
     def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2):
         import multiprocessing as mp
-        import specutils.extinction
         import astropy.units as u
                 
         self.templates = templates
@@ -2165,9 +2267,8 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     """
     For multiprocessing filter integration
     """
-    import specutils.extinction
     import astropy.units as u
-    
+            
     if filters is None:
         all_filters = np.load(RES+'.npy')[0]
         filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
@@ -2180,7 +2281,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     else:
         igm = 1.
 
-    f99 = specutils.extinction.ExtinctionF99(galactic_ebv*3.1)
+    f99 = utils.GalacticExtinction(EBV=galactic_ebv, Rv=3.1)
     
     # Add bump with Drude profile in template rest frame
     width = 350
@@ -2202,8 +2303,9 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
             
         # Galactic Redenning        
         red = (lz > 910.) & (lz < 6.e4)
-        A_MW = templ.wave*0.
-        A_MW[red] = f99(lz[red]*u.angstrom)
+        A_MW = templ.wave*0.        
+        A_MW[red] = f99(lz[red])
+        
         F_MW = 10**(-0.4*A_MW)
         
         for ifilt in range(NFILT):

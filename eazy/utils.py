@@ -144,6 +144,102 @@ def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
     
     ax.fill_between(xfull[so], yfull[so], zfull[so], *args, **kwargs)
 
+class GalacticExtinction(object):
+    def __init__(self, EBV=0, Rv=3.1, force=None, radec=None, ebv_type='SandF'):
+        """
+        Wrapper to use either `~specutils.extinction` or the `~extinction` 
+        modules, which have different calling formats.  The results from 
+        both of these modules should be equivalent.
+                
+        Parameters
+        ----------
+        EBV : float
+            Galactic reddening, e.g., from `https://irsa.ipac.caltech.edu/applications/DUST/`.
+            
+        Rv : float
+            Selective extinction ratio, `Rv=Av/(E(B-V))`.
+        
+        radec : None or (float, float)
+            If provided, query IRSA for EBV based on these coordinates 
+            with `get_irsa_dust(type=[ebv_type])`. 
+            
+        force : None, 'extinction', 'specutils.extinction'
+            Force use one or the other modules.  If `None`, then first try
+            to import `~specutils.extinction` and if that fails use
+            `~extinction`.
+        """
+        
+        # Import handler
+        if force == 'specutils.extinction':
+            import specutils.extinction
+            self.module = 'specutils.extinction'
+        elif force == 'extinction':
+            from extinction import Fitzpatrick99
+            self.module = 'extinction'
+        else:
+            try:
+                import specutils.extinction
+                self.module = 'specutils.extinction'
+            except:
+                from extinction import Fitzpatrick99
+                self.module = 'extinction'
+        
+        if radec is not None:
+            self.EBV = get_irsa_dust(ra=radec[0], dec=radec[1], type=ebv_type)
+        else:    
+            self.EBV = EBV
+        
+        self.Rv = Rv
+        self.Av = EBV*Rv
+        
+        if self.module == 'specutils.extinction':
+            self.f99 = specutils.extinction.ExtinctionF99(self.Av)
+            #self.Alambda = f99(self.wave*u.angstrom)
+        else:
+            self.f99 = Fitzpatrick99(self.Rv)
+            #self.Alambda = f99(self.wave*u.angstrom, Av)
+    
+    def info(self):
+        print('F99 extinction with `{0}`: Rv={1:.1f}, E(B-V)={2:.3f} (Av={3:.2f})'.format(self.module, self.Rv, self.EBV, self.Av))
+        
+    def __call__(self, wave):
+        """
+        Compute Fitzpatrick99 extinction.
+        
+        Parameters
+        ----------
+        wave : float or `~numpy.ndarray`
+            Observed-frame wavelengths.  If no `unit` attribute available, 
+            assume units are `~astropy.units.Angstrom`.
+        
+        Returns
+        -------
+        Alambda : like `wave`
+            F99 extinction (mags) as a function of wavelength.  Output will
+            be set to zero below 909 Angstroms and above 6 microns as the
+            extinction modules themselves don't compute outside that range.
+            
+        """
+        import astropy.units as u
+        if not hasattr(wave, 'unit'):
+            unit = u.angstrom
+        else:
+            unit = 1
+                
+        inwave = np.squeeze(wave).flatten()
+        clip = (inwave*unit > 909*u.angstrom) & (inwave*unit < 6*u.micron)
+        Alambda = inwave*0.
+        
+        if clip.sum() == 0:
+            return Alambda
+        else:
+            if self.module == 'specutils.extinction':
+                Alambda[clip] = self.f99(inwave[clip]*unit)
+            else:
+                Alambda[clip] = self.f99(inwave[clip]*unit, self.Av)
+        
+        return Alambda
+        
 class emceeChain():     
     def __init__(self, chain=None, file=None, param_names=[],
                        burn_fraction=0.5, sampler=None):

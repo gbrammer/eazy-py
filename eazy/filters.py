@@ -35,21 +35,9 @@ class FilterDefinition:
         
     def get_extinction(self, EBV=0, Rv=3.1):
         import astropy.units as u
-        try:
-            import specutils.extinction
-            HAS_SPECUTILS = True
-        except:
-            from extinction import Fitzpatrick99
-            HAS_SPECUTILS = False
-            
-        Av = EBV*Rv
-        if HAS_SPECUTILS:
-            f99 = specutils.extinction.ExtinctionF99(EBV*Rv)
-            self.Alambda = f99(self.wave*u.angstrom)
-        else:
-            f99 = Fitzpatrick99(Rv)
-            self.Alambda = f99(self.wave*u.angstrom, Av)
         
+        f99 = utils.GalacticExtinction(EBV=EBV, Rv=Rv)
+        self.Alambda = f99(self.wave)
         self.Aflux = 10**(-0.4*self.Alambda)
         
     def extinction_correction(self, EBV, Rv=3.1, mag=True, source_lam=None, source_flux = None):
@@ -59,12 +47,6 @@ class FilterDefinition:
         Optionally supply a source spectrum.
         """
         import astropy.units as u
-        try:
-            import specutils.extinction
-            HAS_SPECUTILS = True
-        except:
-            from extinction import Fitzpatrick99
-            HAS_SPECUTILS = False
              
         if self.wave is None:
             print('Filter not defined.')
@@ -74,21 +56,13 @@ class FilterDefinition:
             source_flux = self.throughput*0.+1
         else:
             source_flux = np.interp(self.wave, source_lam, source_flux, left=0, right=0)
-            
-        Av = EBV*Rv
-        if HAS_SPECUTILS:
-            if (self.wave.min() < 910) | (self.wave.max() > 6.e4):
-                Alambda = 0.
-            else:
-                f99 = specutils.extinction.ExtinctionF99(EBV*3.1)
-                Alambda = f99(self.wave*u.angstrom)
+        
+        if (self.wave.min() < 910) | (self.wave.max() > 6.e4):
+            Alambda = 0.
         else:
-            if (self.wave.min() < 910) | (self.wave.max() > 6.e4):
-                Alambda = 0.
-            else:
-                f99 = Fitzpatrick99(Rv)
-                Alambda = f99(self.wave*u.angstrom, Av)
-             
+            f99 = utils.GalacticExtinction(EBV=EBV, Rv=Rv)
+            Alambda = f99(self.wave)
+                         
         delta = np.trapz(self.throughput*source_flux*10**(-0.4*Alambda), self.wave) / np.trapz(self.throughput*source_flux, self.wave)
         
         if mag:
