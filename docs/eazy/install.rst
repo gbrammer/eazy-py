@@ -14,3 +14,6 @@ Installation instructions
     cd eazy-py
     python setup.py install
     
+Demonstration
+~~~~~~~~~~~~~
+See `HDFN-Example.ipynb <https://github.com/gbrammer/eazy-py/blob/master/docs/examples/HDFN-demo.ipynb>`__.
