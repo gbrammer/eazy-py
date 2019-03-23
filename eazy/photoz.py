@@ -152,6 +152,7 @@ class PhotoZ(object):
         else:
             self.cat = Table.read(self.param['CATALOG_FILE'], format='ascii.commented_header')
         self.NOBJ = len(self.cat)
+        self.prior_mag_cat = np.zeros(self.NOBJ)-1
         
         all_filters = filters.FilterFile(self.param['FILTERS_RES'])
         np.save(self.param['FILTERS_RES']+'.npy', [all_filters])
@@ -1132,7 +1133,8 @@ class PhotoZ(object):
             
             flux_unit = 1.e-19*u.erg/u.s/u.cm**2/u.AA
                         
-        data = OrderedDict(ix=ix, id=self.cat['id'][ix], z=z,
+        try:
+            data = OrderedDict(ix=ix, id=self.cat['id'][ix], z=z,
                            lc=self.lc, model=fmodel*fnu_factor*flam_sed,
                            emodel=efmodel*fnu_factor*flam_sed,
                            fobs=fnu_i*fnu_factor*flam_sed, 
@@ -1142,7 +1144,9 @@ class PhotoZ(object):
                            unit=show_fnu*1,
                            flux_unit=flux_unit,
                            wave_unit=u.AA)
-
+        except:
+            data = None
+            
         if get_spec:            
             return data
         
