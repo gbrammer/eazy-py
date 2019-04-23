@@ -125,7 +125,7 @@ class PhotoZ(object):
             obj_ix = 2480
             obj_ix = idx[i]
     
-    def load_products(self):
+    def load_products(self, compute_error_residuals=True):
         zout_file = '{0}.zout.fits'.format(self.param['MAIN_OUTPUT_FILE'])
         if os.path.exists(zout_file):
             print('Load products: {0}'.format(zout_file))
@@ -137,9 +137,12 @@ class PhotoZ(object):
             self.ubvj = data['REST_UBVJ'].data*1
             
             self.zout = Table.read(zout_file)
-            for iter in range(2):
+            if compute_error_residuals:
+                for iter in range(2):
+                    self.best_fit(zbest=self.zout['z_phot'].data, prior=False)
+                    self.error_residuals()
+            else:
                 self.best_fit(zbest=self.zout['z_phot'].data, prior=False)
-                self.error_residuals()
                
     def read_catalog(self, verbose=True):
         #from astropy.table import Table
@@ -993,7 +996,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
         
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4]):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100):
         """
         Show SED and p(z) of a single object
         
@@ -1083,9 +1086,9 @@ class PhotoZ(object):
         
         ok_band = (fnu_i/self.zp > -90) & (efnu_i/self.zp > 0)
         
-        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, self.TEF(self.zbest[ix]), self.zp, 100)
+        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, self.TEF(self.zbest[ix]), self.zp, NDRAW)
         if draws is None:
-            efmodel = None
+            efmodel = 0
         else:
             #tf = self.tempfilt(zi)
             efmodel = np.squeeze(np.diff(np.percentile(np.dot(draws, A), [16,84], axis=0), axis=0)/2.)
@@ -1164,21 +1167,26 @@ class PhotoZ(object):
                   color=template_color, label=None, zorder=2, s=50, 
                   alpha=0.8)
 
-        if efmodel is None:
+        if draws is not None:
             ax.errorbar(self.lc/1.e4, fmodel*fnu_factor*flam_sed,
                         efmodel*fnu_factor*flam_sed, alpha=0.8,
                         color=template_color, zorder=2,
                         marker='None', linestyle='None', label=None)
         
-        missing = (fnu_i < -90) | (efnu_i < -90)
+        # Missing data
+        missing = (fnu_i < self.param.params['NOT_OBS_THRESHOLD']) | (efnu_i < 0)
+        
+        # Detection
         sn2_detection = (~missing) & (fnu_i/efnu_i > 2)
+        
+        # S/N < 2
         sn2_not = (~missing) & (fnu_i/efnu_i <= 2)
         
         ax.errorbar(self.lc[sn2_detection]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_detection], (efnu_i*fnu_factor*flam_sed)[sn2_detection], color='k', marker='s', linestyle='None', label=None, zorder=10)
 
         ax.errorbar(self.lc[sn2_not]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_not], (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', marker='s', alpha=0.4, linestyle='None', label=None)
 
-        ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing], (efnu_i*fnu_factor*flam_sed)[missing], color='0.7', marker='x', linestyle='None', alpha=0.4, label=None)
+        ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing]*0, (efnu_i*fnu_factor*flam_sed)[missing], color='0.7', marker='x', linestyle='None', alpha=0.4, label=None)
         
         pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1, color=template_color, label='z={0:.2f}'.format(z))
         
@@ -1193,18 +1201,26 @@ class PhotoZ(object):
             templf_width = np.percentile(templf_draws*fnu_factor*flam_spec, [16,84], axis=0)
             ax.fill_between(templz/1.e4, templf_width[0,:], templf_width[1,:], color=pl[0].get_color(), alpha=0.1, label=None)
             
-        if axes is None:
-            ax.set_xlim(xlim)
-            xt = np.array([0.5, 1, 2, 4])*1.e4
-            
+        if axes is None:            
             ax.set_ylabel(ylabel)
             
-            ymax = (fmodel*fnu_factor*flam_sed)[sn2_detection].max()
+            if sn2_detection.sum() > 0:
+                ymax = (fmodel*fnu_factor*flam_sed)[sn2_detection].max()
+            else:
+                ymax = (fmodel*fnu_factor*flam_sed).max()
+
             ax.set_ylim(-0.1*ymax, 1.2*ymax)
+
+            ax.set_xlim(xlim)
+            xt = np.array([0.1, 0.5, 1, 2, 4, 8, 24, 160, 350, 500])*1.e4
+
             ax.semilogx()
 
-            ax.set_xticks(xt/1.e4)
-            ax.set_xticklabels(xt/1.e4)
+            valid_ticks = (xt > xlim[0]*1.e4) & (xt < xlim[1]*1.e4)
+            if valid_ticks.sum() > 0:
+                xt = xt[valid_ticks]
+                ax.set_xticks(xt/1.e4)
+                ax.set_xticklabels(xt/1.e4)
 
             ax.set_xlabel(r'$\lambda_\mathrm{obs}$')
             ax.grid()
