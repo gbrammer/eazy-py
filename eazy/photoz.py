@@ -1532,7 +1532,30 @@ class PhotoZ(object):
         #PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/spectra_kc13_12_tweak.params')
         #temp_MLv, temp_SFRv = np.loadtxt(PARAM_FILE, unpack=True)
         
-        tab_temp = Table.read(self.param['TEMPLATES_FILE']+'.fits')
+        template_params_file = self.param['TEMPLATES_FILE']+'.fits'
+        if os.path.exists(template_params_file):
+            tab_temp = Table.read(template_params_file)
+            has_template_params = True
+        else:
+            # Dummy
+            msg = """
+ Couldn't find template parameters file {0} for population synthesis 
+ calculations.
+            """
+            print(msg.format(template_params_file))
+            has_template_params = False
+            tab_temp = Table()
+            
+            cols = ['Av', 'mass', 'Lv', 'sfr', 'formed_100', 'formed_total',
+                    'LIR', 'line_EW_Ha', 'line_C_Ha', 'line_flux_Ha', 
+                    'line_EW_O3', 'line_C_O3', 'line_flux_O3', 
+                    'line_EW_Hb', 'line_C_Hb', 'line_flux_Hb', 
+                    'line_EW_O2', 'line_C_O2', 'line_flux_O2', 
+                    'line_EW_Lya', 'line_C_Lya', 'line_flux_Lya']
+                    
+            for c in cols:
+                tab_temp[c] = np.ones(self.NTEMP)*np.nan
+                
         temp_MLv = tab_temp['mass']/tab_temp['Lv']
         temp_SFRv = tab_temp['sfr']
         
@@ -1688,7 +1711,7 @@ class PhotoZ(object):
         
         for col in tab.colnames:
             bad = ~np.isfinite(tab[col])
-            tab[col][bad] = -999
+            tab[col][bad] = -99e29
             
         tab.meta['FNUSCALE'] = (fnu_scl, 'Scale factor to f-nu CGS')
         tab.meta['COSMOL'] = (cosmology.name, 'Cosmological model')
