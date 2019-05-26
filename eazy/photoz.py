@@ -125,7 +125,7 @@ class PhotoZ(object):
             obj_ix = 2480
             obj_ix = idx[i]
     
-    def load_products(self, compute_error_residuals=True):
+    def load_products(self, compute_error_residuals=True, fitter='nnls'):
         zout_file = '{0}.zout.fits'.format(self.param['MAIN_OUTPUT_FILE'])
         if os.path.exists(zout_file):
             print('Load products: {0}'.format(zout_file))
@@ -139,10 +139,12 @@ class PhotoZ(object):
             self.zout = Table.read(zout_file)
             if compute_error_residuals:
                 for iter in range(2):
-                    self.best_fit(zbest=self.zout['z_phot'].data, prior=False)
+                    self.best_fit(zbest=self.zout['z_phot'].data, prior=False, 
+                                  fitter=fitter)
                     self.error_residuals()
             else:
-                self.best_fit(zbest=self.zout['z_phot'].data, prior=False)
+                self.best_fit(zbest=self.zout['z_phot'].data, prior=False,
+                              fitter=fitter)
                
     def read_catalog(self, verbose=True):
         #from astropy.table import Table
@@ -506,7 +508,7 @@ class PhotoZ(object):
             np.savetxt(templ_file, np.array([templ.wave, templ.flux]).T,
                        fmt='%.6e')
                            
-    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False):
+    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls'):
 
         import numpy as np
         import matplotlib.pyplot as plt
@@ -544,7 +546,7 @@ class PhotoZ(object):
         t0 = time.time()
         pool = mp.Pool(processes=n_proc)
         
-        results = [pool.apply_async(_fit_vertical, (iz, self.zgrid[iz],  self.tempfilt(self.zgrid[iz]), fnu_corr, efnu_corr, self.TEF, self.zp, self.param.params['VERBOSITY'])) for iz in range(self.NZ)]
+        results = [pool.apply_async(_fit_vertical, (iz, self.zgrid[iz],  self.tempfilt(self.zgrid[iz]), fnu_corr, efnu_corr, self.TEF, self.zp, self.param.params['VERBOSITY'], fitter)) for iz in range(self.NZ)]
 
         pool.close()
         pool.join()
@@ -560,7 +562,7 @@ class PhotoZ(object):
             if verbose:
                 print('Compute best fits')
             
-            self.best_fit(prior=prior, beta_prior=beta_prior)
+            self.best_fit(prior=prior, beta_prior=beta_prior, fitter=fitter)
         
         t1 = time.time()
         if verbose:
@@ -622,7 +624,7 @@ class PhotoZ(object):
             fig.axes[0].scatter(self.lc, model*flam_factor, color='orange')
             fig.axes[0].errorbar(self.lc, fnu_i*flam_factor, rms*flam_factor, color='g', marker='s', linestyle='None')
     
-    def best_fit(self, zbest=None, prior=False, beta_prior=True, get_err=False):
+    def best_fit(self, zbest=None, prior=False, beta_prior=True, get_err=False, fitter='nnls'):
         self.fmodel = self.fnu*0.
         self.efmodel = self.fnu*0.
         
@@ -680,7 +682,7 @@ class PhotoZ(object):
             fnu_i = fnu_corr[iobj, :]
             efnu_i = efnu_corr[iobj,:]
             if get_err:
-                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100)
+                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
                 if draws is None:
                     self.efmodel[iobj,:] = -1
                 else:
@@ -688,7 +690,7 @@ class PhotoZ(object):
                     self.efmodel[iobj,:] = np.diff(np.percentile(np.dot(draws, A), [16,84], axis=0), axis=0)/2.
                     self.coeffs_draws[iobj, :, :] = draws
             else:
-                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False)
+                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False, fitter)
                 
     def best_redshift(self, prior=True, beta_prior=True):
         """Fit parabola to chi2 to get best minimum
@@ -996,7 +998,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
         
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls'):
         """
         Show SED and p(z) of a single object
         
@@ -1086,7 +1088,7 @@ class PhotoZ(object):
         
         ok_band = (fnu_i/self.zp > -90) & (efnu_i/self.zp > 0)
         
-        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, self.TEF(self.zbest[ix]), self.zp, NDRAW)
+        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, self.TEF(self.zbest[ix]), self.zp, NDRAW, fitter)
         if draws is None:
             efmodel = 0
         else:
@@ -1208,8 +1210,9 @@ class PhotoZ(object):
                 ymax = (fmodel*fnu_factor*flam_sed)[sn2_detection].max()
             else:
                 ymax = (fmodel*fnu_factor*flam_sed).max()
-
-            ax.set_ylim(-0.1*ymax, 1.2*ymax)
+                        
+            if np.isfinite(ymax):
+                ax.set_ylim(-0.1*ymax, 1.2*ymax)
 
             ax.set_xlim(xlim)
             xt = np.array([0.1, 0.5, 1, 2, 4, 8, 24, 160, 350, 500])*1.e4
@@ -1293,7 +1296,7 @@ class PhotoZ(object):
         else:
             return fig, data
             
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], verbose=1):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], verbose=1, fitter='nnls'):
         """
         Rest-frame colors
         """
@@ -1338,7 +1341,7 @@ class PhotoZ(object):
 
                 TEFz = (2/(1+grow/grow.max())-1)*max_err
             
-                chi2_i, coeffs_i, fmodel_i, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100)
+                chi2_i, coeffs_i, fmodel_i, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
                 if draws is None:
                     f_rest[ix,i,:] = np.zeros(len(percentiles))-1
                 else:
@@ -1523,7 +1526,7 @@ class PhotoZ(object):
         
         return peaks, numpeaks
         
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5]):
         """
         Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
         """        
@@ -1699,8 +1702,8 @@ class PhotoZ(object):
         if self.get_err:
             # Propagate coeff covariance to parameters
             
-            coeffs_draws = self.coeffs_draws*self.ubvj_tempfilt.tempfilt[:,2]
-            #coeffs_draws = np.maximum(coeffs_draws, 0)
+            coeffs_draws = np.maximum(self.coeffs_draws, 0)
+            coeffs_draws *= self.ubvj_tempfilt.tempfilt[:,2]
             draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
         
             massv_draws = (draws_norm*tab_temp['mass']).sum(axis=2)*u.solMass
@@ -1708,15 +1711,21 @@ class PhotoZ(object):
             LIR_draws = (draws_norm*templ_LIR).sum(axis=2)*u.solLum
             SFR_draws = (draws_norm*tab_temp['sfr']).sum(axis=2)*u.solMass/u.yr
             
-            mass_err  = np.percentile(((massv_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
-            LIR_err = np.percentile(((LIR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
-            SFR_err = np.percentile(((SFR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
+            mass_err  = np.percentile(((massv_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
+            LIR_err = np.percentile(((LIR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
+            SFR_err = np.percentile(((SFR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
+            #sSFR_err = np.percentile(((massv_draws / Lv_draws).T*Lv).T/((SFR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
+            sSFR_err = np.percentile(SFR_draws / massv_draws, percentile_limits, axis=1).T
+            
             
             tab['massp'] = mass_err
             tab['massp'].format = '.2e'
 
             tab['SFRp'] = SFR_err
             tab['SFRp'].format = '.2e'
+
+            tab['sSFRp'] = sSFR_err
+            tab['sSFRp'].format = '.2e'
             
             tab['LIRp'] = LIR_err
             tab['LIRp'].format = '.2e'
@@ -1752,7 +1761,7 @@ class PhotoZ(object):
                 
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True):
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls'):
         import astropy.io.fits as pyfits
         from .version import __version__
         
@@ -1760,7 +1769,8 @@ class PhotoZ(object):
             print('Get best fit coeffs & best redshifts')
         
         self.compute_pz(prior=prior, beta_prior=beta_prior)    
-        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior, get_err=get_err)
+        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior, get_err=get_err,
+                      fitter=fitter)
         
         peaks, numpeaks = self.find_peaks()
         zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
@@ -1808,7 +1818,7 @@ class PhotoZ(object):
         if verbose:
             print('Get parameters (UBVJ={0}, LIR={1})'.format(UBVJ, LIR_wave))
             
-        sps_tab = self.sps_parameters(UBVJ=UBVJ, extra_rf_filters=extra_rf_filters, cosmology=cosmology, LIR_wave=LIR_wave, rf_pad_width=rf_pad_width, rf_max_err=rf_max_err)
+        sps_tab = self.sps_parameters(UBVJ=UBVJ, extra_rf_filters=extra_rf_filters, cosmology=cosmology, LIR_wave=LIR_wave, rf_pad_width=rf_pad_width, rf_max_err=rf_max_err, percentile_limits=percentile_limits)
         for col in sps_tab.colnames:
             tab[col] = sps_tab[col]
         
@@ -2357,7 +2367,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     
     return itemp, tempfilt
             
-def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose):
+def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose, fitter):
     
     NOBJ, NFILT = fnu_corr.shape#[0]
     NTEMP = A.shape[0]
@@ -2377,11 +2387,11 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose):
         if ok_band.sum() < 2:
             continue
         
-        chi2[iobj], coeffs[iobj], fmodel, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, False)
+        chi2[iobj], coeffs[iobj], fmodel, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, False, fitter)
             
     return iz, chi2, coeffs
 
-def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
+def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     from scipy.optimize import nnls
 
     sh = A.shape
@@ -2404,9 +2414,26 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
         return np.inf, np.zeros(A.shape[0]), fmodel, None
     
     # Least-squares fit    
-    Ax = (A/rms).T[ok_band,:]
+    Ax = (A/rms).T[ok_band,:]*1
     try:
-        coeffs_x, rnorm = nnls(Ax[:,ok_temp], (fnu_i/rms)[ok_band])
+        if fitter == 'nnls':
+            coeffs_x, rnorm = nnls(Ax[:,ok_temp], (fnu_i/rms)[ok_band])
+        else:
+            # With regularization
+            lamb = 0.5
+            Ai = Ax[:,ok_temp]*1
+            An = np.median(Ai)
+            Ai /= An
+            n_col = Ai.shape[1]
+            y = (fnu_i/rms)[ok_band]
+            LHS, RHS = Ai.T.dot(Ai) + lamb * np.identity(n_col), Ai.T.dot(y)
+            #coeffs_x, _, _, _ = np.linalg.lstsq(LHS, RHS, rcond=None)
+            coeffs_x = np.linalg.solve(LHS, RHS)#, rcond=None)
+            coeffs_x /= An
+            
+            # coeffs_x, _, _, _ = np.linalg.lstsq(Ax[:,ok_temp], (fnu_i/rms)[ok_band],
+            #                                     rcond=None)
+                        
         coeffs_i = np.zeros(sh[0])
         coeffs_i[ok_temp] = coeffs_x
     except:
@@ -2417,11 +2444,17 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err):
     
     coeffs_draw = None
     if get_err > 0:
-        ok_temp = coeffs_i > 0
+        if fitter == 'nnls':
+            ok_temp = coeffs_i > 0
+            LHS = Ax[:,ok_temp]*1
+            An = 1.
+        else:
+            ok_temp = coeffs_i != 0
         
         coeffs_draw = np.zeros((get_err, A.shape[0]))
         try:
-            covar = np.matrix(np.dot(Ax[:,ok_temp].T, Ax[:,ok_temp])).I
+            covar = np.matrix(np.dot(LHS.T, LHS)).I/An**2
+            #covar = np.matrix(np.dot(Ax[:,ok_temp].T, Ax[:,ok_temp])).I
             coeffs_draw[:, ok_temp] = np.random.multivariate_normal(coeffs_i[ok_temp], covar, size=get_err)
         except:
             coeffs_draw = None
