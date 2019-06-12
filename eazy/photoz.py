@@ -339,7 +339,7 @@ class PhotoZ(object):
         if not os.path.exists(self.param['PRIOR_FILE']):
             return False
             
-        prior_raw = np.loadtxt(self.param['PRIOR_FILE'])
+        prior_raw = np.loadtxt(self.param['PRIOR_FILE'], allow_pickle=True)
         prior_header = open(self.param['PRIOR_FILE']).readline()
         
         self.prior_mags = np.cast[float](prior_header.split()[2:])
@@ -2213,7 +2213,7 @@ class TemplateGrid(object):
         self.idx = np.arange(self.NZ, dtype=int)
                 
         if filters is None:
-            all_filters = np.load(RES+'.npy')[0]
+            all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
             filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
         
         self.lc = np.array([f.pivot() for f in filters])
@@ -2313,7 +2313,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     import astropy.units as u
             
     if filters is None:
-        all_filters = np.load(RES+'.npy')[0]
+        all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
         filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
     
     NZ = len(zgrid)
