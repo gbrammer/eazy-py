@@ -341,7 +341,7 @@ class PhotoZ(object):
         if not os.path.exists(self.param['PRIOR_FILE']):
             return False
             
-        prior_raw = np.loadtxt(self.param['PRIOR_FILE'], allow_pickle=True)
+        prior_raw = np.loadtxt(self.param['PRIOR_FILE'])
         prior_header = open(self.param['PRIOR_FILE']).readline()
         
         self.prior_mags = np.cast[float](prior_header.split()[2:])
