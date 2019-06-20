@@ -72,7 +72,10 @@ class PhotoZ(object):
                 
         ### Read catalog and filters
         self.read_catalog()
-        
+        if self.NFILT < 1:
+            print('\n!! No filters found, maybe a problem with the translate file?\n')
+            return None
+            
         self.idx = np.arange(self.NOBJ, dtype=int)
         
         ### Read prior file
