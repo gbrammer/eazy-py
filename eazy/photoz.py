@@ -61,7 +61,9 @@ class PhotoZ(object):
             self.param.params[key] = params[key]
             
         ### Read templates
-        self.templates = self.param.read_templates(templates_file=self.param['TEMPLATES_FILE'])
+        self.templates = self.param.read_templates(templates_file=self.param['TEMPLATES_FILE'], 
+                          velocity_smooth=self.param['TEMPLATE_SMOOTH'])
+                          
         self.NTEMP = len(self.templates)
         
         ### Set redshift fit grid

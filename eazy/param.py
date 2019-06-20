@@ -55,7 +55,7 @@ class EazyParam():
         if read_templates:
             self.templates = self.read_templates(templates_file=self.params['TEMPLATES_FILE'])
             
-    def read_templates(self, templates_file=None):
+    def read_templates(self, templates_file=None, velocity_smooth=-1):
         
         lines = open(templates_file).readlines()
         templates = []
@@ -67,6 +67,22 @@ class EazyParam():
             template_file = line.split()[1]
             templ = Template(file=template_file)
             templ.wave *= float(line.split()[2])
+            
+            if velocity_smooth > 0:
+                try:
+                    from prospect.utils.smoothing import smooth_vel
+                    sm_flux = smooth_vel(templ.wave, templ.flux, templ.wave, 
+                                         velocity_smooth)
+                    templ.flux_orig = templ.flux
+                    templ.flux = sm_flux
+                except:
+                    print("""
+"prospect" needed for template smoothing.     
+Try installing with `pip install git+https://github.com/bd-j/prospector.git`.
+                    """)
+                    pass
+                    
+                    
             templ.set_fnu()
             templates.append(templ)
         
@@ -162,6 +178,9 @@ class TranslateFile():
         self.error = collections.OrderedDict()
         for line in lines:
             spl = line.split()
+            if (line.strip() == '') | (len(spl) < 2):
+                continue
+            
             key = spl[0]
             self.ordered_keys.append(key)
             self.trans[key] = spl[1]
