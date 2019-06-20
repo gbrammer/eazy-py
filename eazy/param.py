@@ -73,6 +73,8 @@ class EazyParam():
                     from prospect.utils.smoothing import smooth_vel
                     sm_flux = smooth_vel(templ.wave, templ.flux, templ.wave, 
                                          velocity_smooth)
+                    
+                    sm_flux[~np.isfinite(sm_flux)] = 0.
                     templ.flux_orig = templ.flux
                     templ.flux = sm_flux
                 except:
