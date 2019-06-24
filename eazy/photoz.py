@@ -1003,7 +1003,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
         
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls'):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True):
         """
         Show SED and p(z) of a single object
         
@@ -1193,7 +1193,8 @@ class PhotoZ(object):
 
         ax.errorbar(self.lc[sn2_not]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_not], (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', marker='s', alpha=0.4, linestyle='None', label=None)
 
-        ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing]*0, (efnu_i*fnu_factor*flam_sed)[missing], color='0.7', marker='x', linestyle='None', alpha=0.4, label=None)
+        if show_missing:
+            ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing]*0, (efnu_i*fnu_factor*flam_sed)[missing], color='0.7', marker='x', linestyle='None', alpha=0.4, label=None)
         
         pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1, color=template_color, label='z={0:.2f}'.format(z))
         
