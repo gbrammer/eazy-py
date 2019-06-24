@@ -1845,7 +1845,7 @@ class PhotoZ(object):
         self.translate.write('{0}.zphot.translate'.format(root))
         
         hdu = pyfits.HDUList(pyfits.PrimaryHDU())
-        hdu.append(pyfits.ImageHDU(self.cat['id'].astype(np.uint32), name='ID'))
+        #hdu.append(pyfits.ImageHDU(self.cat['id'].astype(np.uint32), name='ID'))
         hdu.append(pyfits.ImageHDU(self.zbest.astype(np.float32), name='ZBEST'))
         hdu.append(pyfits.ImageHDU(self.zgrid.astype(np.float32), name='ZGRID'))
         hdu.append(pyfits.ImageHDU(self.fit_chi2.astype(np.float32), name='CHI2'))
