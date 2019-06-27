@@ -47,6 +47,11 @@ class FilterDefinition:
         Optionally supply a source spectrum.
         """
         import astropy.units as u
+        try:
+            import grizli.utils_c
+            interp = grizli.utils_c.interp.interp_conserve_c
+        except ImportError:
+            interp = utils.interp_conserve
              
         if self.wave is None:
             print('Filter not defined.')
@@ -55,7 +60,7 @@ class FilterDefinition:
         if source_flux is None:
             source_flux = self.throughput*0.+1
         else:
-            source_flux = np.interp(self.wave, source_lam, source_flux, left=0, right=0)
+            source_flux = interp(self.wave, source_lam, source_flux, left=0, right=0)
         
         if (self.wave.min() < 910) | (self.wave.max() > 6.e4):
             Alambda = 0.
@@ -76,6 +81,11 @@ class FilterDefinition:
         """
         from astropy.constants import c
         import astropy.units as u
+        try:
+            import grizli.utils_c
+            interp = grizli.utils_c.interp.interp_conserve_c
+        except ImportError:
+            interp = utils.interp_conserve
         
         # Union of throughput and Vega spectrum arrays
         full_x = np.hstack([self.wave, VEGA['WAVELENGTH']])
@@ -83,10 +93,10 @@ class FilterDefinition:
 
         # Vega spectrum, units of f-lambda flux density, cgs
         # Interpolate to wavelength grid, no extrapolation
-        vega_full = np.interp(full_x, VEGA['WAVELENGTH'], VEGA['FLUX'], 
+        vega_full = interp(full_x, VEGA['WAVELENGTH'], VEGA['FLUX'], 
                               left=0, right=0)
                               
-        thru_full = np.interp(full_x, self.wave, self.throughput, 
+        thru_full = interp(full_x, self.wave, self.throughput, 
                               left=0, right=0)        
         
         # AB = 0, same units

@@ -1,6 +1,8 @@
 import os
 import numpy as np
 
+from . import utils
+
 #import unicorn
 
 __all__ = ["TemplateError", "Template"]
@@ -70,10 +72,10 @@ class Template():
             import grizli.utils_c
             interp = grizli.utils_c.interp.interp_conserve_c
         except ImportError:
-            interp = np.interp
+            interp = utils.interp_conserve
         
         templ_filter = interp(filter.wave, self.wave*(1+z),
-                              self.flux_fnu*scale)
+                              self.flux_fnu*scale, left=0, right=0)
                 
         # f_nu/lam dlam == f_nu d (ln nu)    
         integrator = np.trapz

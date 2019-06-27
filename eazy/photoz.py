@@ -2274,8 +2274,10 @@ class TemplateGrid(object):
         if interpolator is None:
             self.spline = scipy.interpolate.Akima1DInterpolator(self.zgrid, self.tempfilt, axis=0)
             #self.spline = scipy.interpolate.CubicSpline(self.zgrid, self.tempfilt)
+            self.interpolator_function = scipy.interpolate.Akima1DInterpolator
         else:
             self.spline = interpolator(self.zgrid, self.tempfilt)
+            self.interpolator_function = interpolator
     
     def apply_SFH_constraint(self, max_mass_frac=0.5, cosmology=None, sfh_file='templates/fsps_full/fsps_QSF_12_v3.sfh.fits'):
         """
