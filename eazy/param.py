@@ -91,6 +91,10 @@ Try installing with `pip install git+https://github.com/bd-j/prospector.git`.
         return templates
             
     def show_templates(self, interp_wave=None, ax=None, fnu=False):
+        """
+        Show the templates
+        """
+        
         if ax is None:
             ax = plt
         
