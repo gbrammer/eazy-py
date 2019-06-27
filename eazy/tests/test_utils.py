@@ -26,7 +26,8 @@ class Dummy(unittest.TestCase):
         """
         Test log_zgrid function
         """
-        ref = np.array([0.1, 0.21568801, 0.34354303, 0.48484469, 0.64100717, 0.8135934])
+        ref = np.array([0.1, 0.21568801, 0.34354303, 0.48484469, 
+                        0.64100717, 0.8135934])
         
         vals = utils.log_zgrid(zr=[0.1, 1], dz=0.1)
         np.testing.assert_allclose(vals, ref, rtol=1e-04, atol=1.e-4,

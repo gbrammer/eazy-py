@@ -239,30 +239,6 @@ class GalacticExtinction(object):
                 Alambda[clip] = self.f99(inwave[clip]*unit, self.Av)
         
         return Alambda
-
-def _test_interp_conserve():
-    """
-    Test interpolation functions
-    """
-    import eazy.utils
-    from grizli.utils_c import interp
-    
-    ph = 0.1
-    xp = np.arange(-np.pi,3*np.pi,0.001)
-    fp = np.sin(xp/ph)
-    fp[(xp <= 0) | (xp > 2*np.pi)] = 0
-    
-    x = np.arange(-np.pi/2,2.5*np.pi,1)
-    y0 = np.interp(x, xp, fp)
-
-    y1 = eazy.utils.interp_conserve(x, xp, fp)
-    y2 = interp.interp_conserve_c(x, xp, fp)
-    
-    print('Integrals\n==========\n')
-    print('Native function (zero)    : {0:6.3f}'.format(np.trapz(fp, xp)))
-    print('Naive linear interpolation: {0:6.3f}'.format(np.trapz(y0, x)))
-    print('eazypy.interp_conserve    : {0:6.3f}'.format(np.trapz(y1, x)))
-    print('grizli.interp_conserve_c  : {0:6.3f}'.format(np.trapz(y2, x)))
     
 def interp_conserve(x, xp, fp, left=0., right=0.):
     """
