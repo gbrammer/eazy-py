@@ -248,6 +248,9 @@ class PhotoZ(object):
         self.efnu[~self.ok_data] = -99
         
         self.nusefilt = self.ok_data.sum(axis=1)
+        self.lc_reddest = np.max(self.ok_data*self.lc, axis=1)
+        self.lc_zmax = self.zgrid.max()
+        self.clip_wavelength = None
         
         # Translate the file itself    
         # for k in self.translate.trans:
@@ -629,7 +632,7 @@ class PhotoZ(object):
             fig.axes[0].scatter(self.lc, model*flam_factor, color='orange')
             fig.axes[0].errorbar(self.lc, fnu_i*flam_factor, rms*flam_factor, color='g', marker='s', linestyle='None')
     
-    def best_fit(self, zbest=None, prior=False, beta_prior=True, get_err=False, fitter='nnls'):
+    def best_fit(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls'):
         self.fmodel = self.fnu*0.
         self.efmodel = self.fnu*0.
         
@@ -641,7 +644,8 @@ class PhotoZ(object):
         self.zbest_grid = self.zgrid[izbest]
         if zbest is None:
             self.zbest, self.chi_best = self.best_redshift(prior=prior,
-                                                    beta_prior=beta_prior)
+                                                    beta_prior=beta_prior,
+                                            clip_wavelength=clip_wavelength)
             
             self.zbest_with_prior = prior
             self.zbest_with_beta_prior = beta_prior
@@ -649,7 +653,8 @@ class PhotoZ(object):
             
             # No prior, redshift at minimum chi-2
             self.zchi2, self.chi2_noprior = self.best_redshift(prior=False,
-                                                    beta_prior=False)
+                                                    beta_prior=False,
+                                            clip_wavelength=clip_wavelength)
             self.zchi2[~has_chi2] = -1
         else:
             self.zbest = zbest
@@ -697,7 +702,7 @@ class PhotoZ(object):
             else:
                 chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False, fitter)
                 
-    def best_redshift(self, prior=True, beta_prior=True):
+    def best_redshift(self, prior=True, beta_prior=True, clip_wavelength=1100):
         """Fit parabola to chi2 to get best minimum
         
         TBD: include prior
@@ -715,6 +720,14 @@ class PhotoZ(object):
             test_chi2 = self.fit_chi2-2*np.log(self.full_prior*p_beta)
         else:
             test_chi2 = self.fit_chi2-2*np.log(p_beta)
+        
+        if clip_wavelength is not None:
+            # Set pz=0 at redshifts where clip_wavelength beyond reddest 
+            # filter
+            red_mask = ((clip_wavelength*(1+self.zgrid))[:,None] > self.lc_reddest[None, :]).T
+            test_chi2[red_mask] = np.inf
+            self.lc_zmax = self.lc_reddest/clip_wavelength - 1
+            self.clip_wavelength = clip_wavelength
             
         #izbest0 = np.argmin(self.fit_chi2, axis=1)
         izbest = np.argmin(test_chi2, axis=1)*has_chi2
@@ -1093,7 +1106,7 @@ class PhotoZ(object):
         
         ok_band = (fnu_i/self.zp > -90) & (efnu_i/self.zp > 0)
         
-        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, self.TEF(self.zbest[ix]), self.zp, NDRAW, fitter)
+        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, self.TEF(z), self.zp, NDRAW, fitter)
         if draws is None:
             efmodel = 0
         else:
@@ -1420,7 +1433,20 @@ class PhotoZ(object):
         #     chain_rms[i] = np.std(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
         #     chain_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
     
-    def compute_pz(self, prior=False, beta_prior=False):
+    def compute_pz(self, prior=False, beta_prior=False, clip_wavelength=1100):
+        """
+        prior : bool
+            Apply apparent magnitude prior
+        
+        beta_prior : bool
+            Apply UV-slope beta prior
+        
+        clip_wavelength : float or None
+            If specified, set pz = 0 at redshifts beyond where 
+            `clip_wavelength*(1+z)` is greater than the reddest valid filter
+            for a given object.
+            
+        """
         has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
         min_chi2 = self.fit_chi2[has_chi2,:].min(axis=1)
         pz = np.exp(-(self.fit_chi2[has_chi2,:].T-min_chi2)/2.).T
@@ -1428,6 +1454,14 @@ class PhotoZ(object):
         if prior:
             pz *= self.full_prior[has_chi2,:]
         
+        if clip_wavelength is not None:
+            # Set pz=0 at redshifts where clip_wavelength beyond reddest 
+            # filter
+            red_mask = ((clip_wavelength*(1+self.zgrid))[:,None] > self.lc_reddest[None, has_chi2]).T
+            pz[red_mask] *= 0
+            self.lc_zmax = self.lc_reddest/clip_wavelength - 1
+            self.clip_wavelength = clip_wavelength
+            
         if beta_prior:
             self.p_beta[has_chi2,:] = self.prior_beta(w1=1350, w2=1800, sample=has_chi2)
             self.p_beta[~np.isfinite(self.p_beta)] = 1.e-10
@@ -1767,16 +1801,15 @@ class PhotoZ(object):
                 
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls'):
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', clip_wavelength=1100):
         import astropy.io.fits as pyfits
         from .version import __version__
         
         if verbose:
             print('Get best fit coeffs & best redshifts')
         
-        self.compute_pz(prior=prior, beta_prior=beta_prior)    
-        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior, get_err=get_err,
-                      fitter=fitter)
+        self.compute_pz(prior=prior, beta_prior=beta_prior, clip_wavelength=clip_wavelength)    
+        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior, get_err=get_err, fitter=fitter, clip_wavelength=clip_wavelength)
         
         peaks, numpeaks = self.find_peaks()
         zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
