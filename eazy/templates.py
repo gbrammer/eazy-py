@@ -18,7 +18,12 @@ class TemplateError():
             self.te_x, self.te_y = np.loadtxt(file, unpack=True)
         else:
             self.te_x, self.te_y = arrays
-            
+        
+        # Limits to control extrapolation
+        nonzero = self.te_y > 0
+        self.min_wavelength = self.te_x[nonzero].min()
+        self.max_wavelength = self.te_x[nonzero].max()
+           
         self.scale = scale
         self._spline = interpolate.CubicSpline(self.te_x, self.te_y)
         self.lc = lc
@@ -31,7 +36,12 @@ class TemplateError():
         return self._spline(filter_wavelength/(1+z))*self.scale
     
     def __call__(self, z):
-        return self._spline(self.lc/(1+z))*self.scale
+        lcz = self.lc/(1+z)
+        tef_z = self._spline(self.lc/(1+z))*self.scale 
+        clip = (lcz < self.min_wavelength) | (lcz > self.max_wavelength)
+        tef_z[clip] = 0.
+        
+        return tef_z
         
 class Template():
     def __init__(self, sp=None, file=None, name=None, arrays=None):
