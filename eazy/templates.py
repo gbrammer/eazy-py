@@ -36,7 +36,7 @@ class TemplateError():
         return self._spline(filter_wavelength/(1+z))*self.scale
     
     def __call__(self, z):
-        lcz = self.lc/(1+z)
+        lcz = np.array(self.lc)/(1+z)
         tef_z = self._spline(self.lc/(1+z))*self.scale 
         clip = (lcz < self.min_wavelength) | (lcz > self.max_wavelength)
         tef_z[clip] = 0.
