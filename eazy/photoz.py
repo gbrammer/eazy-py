@@ -1601,6 +1601,12 @@ class PhotoZ(object):
         if os.path.exists(template_params_file):
             tab_temp = Table.read(template_params_file)
             has_template_params = True
+            if len(tab_temp) != self.NTEMP:
+                NADD = self.NTEMP - len(tab_temp)
+                msg = 'Warning: adding {0} empty rows to {1} to match NTEMP={2}'
+                print(msg.format(NADD, template_params_file, self.NTEMP))
+                for j in range(NADD):
+                    tab_temp.add_row(vals=None)
         else:
             # Dummy
             msg = """
@@ -1612,7 +1618,8 @@ class PhotoZ(object):
             tab_temp = Table()
             
             cols = ['Av', 'mass', 'Lv', 'sfr', 'formed_100', 'formed_total',
-                    'LIR', 'line_EW_Ha', 'line_C_Ha', 'line_flux_Ha', 
+                    'LIR', 'energy_abs', 
+                    'line_EW_Ha', 'line_C_Ha', 'line_flux_Ha', 
                     'line_EW_O3', 'line_C_O3', 'line_flux_O3', 
                     'line_EW_Hb', 'line_C_Hb', 'line_flux_Hb', 
                     'line_EW_O2', 'line_C_O2', 'line_flux_O2', 
