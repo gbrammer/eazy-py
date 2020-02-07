@@ -5,6 +5,12 @@ import numpy as np
 from collections import OrderedDict
 
 try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except:
+    HAS_TQDM = False
+    
+try:
     from grizli.utils import GTable as Table
 except:
     from astropy.table import Table
@@ -1654,6 +1660,13 @@ class PhotoZ(object):
         LIR_norm = (coeffs_norm*tab_temp['LIR']).sum(axis=1)*u.solLum
         LIRv = LIR_norm / Lv_norm
         
+        # Absorbed energy 
+        if 'energy_abs' in tab_temp.colnames:
+            energy_abs_norm = (coeffs_norm*tab_temp['energy_abs']).sum(axis=1)*u.solLum
+            energy_abs_v = energy_abs_norm / Lv_norm
+        else:
+            energy_abs_v = LIRv*0.
+            
         # Comute LIR directly from templates as tab_temp['LIR'] was 8-100 um
         templ_LIR = np.zeros(self.NTEMP)
         for j in range(self.NTEMP):
@@ -1666,7 +1679,7 @@ class PhotoZ(object):
          
         SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr
         SFRv = SFR_norm / Lv_norm
-                    
+               
         # Convert observed maggies to fnu
         uJy_to_cgs = u.Jy.to(u.erg/u.s/u.cm**2/u.Hz)*1.e-6
         fnu_scl = 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))*uJy_to_cgs
@@ -1684,7 +1697,8 @@ class PhotoZ(object):
         mass = MLv*Lv
         SFR = SFRv*Lv
         LIR = LIRv*Lv
-                    
+        energy_abs = energy_abs_v*Lv
+                
         # Emission line fluxes
         line_flux = {}
         line_EW = {}
@@ -1738,6 +1752,9 @@ class PhotoZ(object):
         
         tab['LIR'] = LIR
         tab['LIR'].format = '.3e'
+        
+        tab['energy_abs'] = energy_abs
+        tab['energy_abs'].format = '.3e'
         
         if self.get_err:
             # Propagate coeff covariance to parameters
