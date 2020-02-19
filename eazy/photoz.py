@@ -1836,8 +1836,13 @@ class PhotoZ(object):
         self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior, get_err=get_err, fitter=fitter, clip_wavelength=clip_wavelength)
         
         peaks, numpeaks = self.find_peaks()
-        zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5], oversample=10)
-        
+        try:
+            zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5],
+                                          oversample=10)
+        except:
+            print('Couldn\'t compute pz_percentiles')
+            zlimits = np.zeros((self.NOBJ, 5))-1
+                        
         tab = Table()
         tab['id'] = self.cat['id']
         for col in ['ra', 'dec']:
