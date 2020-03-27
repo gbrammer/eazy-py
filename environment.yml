@@ -4,15 +4,15 @@ channels:
 - http://ssb.stsci.edu/astroconda
 - defaults
 dependencies:
-- astropy=2.0.2
-- matplotlib=2.0.2
-- numpy=1.10.2
+- astropy>=2.0.2
+- matplotlib>=2.0.2
+- numpy>=1.10.2
 - python=3.5.4
 - scipy=0.19.1
-- specutils=0.2.2
 - pip:
   - astroML
   - peakutils==1.0.3
+  - extinction>=0.4
   - "git+https://github.com/gbrammer/eazy-py.git"
   - "git+https://github.com/bd-j/prospector.git"
 
