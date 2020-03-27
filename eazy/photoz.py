@@ -1326,7 +1326,13 @@ class PhotoZ(object):
         Rest-frame colors
         """
         print('Rest-frame filters: {0}'.format(f_numbers))
-        rf_tempfilt = TemplateGrid(np.array([0,0.1]), self.templates, RES=self.param['FILTERS_RES'], f_numbers=np.array(f_numbers), add_igm=False, galactic_ebv=0, Eb=self.param['SCALE_2175_BUMP'], n_proc=-1, verbose=verbose)
+        rf_tempfilt = TemplateGrid(np.arange(0, 0.1, 0.01), self.templates, 
+                                   RES=self.param['FILTERS_RES'], 
+                                   f_numbers=np.array(f_numbers), 
+                                   add_igm=False, galactic_ebv=0, 
+                                   Eb=self.param['SCALE_2175_BUMP'], 
+                                   n_proc=-1, verbose=verbose)
+                                   
         #rf_tempfilt.tempfilt = np.squeeze(rf_tempfilt.tempfilt[0,:,:])
         rf_tempfilt.tempfilt = rf_tempfilt.tempfilt[0,:,:]*1
         
@@ -1335,24 +1341,19 @@ class PhotoZ(object):
         fnu_corr = self.fnu*self.ext_redden*self.zp
         efnu_corr = self.efnu*self.ext_redden*self.zp
         
-        f_rest = np.zeros((self.NOBJ, NREST, len(percentiles)))
+        f_rest = np.zeros((self.NOBJ, NREST, len(percentiles)))-99
         
         fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         
-        ### Testing
-        if False:
-            j+=1; id = ids[j]; fig = self.show_fit(id, show_fnu=show_fnu, xlim=[0.1,10])
-        
-            ix = self.idx[self.cat['id'] == id][0]
-            z = self.zbest[ix]
-            iz = np.argmin(self.fit_chi2[ix,:])
-                        
         indices = self.idx[self.zbest > self.zgrid[0]]
         for ix in indices:
 
             fnu_i = fnu_corr[ix,:]*1
             efnu_i = efnu_corr[ix,:]*1
             z = self.zbest[ix]
+            if (z < 0) | (~np.isfinite(z)):
+                continue
+            
             A = self.tempfilt(z)   
         
             for i in range(NREST):
@@ -1541,7 +1542,8 @@ class PhotoZ(object):
         zr = [self.param['Z_MIN'], self.param['Z_MAX']]
         zgrid_zoom = utils.log_zgrid(zr=zr,dz=self.param['Z_STEP']/oversample)
          
-
+        self.pz[~np.isfinite(self.pz)] = 0.
+        
         ok = self.zbest > self.zgrid[0]      
         if selection is not None:
             ok &= selection
@@ -1571,7 +1573,57 @@ class PhotoZ(object):
             numpeaks[i] = len(indices)
         
         return peaks, numpeaks
+    
+    def uv_abs_mag(self, f_numbers=[271, 272, 274], cosmo=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5]}):
+        """
+        Get UV absolute mags.
         
+        Parameters
+        ==========
+        f_numbers : list
+            Filter numbers in `FILTER_FILE`.
+            
+        cosmo : `~astropy.cosmology`
+            If `None`, default to `~astropy.cosmology.WMAP9`
+        
+        rest_kwargs : dict
+            Arguments passed to `~eazy.photoz.PhotoZ.rest_frame_fluxes`
+        
+        Returns
+        =======
+        tab : `~astropy.table.Table`
+           Table with rest-frame luminosities.  `tab.meta` includes the filter
+           information.
+           
+        """    
+        if cosmo is None:
+            from astropy.cosmology import WMAP9 as cosmo
+        
+        _uv = self.rest_frame_fluxes(f_numbers=f_numbers, **rest_kwargs) 
+        uv_tf, uv = _uv
+        
+        zdm = utils.log_zgrid([0.01, 13], 0.01)
+        dm = cosmo.distmod(zdm).value - 2.5*np.log10(1+zdm)
+        DM = np.interp(self.zbest, zdm, dm, left=0, right=0)
+        
+        lc_round = ['{0}'.format(int(np.round(lc/100))*100) 
+                    for lc in uv_tf.lc]
+        
+        tab = Table()
+        for i in range(uv_tf.NFILT):
+            tab.meta['UVF{0}'.format(lc_round[i])] = (f_numbers[i], 
+                                                       'Filter number')
+
+            tab.meta['UVN{0}'.format(lc_round[i])] = (uv_tf.filters[i].name, 
+                                                       'Filter name')
+
+            tab.meta['UVL{0}'.format(lc_round[i])] = (uv_tf.filters[i].pivot(), 'Filter pivot')
+                                                        
+            obsm = self.param.params['PRIOR_ABZP'] - 2.5*np.log10(uv[:,i,:])
+            tab['M_{0}'.format(lc_round[i])] = (obsm.T - DM).T
+        
+        return tab
+                      
     def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5]):
         """
         Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
@@ -2326,6 +2378,12 @@ class TemplateGrid(object):
                     print('Process template {0}.'.format(templates[itemp].name))
                 self.tempfilt[:,itemp,:] = tf_i        
         
+        # Check for bad values.  Not sure where they're coming from?
+        bad = ~np.isfinite(self.tempfilt)
+        if bad.sum():
+            print(f'Fix bad values in `tempfilt` (N={bad.sum()})')
+            self.tempfilt[bad] = 0
+            
         self.interpolator_function = interpolator
         self.init_interpolator(interpolator=interpolator)
         
@@ -2338,7 +2396,7 @@ class TemplateGrid(object):
             #self.spline = scipy.interpolate.CubicSpline(self.zgrid, self.tempfilt)
             self.interpolator_function = scipy.interpolate.Akima1DInterpolator
         else:
-            self.spline = interpolator(self.zgrid, self.tempfilt)
+            self.spline = interpolator(self.zgrid, self.tempfilt, axis=0)
             self.interpolator_function = interpolator
     
     def apply_SFH_constraint(self, max_mass_frac=0.5, cosmology=None, sfh_file='templates/fsps_full/fsps_QSF_12_v3.sfh.fits'):
