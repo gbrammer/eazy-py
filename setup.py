@@ -72,7 +72,7 @@ setup(
     url = "https://github.com/gbrammer/eazy-py",
     download_url = "https://github.com/gbrammer/eazy-py/tarball/"+version,
     packages=['eazy'],
-    install_requires=['extinction>=0.4','astropy'],
+    install_requires=['extinction>=0.4', 'astropy', 'dustmaps'],
     # requires=['numpy', 'scipy', 'astropy', 'drizzlepac', 'stwcs'],
     # long_description=read('README.rst'),
     classifiers=[

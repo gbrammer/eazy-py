@@ -87,6 +87,44 @@ def clipLog(im, lexp=1000, cmap=[-1.4914, 0.6273], scale=[-0.1,10]):
     
     return clip_log
 
+def get_mw_dust(ra, dec, **kwargs):
+    """
+    Wrapper around functions to try to query for the MW E(B-V)
+    """
+    try:
+        ebv = get_dustmaps_dust(ra, dec, web=True)
+        return ebv
+    except:
+        pass
+        
+    try:
+        ebv = get_dustmaps_dust(ra, dec, web=False)
+        return ebv
+    except:
+        pass
+    
+    try:
+        ebv = get_irsa_dust(ra, dec, **kwargs)
+        return ebv
+    except:
+        pass
+        
+def get_dustmaps_dust(ra, dec, web=True, **kwargs):
+    "Use https://github.com/gregreen/dustmaps"
+    
+    from dustmaps.sfd import SFDQuery, SFDWebQuery
+    from astropy.coordinates import SkyCoord
+    
+    coords = SkyCoord(ra, dec, unit='deg', frame='icrs')
+    
+    if web:
+        sfd = SFDWebQuery()
+    else:
+        sfd = SFDQuery()
+        
+    ebv = sfd(coords)
+    return ebv
+
 def get_irsa_dust(ra=53.1227, dec=-27.805089, type='SandF'):
     """
     Get Galactic dust reddening from NED/IRSA at a given position
@@ -160,8 +198,8 @@ class GalacticExtinction(object):
             Selective extinction ratio, `Rv=Av/(E(B-V))`.
         
         radec : None or (float, float)
-            If provided, query IRSA for EBV based on these coordinates 
-            with `get_irsa_dust(type=[ebv_type])`. 
+            If provided, try to determine EBV based on these coordinates 
+            with `get_irsa_dust(type=[ebv_type])` or `dustmaps`. 
             
         force : None, 'extinction', 'specutils.extinction'
             Force use one or the other modules.  If `None`, then first try
@@ -185,7 +223,7 @@ class GalacticExtinction(object):
                 self.module = 'extinction'
         
         if radec is not None:
-            self.EBV = get_irsa_dust(ra=radec[0], dec=radec[1], type=ebv_type)
+            self.EBV = get_mw_dust(ra=radec[0], dec=radec[1], type=ebv_type)
         else:    
             self.EBV = EBV
         
