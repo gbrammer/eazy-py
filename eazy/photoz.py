@@ -1021,8 +1021,8 @@ class PhotoZ(object):
         
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
-        
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True):
+                
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None):
         """
         Show SED and p(z) of a single object
         
@@ -1075,6 +1075,8 @@ class PhotoZ(object):
             
         """
         import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
+        
         import astropy.units as u
         from cycler import cycler
         
@@ -1155,6 +1157,7 @@ class PhotoZ(object):
                 flam_sed = 1.e29
                 ylabel = (r'$f_\nu$ [$\mu$Jy]')    
                 flux_unit = u.uJy
+            
         else:
             flam_spec = 3.e18/templz**2/1.e-19
             flam_sed = 3.e18/self.lc**2/self.ext_corr/1.e-19
@@ -1164,7 +1167,8 @@ class PhotoZ(object):
                         
         try:
             data = OrderedDict(ix=ix, id=self.cat['id'][ix], z=z,
-                           lc=self.lc, model=fmodel*fnu_factor*flam_sed,
+                           lc=self.lc, 
+                           model=fmodel*fnu_factor*flam_sed,
                            emodel=efmodel*fnu_factor*flam_sed,
                            fobs=fnu_i*fnu_factor*flam_sed, 
                            efobs=efnu_i*fnu_factor*flam_sed,
@@ -1175,15 +1179,24 @@ class PhotoZ(object):
                            wave_unit=u.AA)
         except:
             data = None
-            
+        
+        ## Just return the data    
         if get_spec:            
             return data
         
+        ###### Make the plot
+        
         if axes is None:
             fig = plt.figure(figsize=figsize)
-            ax = fig.add_subplot(111+10*showpz)
+            if showpz:
+                fig_axes = GridSpec(1,2,width_ratios=[1,showpz])
+            else:    
+                fig_axes = GridSpec(1,1,width_ratios=[1])
+                
+            ax = fig.add_subplot(fig_axes[0])
         else:
             fig = None
+            fig_axes = None
             ax = axes[0]
                         
         ax.scatter(self.lc/1.e4, fmodel*fnu_factor*flam_sed, 
@@ -1263,7 +1276,17 @@ class PhotoZ(object):
                         bbox=dict(facecolor='w', alpha=0.5), zorder=10)
                 
                 ax.legend(fontsize=7, loc='upper left')
-                    
+        
+        # Optional mag scaling if show_fnu = 1 for uJy
+        if (maglim is not None) & (show_fnu == 1):
+            ax.semilogy()
+            axm = ax.twinx()
+            ax.set_ylim(10**(-0.4*(np.array(maglim)-23.9)))
+            axm.set_ylim(0,1)
+            ytv = np.arange(maglim[0], maglim[1], -1, dtype=int)
+            axm.set_yticks(np.interp(ytv, maglim[::-1], [1,0]))
+            axm.set_yticklabels(ytv)
+                        
         ## P(z)
         if not showpz:
             return fig, data
@@ -1274,7 +1297,7 @@ class PhotoZ(object):
             else:
                 ax = axes[1]
         else:
-            ax = fig.add_subplot(122)
+            ax = fig.add_subplot(fig_axes[1])
         
         chi2 = np.squeeze(self.fit_chi2[ix,:])
         prior = self.full_prior[ix,:].flatten()
@@ -1311,8 +1334,9 @@ class PhotoZ(object):
                 
             ax.set_xlabel('z'); ax.set_ylabel('p(z)')
             ax.grid()
+            ax.set_yticklabels([])
             
-            fig.tight_layout(pad=0.5)
+            fig_axes.tight_layout(fig, pad=0.5)
             
             if add_label:
                 ax.legend(fontsize=7, loc='upper left')
@@ -1833,6 +1857,14 @@ class PhotoZ(object):
             #sSFR_err = np.percentile(((massv_draws / Lv_draws).T*Lv).T/((SFR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
             sSFR_err = np.percentile(SFR_draws / massv_draws, percentile_limits, axis=1).T
             
+            # Av 
+            tau_num = np.dot(draws_norm, tau_corr)
+            tau_den = np.dot(draws_norm, tau_corr*0+1)
+            tau_dust = np.log(tau_num/tau_den)
+            Av = tau_dust / Av_tau
+            Avp = np.percentile(Av, [2.5, 16, 50, 84, 97.5], axis=1).T
+            tab['Avp'] = Avp
+            tab['Avp'].format = '.2f'
             
             tab['massp'] = mass_err
             tab['massp'].format = '.2e'
