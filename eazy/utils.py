@@ -4,6 +4,24 @@ import matplotlib.pyplot as plt
 
 def path_to_eazy_data():
     return os.path.join(os.path.dirname(__file__), 'data')
+
+def set_warnings(numpy_level='ignore', astropy_level='ignore'):
+    """
+    Set global numpy and astropy warnings
+    
+    Parameters
+    ----------
+    numpy_level : {'ignore', 'warn', 'raise', 'call', 'print', 'log'}
+        Numpy error level (see `~numpy.seterr`).
+        
+    astropy_level : {'error', 'ignore', 'always', 'default', 'module', 'once'}
+        Astropy error level (see `~warnings.simplefilter`).
+    
+    """
+    from astropy.utils.exceptions import AstropyWarning
+    
+    np.seterr(all=numpy_level)
+    warnings.simplefilter(astropy_level, category=AstropyWarning)
     
 def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=False, bins=None):
     """
