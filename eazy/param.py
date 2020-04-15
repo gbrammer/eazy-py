@@ -55,7 +55,7 @@ class EazyParam():
         if read_templates:
             self.templates = self.read_templates(templates_file=self.params['TEMPLATES_FILE'])
             
-    def read_templates(self, templates_file=None, velocity_smooth=-1):
+    def read_templates(self, templates_file=None, resample_wave=None, velocity_smooth=0):
         
         lines = open(templates_file).readlines()
         templates = []
@@ -64,28 +64,35 @@ class EazyParam():
             if line.strip().startswith('#'):
                 continue
             
-            template_file = line.split()[1]
-            templ = Template(file=template_file)
-            templ.wave *= float(line.split()[2])
+            lspl = line.split()
+            template_file = lspl[1]
+            if len(lspl) > 2:
+                to_angstrom = float(lspl[2])
+            else:
+                to_angstrom = 1.
+                
+                
+            templ = Template(file=template_file, to_angstrom=to_angstrom, 
+                             resample_wave=resample_wave,
+                             velocity_smooth=velocity_smooth)
             
-            if velocity_smooth > 0:
-                try:
-                    from prospect.utils.smoothing import smooth_vel
-                    sm_flux = smooth_vel(templ.wave, templ.flux, templ.wave, 
-                                         velocity_smooth)
-                    
-                    sm_flux[~np.isfinite(sm_flux)] = 0.
-                    templ.flux_orig = templ.flux
-                    templ.flux = sm_flux
-                except:
-                    print("""
-"prospect" needed for template smoothing.     
-Try installing with `pip install git+https://github.com/bd-j/prospector.git`.
-                    """)
-                    pass
-                    
-                    
-            templ.set_fnu()
+#             if velocity_smooth > 0:
+#                 try:
+#                     from prospect.utils.smoothing import smooth_vel
+#                     sm_flux = smooth_vel(templ.wave, templ.flux, templ.wave, 
+#                                          velocity_smooth)
+#                     
+#                     sm_flux[~np.isfinite(sm_flux)] = 0.
+#                     templ.flux_orig = templ.flux
+#                     templ.flux = sm_flux
+#                 except:
+#                     print("""
+# "prospect" needed for template smoothing.     
+# Try installing with `pip install git+https://github.com/bd-j/prospector.git`.
+#                     """)
+#                     pass
+                           
+            #templ.set_fnu()
             templates.append(templ)
         
         return templates

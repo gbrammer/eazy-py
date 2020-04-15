@@ -171,7 +171,7 @@ class FilterFile:
         if path is None:
             file_path = os.path.join(os.getenv('EAZYCODE'), 'filters', file)
         else:
-            file_path = os.path.join(path, 'filters', file)
+            file_path = os.path.join(path, file)
             
         with open(file_path, 'r') as fp:
             lines = fp.readlines()

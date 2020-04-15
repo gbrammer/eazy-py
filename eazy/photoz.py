@@ -68,7 +68,8 @@ class PhotoZ(object):
             
         ### Read templates
         self.templates = self.param.read_templates(templates_file=self.param['TEMPLATES_FILE'], 
-                          velocity_smooth=self.param['TEMPLATE_SMOOTH'])
+                          velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
+                          resample_wave=self.param['RESAMPLE_WAVE'])
                           
         self.NTEMP = len(self.templates)
         
@@ -123,9 +124,9 @@ class PhotoZ(object):
             self.load_products()
         
         ### Flam conversion factors
-        self.to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))*3.e18/1.e-19/self.lc**2/self.ext_corr
+        self.to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
+        self.to_flam *= utils.CLIGHT*1.e10/1.e-19/self.lc**2/self.ext_corr
         
-            
         #### testing
         if False:
             
@@ -321,8 +322,8 @@ class PhotoZ(object):
         f1 = filters.FilterDefinition(wave=wx+w1, throughput=wy)
         f2 = filters.FilterDefinition(wave=wx+w2, throughput=wy)
         
-        y1 = [t.integrate_filter(f1)*3.e18/w1**2 for t in self.templates]
-        y2 = [t.integrate_filter(f2)*3.e18/w2**2 for t in self.templates]
+        y1 = [t.integrate_filter(f1, flam=True) for t in self.templates]
+        y2 = [t.integrate_filter(f2, flam=True) for t in self.templates]
         ln_beta_x = np.log([w1, w2])
         beta_y = np.array([y1, y2]).T
         
@@ -634,7 +635,8 @@ class PhotoZ(object):
             ivar = 1/((0.0*fnu_i)**2 + efnu_i**2 + (self.TEF(zgrid[izbest])*fnu_i)**2)
             rms = 1./np.sqrt(ivar)
             model = np.dot(coeffs[izbest,:], A)
-            flam_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))*3.e18/1.e-17/self.lc**2/self.ext_corr
+            flam_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
+            flam_factor *= utils.CLIGHT*1.e10/1.e-17/self.lc**2/self.ext_corr
             fig.axes[0].scatter(self.lc, model*flam_factor, color='orange')
             fig.axes[0].errorbar(self.lc, fnu_i*flam_factor, rms*flam_factor, color='g', marker='s', linestyle='None')
     
@@ -1159,8 +1161,8 @@ class PhotoZ(object):
                 flux_unit = u.uJy
             
         else:
-            flam_spec = 3.e18/templz**2/1.e-19
-            flam_sed = 3.e18/self.lc**2/self.ext_corr/1.e-19
+            flam_spec = utils.CLIGHT*1.e10/templz**2/1.e-19
+            flam_sed = utils.CLIGHT*1.e10/self.lc**2/self.ext_corr/1.e-19
             ylabel = (r'$f_\lambda [10^{-19}$ erg/s/cm$^2$]')
             
             flux_unit = 1.e-19*u.erg/u.s/u.cm**2/u.AA
@@ -1399,7 +1401,7 @@ class PhotoZ(object):
         
         return rf_tempfilt, f_rest    
         
-        flam_sed = 3.e18/(rf_tempfilt.lc*(1+z))**2/1.e-19
+        flam_sed = utils.CLIGHT*1.e10/(rf_tempfilt.lc*(1+z))**2/1.e-19
         fig.axes[0].errorbar(rf_tempfilt.lc*(1+z)/1.e4, f_rest_pad*fnu_factor*flam_sed, f_rest_err*fnu_factor*flam_sed, color='g', marker='s', linestyle='None')
         
         # covar_rms = np.zeros(NREST)

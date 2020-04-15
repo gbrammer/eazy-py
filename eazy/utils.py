@@ -2,6 +2,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+CLIGHT = 299792458.0 # m/s
+
 def path_to_eazy_data():
     return os.path.join(os.path.dirname(__file__), 'data')
 

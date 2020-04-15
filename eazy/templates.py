@@ -44,17 +44,20 @@ class TemplateError():
         return tef_z
         
 class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}):
+    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave='None'):
         """
         Template object
         """
         from astropy.table import Table
+        import astropy.units as u
         
         self.wave = None
         self.flux = None
-        self.flux_fnu = None
+        
         self.name = 'None'
         self.meta = meta
+        
+        self.velocity_smooth = velocity_smooth
         
         if name is None:
             if file is not None:
@@ -65,28 +68,111 @@ class Template():
         if sp is not None:
             self.wave = np.cast[np.double](sp.wave)
             self.flux = np.cast[np.double](sp.flux)
-            self.flux_fnu = self.flux
+            # already fnu
+            self.flux *= utils.CLIGHT*1.e10 / self.wave**2
             
-        if file is not None:
+        elif file is not None:
             if file.split('.')[-1] in ['fits','csv','ecsv']:
                 tab = Table.read(file)
                 self.wave = tab['wave'].data.astype(np.float)
                 self.flux = tab['flux'].data.astype(np.float)
-                self.meta = tab.meta
+                for k in tab.meta:
+                    self.meta[k] = tab.meta[k]
+                    
             else:
                 _arr = np.loadtxt(file, unpack=True)
                 self.wave, self.flux = _arr[0], _arr[1]
-                
+                        
+        elif arrays is not None:
+            self.wave, self.flux = arrays[0]*1, arrays[1]*1
             self.set_fnu()
+        else:
+            raise TypeError('Must specify either `sp`, `file` or `arrays`')
         
-        if arrays is not None:
-            self.wave, self.flux = arrays
-            self.set_fnu()
+        if hasattr(self.wave, 'unit'):
+            self.wave = self.wave.to(u.Angstrom).value
+        else:
+            self.wave *= to_angstrom
+        
+        if velocity_smooth > 0:
+            self.smooth_velocity(velocity_smooth, in_place=True)
+        
+        if resample_wave is not 'None':
+            self.resample(resample_wave, in_place=True)
                 
+        #self.set_fnu()
+    
+    @property 
+    def flux_fnu(self):
+        """
+        self.flux is flam.  Scale to fnu
+        """
+        return self.flux * self.wave**2 / (utils.CLIGHT*1.e10)
+                    
     def set_fnu(self):
-        self.flux_fnu = self.flux * self.wave**2 / 3.e18
+        pass
+        #self.flux_fnu = self.flux * self.wave**2 / 3.e18
+    
+    def smooth_velocity(self, velocity_smooth, in_place=True, raise_error=False):
+        """
+        Smooth template in velocity using `prospect`
+        """
+        try:
+            from prospect.utils.smoothing import smooth_vel
+        except:
+            if raise_error:
+                raise ImportError("Couldn't import `prospect.utils.smoothing")
+            else:
+                return None
         
-    def integrate_filter(self, filter, flam=False, scale=1., z=0):
+        if velocity_smooth <= 0:
+            if in_place:
+                return True
+            else:
+                return self
+                
+        sm_flux = smooth_vel(self.wave, self.flux, self.wave, 
+                             velocity_smooth)
+        sm_flux[~np.isfinite(sm_flux)] = 0.
+        
+        if in_place:
+            self.flux_orig = self.flux*1
+            self.velocity_smooth = velocity_smooth
+            self.flux = sm_flux
+            return True
+        else:
+            return Template(arrays=(self.wave, sm_flux), name=self.name, 
+                            meta=self.meta)
+            
+    def resample(self, new_wave, in_place=True):
+        """
+        Resample the template to a new wavelength grid
+        """
+        import astropy.units as u
+        
+        if isinstance(new_wave, str):
+            if not os.path.exists(new_wave):
+                print('WARNING: new_wave={0} could not be found')
+                if in_place:
+                    return False
+                else:
+                    return self
+            else:
+                new_wave = np.loadtxt(new_wave)
+                
+        if hasattr(new_wave, 'unit'):
+            new_wave = new_wave.to(u.Angstrom).value
+            
+        new_flux = utils.interp_conserve(new_wave, self.wave, self.flux)
+        if in_place:
+            self.wave = new_wave*1
+            self.flux = new_flux
+            return True
+        else:
+            return Template(arrays=(new_wave, new_flux), name=self.name, 
+                            meta=self.meta)
+                
+    def integrate_filter(self, filt, flam=False, scale=1., z=0):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -99,15 +185,16 @@ class Template():
         except ImportError:
             interp = utils.interp_conserve
         
-        templ_filter = interp(filter.wave, self.wave*(1+z),
-                              self.flux_fnu*scale, left=0, right=0)
+        templ_filt = interp(filt.wave, self.wave*(1+z),
+                            self.flux_fnu*scale, left=0, right=0)
                 
         # f_nu/lam dlam == f_nu d (ln nu)    
         integrator = np.trapz
-        temp_int = integrator(filter.throughput*templ_filter/filter.wave, filter.wave) / filter.norm
+        temp_int = integrator(filt.throughput*templ_filt/filt.wave, filt.wave) 
+        temp_int /= filt.norm
         
         if flam:
-            temp_int *= 3.e18/filter.pivot**2
+            temp_int *= utils.CLIGHT*1.e10/filt.pivot**2
             
         return temp_int
     

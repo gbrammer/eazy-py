@@ -22,7 +22,8 @@ TEMP_ERR_A2          0.20               # Template error amplitude
 SYS_ERR              0.01               # Systematic flux error (% of flux)
 APPLY_IGM            y                  # Apply Madau 1995 IGM absorption
 SCALE_2175_BUMP      0.00               # Scaling of 2175A bump.  Values 0.13 (0.27) absorb ~10 (20) % at peak.
-TEMPLATE_SMOOTH       -1.0               # Velocity smoothing (km/s) for templates, < 0 for no smoothing
+TEMPLATE_SMOOTH       0.0               # Velocity smoothing (km/s) for templates, < 0 for no smoothing
+RESAMPLE_WAVE        None
 
 MW_EBV               0.00               # Galactic reddening (http://irsa.ipac.caltech.edu/applications/DUST/)
 CAT_HAS_EXTCORR      y                  # Catalog already corrected for reddening
