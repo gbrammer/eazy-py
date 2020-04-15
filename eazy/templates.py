@@ -44,11 +44,18 @@ class TemplateError():
         return tef_z
         
 class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None):
+    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}):
+        """
+        Template object
+        """
+        from astropy.table import Table
+        
         self.wave = None
         self.flux = None
         self.flux_fnu = None
         self.name = 'None'
+        self.meta = meta
+        
         if name is None:
             if file is not None:
                 self.name = os.path.basename(file)
@@ -61,7 +68,15 @@ class Template():
             self.flux_fnu = self.flux
             
         if file is not None:
-            self.wave, self.flux = np.loadtxt(file, unpack=True)
+            if file.split('.')[-1] in ['fits','csv','ecsv']:
+                tab = Table.read(file)
+                self.wave = tab['wave'].data.astype(np.float)
+                self.flux = tab['flux'].data.astype(np.float)
+                self.meta = tab.meta
+            else:
+                _arr = np.loadtxt(file, unpack=True)
+                self.wave, self.flux = _arr[0], _arr[1]
+                
             self.set_fnu()
         
         if arrays is not None:
@@ -71,7 +86,7 @@ class Template():
     def set_fnu(self):
         self.flux_fnu = self.flux * self.wave**2 / 3.e18
         
-    def integrate_filter(self, filter, scale=1., z=0):
+    def integrate_filter(self, filter, flam=False, scale=1., z=0):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -91,7 +106,23 @@ class Template():
         integrator = np.trapz
         temp_int = integrator(filter.throughput*templ_filter/filter.wave, filter.wave) / filter.norm
         
+        if flam:
+            temp_int *= 3.e18/filter.pivot**2
+            
         return temp_int
+    
+    def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}):
+        from astropy.table import Table
+        tab = Table()
+        tab['wave'] = self.wave
+        tab['flux'] = self.flux
+        for c in tab.colnames:
+            if c in formats:
+                tab[c].format = formats[c]
+                
+        tab.meta = self.meta
+        return tab
+        
         
 # class TemplateInterpolator():
 #     """
