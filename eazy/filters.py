@@ -32,7 +32,13 @@ class FilterDefinition:
         self.norm = 1.
         if self.throughput is not None:
             self.norm = np.trapz(self.throughput/self.wave, self.wave)
-        
+    
+    def __repr__(self):
+        return self.name
+    
+    def __str__(self):
+        return self.name
+    
     def get_extinction(self, EBV=0, Rv=3.1):
         import astropy.units as u
         
@@ -74,7 +80,8 @@ class FilterDefinition:
             return 2.5*np.log10(delta)
         else:
             return 1./delta
-        
+    
+    @property    
     def ABVega(self):
         """
         Compute AB-Vega conversion
@@ -108,7 +115,7 @@ class FilterDefinition:
         
         return -2.5*np.log10(num/den)
         
-        
+    @property    
     def pivot(self):
         """
         Pivot wavelength
@@ -121,7 +128,8 @@ class FilterDefinition:
         den = integrator(self.wave, self.throughput/self.wave)
         pivot = np.sqrt(num/den)
         return pivot
-        
+    
+    @property    
     def equivwidth(self):
         """
         Filter equivalent width
@@ -129,7 +137,8 @@ class FilterDefinition:
         http://pysynphot.readthedocs.io/en/latest/properties.html
         """
         return np.trapz(self.throughput, self.wave)
-                
+    
+    @property            
     def rectwidth(self):
         """
         Filter rectangular width
@@ -137,9 +146,10 @@ class FilterDefinition:
         http://pysynphot.readthedocs.io/en/latest/properties.html
         """
         
-        rect = self.equivwidth() / self.throughput.max()
+        rect = self.equivwidth / self.throughput.max()
         return rect
-        
+    
+    @property    
     def ctw95(self):
         """
         95% cumulative throughput width
@@ -154,13 +164,19 @@ class FilterDefinition:
             
         
 class FilterFile:
-    def __init__(self, file='FILTER.RES.v8.R300'):
+    def __init__(self, file='FILTER.RES.latest', path='./'):
         """
         Read a EAZY (HYPERZ) filter file.
         """
-        fp = open(file)
-        lines = fp.readlines()
-        fp.close()
+        if path is None:
+            file_path = os.path.join(os.getenv('EAZYCODE'), 'filters', file)
+        else:
+            file_path = os.path.join(path, 'filters', file)
+            
+        with open(file_path, 'r') as fp:
+            lines = fp.readlines()
+        
+        self.filename = file_path
         
         filters = []
         wave = []
@@ -182,6 +198,7 @@ class FilterFile:
                 lspl = np.cast[float](line.split())
                 wave.append(lspl[1])
                 trans.append(lspl[2])
+                
         # last one
         # new_filter = FilterDefinition()
         # new_filter.name = header
@@ -194,8 +211,17 @@ class FilterFile:
         filters.append(new_filter)
            
         self.filters = filters
-        self.NFILT = len(filters)
     
+    @property 
+    def NFILT(self):
+        return len(self.filters)
+        
+    def __getitem__(self, i1):
+        """
+        Return unit-indexed filter, e.g., 161 = 2mass-j
+        """
+        return self.filters[i1-1]
+        
     def names(self, verbose=True):
         """
         Print the filter names.

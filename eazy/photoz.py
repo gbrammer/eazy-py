@@ -219,7 +219,7 @@ class PhotoZ(object):
                         
         self.f_numbers = np.array(self.f_numbers)
         
-        self.lc = np.array([f.pivot() for f in self.filters])
+        self.lc = np.array([f.pivot for f in self.filters])
                 
         self.NFILT = len(self.filters)
         self.fnu = np.zeros((self.NOBJ, self.NFILT))
@@ -1641,7 +1641,7 @@ class PhotoZ(object):
             tab.meta['UVN{0}'.format(lc_round[i])] = (uv_tf.filters[i].name, 
                                                        'Filter name')
 
-            tab.meta['UVL{0}'.format(lc_round[i])] = (uv_tf.filters[i].pivot(), 'Filter pivot')
+            tab.meta['UVL{0}'.format(lc_round[i])] = (uv_tf.filters[i].pivot, 'Filter pivot')
                                                         
             obsm = self.param.params['PRIOR_ABZP'] - 2.5*np.log10(uv[:,i,:])
             tab['M_{0}'.format(lc_round[i])] = (obsm.T - DM).T
@@ -1773,7 +1773,7 @@ class PhotoZ(object):
         dL[mask] = cosmology.luminosity_distance(self.zbest[mask]).to(u.cm)
         
         Lnu = fnu*4*np.pi*dL**2
-        pivotV = self.ubvj_tempfilt.filters[2].pivot()*u.Angstrom*(1+self.zbest)
+        pivotV = self.ubvj_tempfilt.filters[2].pivot*u.Angstrom*(1+self.zbest)
         nuV = (const.c/pivotV).to(u.Hz) 
         Lv = (nuV*Lnu).to(u.L_sun)
                 
@@ -1790,11 +1790,25 @@ class PhotoZ(object):
         fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         
         for line in emission_lines:
+            if 'line_flux_'+line not in tab_temp.colnames:
+                line_EW[line] = -99*u.AA
+                line_flux[line] = -99*u.erg/u.second/u.cm**2
+                
             line_flux_norm = (self.coeffs_best*tab_temp['line_flux_{0}'.format(line)]).sum(axis=1)
             line_cont_norm = (self.coeffs_best*tab_temp['line_C_{0}'.format(line)]).sum(axis=1)
             line_EW[line] = line_flux_norm/line_cont_norm*u.AA
             line_flux[line] = line_flux_norm*fnu_factor/(1+self.zbest)*u.erg/u.second/u.cm**2
             
+            if 'tage' in tab_temp.colnames:
+                print('xx line fluxes')
+                line_flux_norm = (coeffs_norm*tab_temp['line_flux_{0}'.format(line)]).sum(axis=1)
+                line_cont_norm = (coeffs_norm*tab_temp['line_C_{0}'.format(line)]).sum(axis=1)
+                line_v = line_flux_norm / Lv_norm
+                linec_v = line_cont_norm / Lv_norm
+                
+                line_EW[line+'x'] = line_v/linec_v*u.AA
+                line_flux[line+'x'] = line_v*Lv*u.erg/u.second
+                
         if False:
             BVx = -2.5*np.log10(restB/restV)
             plt.scatter(BVx[sample], np.log10(MLv.data)[sample], alpha=0.02, color='k', marker='s')
@@ -1878,7 +1892,7 @@ class PhotoZ(object):
             tab['LIRp'] = LIR_err
             tab['LIRp'].format = '.2e'
             
-        for line in emission_lines:
+        for line in line_flux:
             tab['line_flux_{0}'.format(line)] = line_flux[line]
             tab['line_EW_{0}'.format(line)] = line_EW[line]
         
@@ -1905,7 +1919,7 @@ class PhotoZ(object):
                 tab['rest{0}_err'.format(f_n)].format = '.3f'
                 
                 tab.meta['name{0}'.format(f_n)] = (extra_tempfilt.filter_names[ir].split(' lambda_c')[0], 'Filter name')
-                tab.meta['pivot{0}'.format(f_n)] = (extra_tempfilt.filters[ir].pivot(), 'Pivot wavelength, Angstrom')
+                tab.meta['pivot{0}'.format(f_n)] = (extra_tempfilt.filters[ir].pivot, 'Pivot wavelength, Angstrom')
                 
         return tab
 
@@ -2192,8 +2206,8 @@ class PhotoZ(object):
         ax = fig.add_subplot(gs[0,1])
         
         wave = lcz[clip]
-        flam = fnu_norm[clip]/(wave/rf_tempfilt.filters[1].pivot())**2
-        flam_obs = fmodel_norm[clip]/(wave/rf_tempfilt.filters[1].pivot())**2
+        flam = fnu_norm[clip]/(wave/rf_tempfilt.filters[1].pivot)**2
+        flam_obs = fmodel_norm[clip]/(wave/rf_tempfilt.filters[1].pivot)**2
         
         xm, ym, ys, N = utils.running_median(wave, flam, NBIN=50, use_median=True, use_nmad=True, reverse=False)
         #c = 'r'
@@ -2208,7 +2222,7 @@ class PhotoZ(object):
         ax.fill_between(self.templates[0].wave[::5], min[::5], max[::5], color=c, linewidth=1, zorder=2, alpha=0.1)
 
         # MIPS
-        mips_obs = kate_sfr['f24tot']*10**(0.4*(self.param.params['PRIOR_ABZP']-23.9))/norm_flux/(24.e4/(1+self.zbest)/rf_tempfilt.filters[1].pivot())**2#/2
+        mips_obs = kate_sfr['f24tot']*10**(0.4*(self.param.params['PRIOR_ABZP']-23.9))/norm_flux/(24.e4/(1+self.zbest)/rf_tempfilt.filters[1].pivot)**2#/2
         ok_mips = (mips_obs > 0)
         
         xm, ym, ys, N = utils.running_median(24.e4/(1+self.zbest[idx & ok_mips]), np.log10(mips_obs[idx & ok_mips]), NBIN=10, use_median=True, use_nmad=True, reverse=False)
@@ -2378,7 +2392,7 @@ class TemplateGrid(object):
             all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
             filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
         
-        self.lc = np.array([f.pivot() for f in filters])
+        self.lc = np.array([f.pivot for f in filters])
         self.filter_names = np.array([f.name for f in filters])
         self.filters = filters
         self.NFILT = len(self.filters)
@@ -2413,7 +2427,7 @@ class TemplateGrid(object):
         # Check for bad values.  Not sure where they're coming from?
         bad = ~np.isfinite(self.tempfilt)
         if bad.sum():
-            print(f'Fix bad values in `tempfilt` (N={bad.sum()})')
+            print('Fix bad values in `tempfilt` (N={0})'.format(bad.sum()))
             self.tempfilt[bad] = 0
             
         self.interpolator_function = interpolator
