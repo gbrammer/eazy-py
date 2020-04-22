@@ -12,21 +12,28 @@ class TemplateError():
     Make an easy (spline) interpolator for the template error function
     """
     def __init__(self, file='templates/TEMPLATE_ERROR.eazy_v1.0', arrays=None, lc=[5500.], scale=1.):
-        from scipy import interpolate
         self.file = file
         if arrays is None:
             self.te_x, self.te_y = np.loadtxt(file, unpack=True)
         else:
             self.te_x, self.te_y = arrays
-        
-        # Limits to control extrapolation
+                   
+        self.scale = scale
+        self.lc = lc
+        self._set_limits()
+        self._init_spline()
+    
+    def _set_limits(self):
+        """
+        Limits to control extrapolation
+        """
         nonzero = self.te_y > 0
         self.min_wavelength = self.te_x[nonzero].min()
         self.max_wavelength = self.te_x[nonzero].max()
-           
-        self.scale = scale
+        
+    def _init_spline(self):
+        from scipy import interpolate
         self._spline = interpolate.CubicSpline(self.te_x, self.te_y)
-        self.lc = lc
         
     def interpolate(self, filter_wavelength=5500., z=1.):
         """
@@ -44,9 +51,21 @@ class TemplateError():
         return tef_z
         
 class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave='None'):
+    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None):
         """
-        Template object
+        Template object: 
+        
+        Attributes:
+        
+        wave = wavelength in `~astropy.units.Angstrom`
+        flux = flux density, f-lambda
+        name = str
+        meta = dict
+        
+        Properties: 
+        
+        flux_fnu = flux density, f-nu
+        
         """
         from astropy.table import Table
         import astropy.units as u
@@ -64,14 +83,16 @@ class Template():
                 self.name = os.path.basename(file)
         else:
             self.name = name
-                
+        
         if sp is not None:
-            self.wave = np.cast[np.double](sp.wave)
-            self.flux = np.cast[np.double](sp.flux)
+            # Prospector        
+            self.wave = np.cast[np.float](sp.wave)
+            self.flux = np.cast[np.float](sp.flux)
             # already fnu
             self.flux *= utils.CLIGHT*1.e10 / self.wave**2
             
         elif file is not None:
+            # Read from a file
             if file.split('.')[-1] in ['fits','csv','ecsv']:
                 tab = Table.read(file)
                 self.wave = tab['wave'].data.astype(np.float)
@@ -89,19 +110,33 @@ class Template():
         else:
             raise TypeError('Must specify either `sp`, `file` or `arrays`')
         
+        # Handle optional units
         if hasattr(self.wave, 'unit'):
             self.wave = self.wave.to(u.Angstrom).value
         else:
             self.wave *= to_angstrom
         
+        if hasattr(self.flux, 'unit'):
+            flam_unit = u.erg/u.second/u.cm**2/u.Angstrom
+            equiv = u.equivalencies.spectral_density(self.wave*u.Angstrom)
+            flam = self.flux.to(flam_unit, equivalencies=equiv) 
+            self.flux = flam.value
+        
+        # Smoothing   
         if velocity_smooth > 0:
             self.smooth_velocity(velocity_smooth, in_place=True)
         
-        if resample_wave is not 'None':
-            self.resample(resample_wave, in_place=True)
+        # Resampling
+        self.resample(resample_wave, in_place=True)
                 
         #self.set_fnu()
     
+    def __repr__(self):
+        if self.name is None:
+            return self.__class__
+        else:
+            return '{0}: {1}'.format(self.__class__, self.name)
+            
     @property 
     def flux_fnu(self):
         """
@@ -110,6 +145,9 @@ class Template():
         return self.flux * self.wave**2 / (utils.CLIGHT*1.e10)
                     
     def set_fnu(self):
+        """
+        Deprecated.  `flux_fnu` is now a `@property`.
+        """
         pass
         #self.flux_fnu = self.flux * self.wave**2 / 3.e18
     
@@ -150,15 +188,24 @@ class Template():
         """
         import astropy.units as u
         
+        breakme = False
         if isinstance(new_wave, str):
-            if not os.path.exists(new_wave):
-                print('WARNING: new_wave={0} could not be found')
-                if in_place:
-                    return False
-                else:
-                    return self
+            if new_wave == 'None':
+                breakme = True
+            elif not os.path.exists(new_wave):
+                msg = 'WARNING: new_wave={0} could not be found'
+                print(msg.format(new_wave))
+                breakme = True
             else:
                 new_wave = np.loadtxt(new_wave)
+        elif new_wave is None:
+            breakme = True
+            
+        if breakme:
+            if in_place:
+                return False
+            else:
+                return self
                 
         if hasattr(new_wave, 'unit'):
             new_wave = new_wave.to(u.Angstrom).value
@@ -194,15 +241,56 @@ class Template():
         temp_int /= filt.norm
         
         if flam:
-            temp_int *= utils.CLIGHT*1.e10/filt.pivot**2
+            temp_int *= utils.CLIGHT*1.e10/(filt.pivot/(1+z))**2
             
         return temp_int
     
-    def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}):
+    def igm_absorption(self, z, pow=1):
+        """
+        Compute IGM absorption.  
+        
+        `power` scales the absorption strength as `~eazy.igm.Inoue14()**pow`.
+        """
+        try:
+            from . import igm as igm_module
+        except:
+            from eazy import igm as igm_module
+        
+        igm = igm_module.Inoue14()
+        igmz = self.wave*0.+1
+        lyman = self.wave < 1300
+        igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])**pow
+        return igmz
+        
+    def integrate_filter_list(self, filters, z=0, flam=False, include_igm=True):
+        """
+        Integrate template through all filters
+        
+        filters: list of `~eazy.filters.Filter` objects
+        
+        """            
+        if include_igm > 0:
+            igmz = self.igm_absorption(z, pow=include_igm)
+        else:
+            igmz = 1.
+        
+        fluxes = [self.integrate_filter(filt, flam=flam, scale=igmz, z=z)
+                  for filt in filters]
+        
+        return np.array(fluxes)
+        
+    def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False):
         from astropy.table import Table
+        import astropy.units as u
+        
         tab = Table()
         tab['wave'] = self.wave
         tab['flux'] = self.flux
+        
+        if with_units:
+            tab['wave'].unit = u.Angstrom
+            tab['flux'].unit = u.erg/u.second/u.cm**2/u.Angstrom
+
         for c in tab.colnames:
             if c in formats:
                 tab[c].format = formats[c]
