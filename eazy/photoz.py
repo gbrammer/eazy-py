@@ -515,7 +515,7 @@ class PhotoZ(object):
     def save_templates(self, prefix='tweak_'):
         path = os.path.dirname(self.param['TEMPLATES_FILE'])
         for templ in self.templates:
-            templ_file = os.path.join('{0}/{1}{2}'.format(path,prefix,
+            templ_file = os.path.join('{0}/{1}{2}.txt'.format(path,prefix,
                                                           templ.name))
             
             print('Save tweaked template {0}'.format(templ_file))
@@ -990,7 +990,7 @@ class PhotoZ(object):
                 
                 #templ_tweak[(templ.wave < xmin) | (templ.wave > xmax)] = 1
                 templ.flux /= templ_tweak
-                templ.flux_fnu /= templ_tweak
+                #templ.flux_fnu /= templ_tweak
             
             # Recompute filter fluxes from tweaked templates    
             self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
@@ -1024,7 +1024,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
                 
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=True, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None):
         """
         Show SED and p(z) of a single object
         
@@ -1059,8 +1059,9 @@ class PhotoZ(object):
             If a value is supplied, compute the best-fit SED at this redshift,
             rather than the value in the `self.zbest` array.
         
-        showpz : bool
-            Include p(z) panel.
+        showpz : bool, float
+            Include p(z) panel.  If a float, then scale the p(z) panel by 
+            a factor of `showpz` relative to half of the full plot width.
         
         zr : None or [z0, z1]
             Range of redshifts to show in p(z) panel.  If None, then show
@@ -1255,7 +1256,7 @@ class PhotoZ(object):
                 ax.set_ylim(-0.1*ymax, 1.2*ymax)
 
             ax.set_xlim(xlim)
-            xt = np.array([0.1, 0.5, 1, 2, 4, 8, 24, 160, 350, 500])*1.e4
+            xt = np.array([0.1, 0.5, 1, 2, 4, 8, 24, 160, 500])*1.e4
 
             ax.semilogx()
 
@@ -1281,7 +1282,12 @@ class PhotoZ(object):
         
         # Optional mag scaling if show_fnu = 1 for uJy
         if (maglim is not None) & (show_fnu == 1):
+            
             ax.semilogy()
+            # Limits
+            ax.scatter(self.lc[sn2_not]/1.e4, ((3*efnu_i)*fnu_factor*flam_sed)[sn2_not], color='k', marker='v', alpha=0.4, label=None)
+            
+            # Mag axes
             axm = ax.twinx()
             ax.set_ylim(10**(-0.4*(np.array(maglim)-23.9)))
             axm.set_ylim(0,1)
