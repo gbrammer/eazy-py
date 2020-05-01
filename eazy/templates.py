@@ -182,7 +182,7 @@ class Template():
             return Template(arrays=(self.wave, sm_flux), name=self.name, 
                             meta=self.meta)
             
-    def resample(self, new_wave, in_place=True):
+    def resample(self, new_wave, z=0, in_place=True, return_array=False, interp_func=utils.interp_conserve):
         """
         Resample the template to a new wavelength grid
         """
@@ -198,6 +198,7 @@ class Template():
                 breakme = True
             else:
                 new_wave = np.loadtxt(new_wave)
+        
         elif new_wave is None:
             breakme = True
             
@@ -210,13 +211,16 @@ class Template():
         if hasattr(new_wave, 'unit'):
             new_wave = new_wave.to(u.Angstrom).value
             
-        new_flux = utils.interp_conserve(new_wave, self.wave, self.flux)
+        new_flux = interp_func(new_wave, self.wave*(1+z), self.flux)
         if in_place:
             self.wave = new_wave*1
             self.flux = new_flux
             return True
         else:
-            return Template(arrays=(new_wave, new_flux), name=self.name, 
+            if return_array:
+                return new_flux
+            else:
+                return Template(arrays=(new_wave, new_flux), name=self.name, 
                             meta=self.meta)
                 
     def integrate_filter(self, filt, flam=False, scale=1., z=0):
