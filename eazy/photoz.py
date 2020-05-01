@@ -2135,9 +2135,15 @@ class PhotoZ(object):
         
         return photom, self.cat['id'][idx], dr
         
-    def rest_frame_SED(self, idx=None, norm_band=155, c='k'):
+    def rest_frame_SED(self, idx=None, norm_band=155, c='k', min_sn=3, median_args=dict(NBIN=50, use_median=True, use_nmad=True, reverse=False), get_templates=True, make_figure=True, scatter_args=None, show_uvj=True, **kwargs):
+        """
+        Make Rest-frame SED plot
         
+        idx: selection array
+        
+        """
         import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
         
         if False:
             ok = (zout['z_phot'] > 0.4) & (zout['z_phot'] < 2)
@@ -2179,73 +2185,141 @@ class PhotoZ(object):
 
             idx, label, c = ok & (np.abs(UV-1.6) < 0.2) & (np.abs(VJ-1.6) < 0.2), 'SF3', 'pink'
         
-        rf_tempfilt, f_rest = self.rest_frame_fluxes(f_numbers=[153,norm_band,247], pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
-        
-        norm_flux = f_rest[:,1,2]
+        if isinstance(norm_band, int):
+            init_sed_data = True
+            if hasattr(self, 'rf_sed_data'):
+                rf_tempfilt, f_rest = self.rf_sed_data
+                if rf_tempfilt.f_numbers[0] == norm_band:
+                    init_sed_data = False
+                    
+            if init_sed_data:
+                rf_tempfilt, f_rest = self.rest_frame_fluxes(f_numbers=[norm_band], pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
+                self.rf_sed_data = (rf_tempfilt, f_rest)
+        else:
+            rf_tempfilt, f_rest = norm_band
+            
+        norm_flux = f_rest[:,0,2]
         fnu_norm = (self.fnu[idx,:].T/norm_flux[idx]).T
         fmodel_norm = (self.fmodel[idx,:].T/norm_flux[idx]).T
+        
+        output_data = {}
         
         lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])[idx,:]
         
         clip = (self.efnu[idx,:] > 0) & (self.fnu[idx,:] > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu[idx,:]) & np.isfinite(self.efnu[idx,:])
-        
-        sp = self.show_fit(self.cat['id'][idx][0], get_spec=True)
-        templf = []
-        for i in self.idx[idx]:
-            sp = self.show_fit(self.cat['id'][i], get_spec=True)
-            templf.append(sp['templf']/(norm_flux[i]/(1+self.zbest[i])**2))
-            #plt.plot(self.templates[0].wave[::10], sp['templf'][::10]/(norm_flux[i]/(1+self.zbest[i])**2), alpha=0.1, color=c)
-        
-        #plt.loglog()
-        
-        fig = plt.figure(figsize=[10,4])
-        gs = GridSpec(1,2, width_ratios=[2,3])
-        
-        ax = fig.add_subplot(gs[0,0])
-        sc = ax.scatter(VJ[ok], UV[ok], c='k', vmin=-1, vmax=1., alpha=0.01, marker='.', edgecolor='k', cmap='spectral')
-        sc = ax.scatter(VJ[idx], UV[idx], c=c, vmin=-1, vmax=1., alpha=0.2, marker='o', edgecolor='k')
-
-        ax.set_xlabel(r'$V-J$ (rest)')
-        ax.set_ylabel(r'$U-V$ (rest)')
-
-        ax.set_xlim(-0.2,2.8); ax.set_ylim(-0.2,2.8)
-        ax.grid()
-        
-        ax = fig.add_subplot(gs[0,1])
+        clip *= self.fnu[idx,:]/self.efnu[idx,:] > min_sn
         
         wave = lcz[clip]
-        flam = fnu_norm[clip]/(wave/rf_tempfilt.filters[1].pivot)**2
-        flam_obs = fmodel_norm[clip]/(wave/rf_tempfilt.filters[1].pivot)**2
+        flam = fnu_norm[clip]/(wave/rf_tempfilt.filters[0].pivot)**2
+        flam_obs = fmodel_norm[clip]/(wave/rf_tempfilt.filters[0].pivot)**2
         
-        xm, ym, ys, N = utils.running_median(wave, flam, NBIN=50, use_median=True, use_nmad=True, reverse=False)
-        #c = 'r'
+        output_data['phot_wave'] = wave
+        output_data['phot_flam'] = flam
+        output_data['phot_flam_model'] = fmodel_norm
+        
+        # Running median
+        xm, ym, ys, N = utils.running_median(wave, flam, **median_args)
+        
+        output_data['sed_wave'] = fmodel_norm
+        output_data['sed_flam'] = xm
+        output_data['sed_nmad'] = ys
+
+        if get_templates:
+            sp = self.show_fit(self.cat['id'][idx][0], get_spec=True)
+            templf = []
+            for i in self.idx[idx]:
+                sp = self.show_fit(self.cat['id'][i], get_spec=True)
+                sp_i = sp['templf']/(norm_flux[i]/(1+self.zbest[i])**2)
+                templf.append(sp_i)
+                                
+            med = np.median(np.array(templf), axis=0)/3.6
+            tmin = np.percentile(np.array(templf), 16, axis=0)/3.6
+            tmax = np.percentile(np.array(templf), 84, axis=0)/3.6
+        
+            output_data['templ_wave'] = self.templates[0].wave
+            output_data['templ_flam'] = np.array(templf)
+            output_data['templ_med'] = med
+            output_data['templ_p16'] = tmin
+            output_data['templ_p84'] = tmax
+        
+        if not make_figure:
+            return output_data
+            
+        # Make figure
+        fig = plt.figure(figsize=[10,4])
+        
+        # UVJ?
+        if (self.ubvj is not None) & show_uvj:
+            UV = -2.5*np.log10(self.ubvj[:,0,2]/self.ubvj[:,2,2])
+            VJ = -2.5*np.log10(self.ubvj[:,2,2]/self.ubvj[:,3,2])
+            ok = np.isfinite(UV) & np.isfinite(VJ)
+            
+            gs = GridSpec(1,2, width_ratios=[2,3])
+        
+            ax = fig.add_subplot(gs[0,0])
+            sc = ax.scatter(VJ[ok], UV[ok], c='k', vmin=-1, vmax=1.,
+                            alpha=0.01, marker='.', edgecolor='k')
+            sc = ax.scatter(VJ[idx], UV[idx], c=c, vmin=-1, vmax=1., 
+                            alpha=0.2, marker='o', edgecolor='k')
+
+            ax.set_xlabel(r'$V-J$ (rest)')
+            ax.set_ylabel(r'$U-V$ (rest)')
+
+            ax.set_xlim(-0.2,2.8); ax.set_ylim(-0.2,2.8)
+            ax.grid()
+        
+            ax = fig.add_subplot(gs[0,1])
+        else:
+            gs = GridSpec(1,1, width_ratios=[1])
+        
+            ax = fig.add_subplot(gs[0,0])
+            
         ax.plot(xm, np.maximum(ym, 0.01), color=c, linewidth=2, alpha=0.4)
         ax.fill_between(xm, np.maximum(ym+ys, 0.001), np.maximum(ym-ys, 0.001), color=c, alpha=0.4)
-        
-        med = np.median(np.array(templf), axis=0)/3.6
-        min = np.percentile(np.array(templf), 16, axis=0)/3.6
-        max = np.percentile(np.array(templf), 84, axis=0)/3.6
-        ax.plot(self.templates[0].wave[::5], med[::5], color=c, linewidth=1, zorder=2)
+        if scatter_args is not None:
+            ax.scatter(wave, flam, **scatter_args)
+            
+        if get_templates:
+            ax.plot(self.templates[0].wave[::5], med[::5], color=c, 
+                linewidth=1, zorder=2)
     
-        ax.fill_between(self.templates[0].wave[::5], min[::5], max[::5], color=c, linewidth=1, zorder=2, alpha=0.1)
-
+            ax.fill_between(self.templates[0].wave[::5], tmin[::5], tmax[::5], 
+                            color=c, linewidth=1, zorder=2, alpha=0.1)
+        
         # MIPS
-        mips_obs = kate_sfr['f24tot']*10**(0.4*(self.param.params['PRIOR_ABZP']-23.9))/norm_flux/(24.e4/(1+self.zbest)/rf_tempfilt.filters[1].pivot)**2#/2
-        ok_mips = (mips_obs > 0)
+        if hasattr(self, 'mips_scaled'):
+            # MIPS flux in this catalog zeropoint
+            # mips_scaled = kate_sfr['f24tot']*10**(0.4*(self.param.params['PRIOR_ABZP']-23.9))
+            
+            mips_obs = self.mips_scaled/norm_flux/(24.e4/(1+self.zbest)/rf_tempfilt.filters[0].pivot)**2#/2
+            ok_mips = (mips_obs > 0)
         
-        xm, ym, ys, N = utils.running_median(24.e4/(1+self.zbest[idx & ok_mips]), np.log10(mips_obs[idx & ok_mips]), NBIN=10, use_median=True, use_nmad=True, reverse=False)
-        ax.fill_between(xm, np.maximum(10**(ym+ys), 1.e-4), np.maximum(10**(ym-ys), 1.e-4), color=c, alpha=0.4)
+            xm, ym, ys, N = utils.running_median(24.e4/(1+self.zbest[idx & ok_mips]), np.log10(mips_obs[idx & ok_mips]), NBIN=10, use_median=True, use_nmad=True, reverse=False)
+            ax.fill_between(xm, np.maximum(10**(ym+ys), 1.e-4), np.maximum(10**(ym-ys), 1.e-4), color=c, alpha=0.4)
         
-        ax.scatter(24.e4/(1+self.zbest[idx & ok_mips]), mips_obs[idx & ok_mips], color=c, marker='.', alpha=0.1)
+            ax.scatter(24.e4/(1+self.zbest[idx & ok_mips]), mips_obs[idx & ok_mips], color=c, marker='.', alpha=0.1)
+
+            ax.set_xlim(2000,120.e5)
+        
+        ax.scatter(rf_tempfilt.lc[0], 1, marker='x', color=c, zorder=1000)
+        
         ax.set_xlabel(r'$\lambda_\mathrm{rest}$')
         ax.set_ylabel(r'$f_\lambda\ /\ f_V$')
         ax.loglog()
-        ax.set_xlim(2000,120.e5)
-        ax.set_ylim(1.e-4,4)
+        
+        if 'xlim' in kwargs:
+            ax.set_xlim(kwargs['xlim'])
+        
+        if 'ylim' in kwargs:
+            ax.set_ylim(kwargs['ylim'])
+        else:
+            ax.set_ylim(9.e-4,4)
+            
         ax.grid()
         
-        fig.tight_layout()
-        return fig
+        gs.tight_layout(fig)
+        #fig.tight_layout()
+        return output_data, fig
         
         #fig.savefig('gs_eazypy.RF_{0}.png'.format(label))
     
