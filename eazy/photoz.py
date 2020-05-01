@@ -2135,7 +2135,7 @@ class PhotoZ(object):
         
         return photom, self.cat['id'][idx], dr
         
-    def rest_frame_SED(self, idx=None, norm_band=155, c='k', min_sn=3, median_args=dict(NBIN=50, use_median=True, use_nmad=True, reverse=False), get_templates=True, make_figure=True, scatter_args=None, show_uvj=True, **kwargs):
+    def rest_frame_SED(self, idx=None, norm_band=155, c='k', min_sn=3, median_args=dict(NBIN=50, use_median=True, use_nmad=True, reverse=False), get_templates=True, make_figure=True, scatter_args=None, show_uvj=True, axes=None, **kwargs):
         """
         Make Rest-frame SED plot
         
@@ -2246,8 +2246,11 @@ class PhotoZ(object):
             return output_data
             
         # Make figure
-        fig = plt.figure(figsize=[10,4])
-        
+        if axes is None:
+            fig = plt.figure(figsize=[10,4])
+        else:
+            fig = None
+            
         # UVJ?
         if (self.ubvj is not None) & show_uvj:
             UV = -2.5*np.log10(self.ubvj[:,0,2]/self.ubvj[:,2,2])
@@ -2256,24 +2259,33 @@ class PhotoZ(object):
             
             gs = GridSpec(1,2, width_ratios=[2,3])
         
-            ax = fig.add_subplot(gs[0,0])
+            if axes is None:
+                ax = fig.add_subplot(gs[0,0])
+            else:
+                ax = axes[0]
+                
             sc = ax.scatter(VJ[ok], UV[ok], c='k', vmin=-1, vmax=1.,
-                            alpha=0.01, marker='.', edgecolor='k')
+                            alpha=0.01, marker='.', edgecolor='k', zorder=-1)
             sc = ax.scatter(VJ[idx], UV[idx], c=c, vmin=-1, vmax=1., 
-                            alpha=0.2, marker='o', edgecolor='k')
-
-            ax.set_xlabel(r'$V-J$ (rest)')
-            ax.set_ylabel(r'$U-V$ (rest)')
-
-            ax.set_xlim(-0.2,2.8); ax.set_ylim(-0.2,2.8)
-            ax.grid()
+                            alpha=0.2, marker='o', edgecolor='k', zorder=1)
         
-            ax = fig.add_subplot(gs[0,1])
+            if axes is None:
+                ax.set_xlabel(r'$V-J$ (rest)')
+                ax.set_ylabel(r'$U-V$ (rest)')
+                ax.set_xlim(-0.2,2.8); ax.set_ylim(-0.2,2.8)
+                ax.grid()
+
+                ax = fig.add_subplot(gs[0,1])
+            else:
+                ax = axes[1]
         else:
             gs = GridSpec(1,1, width_ratios=[1])
         
-            ax = fig.add_subplot(gs[0,0])
-            
+            if axes is None:
+                ax = fig.add_subplot(gs[0,0])
+            else:
+                ax = axes[1]
+                
         ax.plot(xm, np.maximum(ym, 0.01), color=c, linewidth=2, alpha=0.4)
         ax.fill_between(xm, np.maximum(ym+ys, 0.001), np.maximum(ym-ys, 0.001), color=c, alpha=0.4)
         if scatter_args is not None:
@@ -2302,11 +2314,7 @@ class PhotoZ(object):
             ax.set_xlim(2000,120.e5)
         
         ax.scatter(rf_tempfilt.lc[0], 1, marker='x', color=c, zorder=1000)
-        
-        ax.set_xlabel(r'$\lambda_\mathrm{rest}$')
-        ax.set_ylabel(r'$f_\lambda\ /\ f_V$')
-        ax.loglog()
-        
+                
         if 'xlim' in kwargs:
             ax.set_xlim(kwargs['xlim'])
         
@@ -2315,9 +2323,13 @@ class PhotoZ(object):
         else:
             ax.set_ylim(9.e-4,4)
             
-        ax.grid()
-        
-        gs.tight_layout(fig)
+        if axes is None:
+            ax.set_xlabel(r'$\lambda_\mathrm{rest}$')
+            ax.set_ylabel(r'$f_\lambda\ /\ f_V$')
+            ax.loglog()
+            ax.grid()
+            gs.tight_layout(fig)
+
         #fig.tight_layout()
         return output_data, fig
         
