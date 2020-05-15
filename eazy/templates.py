@@ -51,7 +51,7 @@ class TemplateError():
         return tef_z
         
 class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None):
+    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux'):
         """
         Template object: 
         
@@ -96,7 +96,7 @@ class Template():
             if file.split('.')[-1] in ['fits','csv','ecsv']:
                 tab = Table.read(file)
                 self.wave = tab['wave'].data.astype(np.float)
-                self.flux = tab['flux'].data.astype(np.float)
+                self.flux = tab[fits_column].data.astype(np.float)
                 for k in tab.meta:
                     self.meta[k] = tab.meta[k]
                     
