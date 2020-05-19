@@ -10,7 +10,9 @@ VEGA_FILE = os.path.join(utils.path_to_eazy_data(),
                          'alpha_lyr_stis_008.fits')
                          
 VEGA = Table.read(VEGA_FILE)
-
+for c in VEGA.colnames:
+    VEGA[c] = VEGA[c].astype(np.float)
+    
 class FilterDefinition:
     def __init__(self, name=None, wave=None, throughput=None, bp=None, EBV=0, Rv=3.1):
         """
