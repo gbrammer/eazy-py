@@ -1,6 +1,8 @@
 import os
 import numpy as np
 
+import astropy.units as u
+
 from . import utils
 
 #import unicorn
@@ -49,11 +51,146 @@ class TemplateError():
         tef_z[clip] = 0.
         
         return tef_z
-        
-class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux'):
+
+class Redden():
+    """
+    Wrapper function for `~dust_attenuation` and `~dust_extinction` 
+    reddening laws
+    """
+    def __init__(self, model=None, Av=0., **kwargs):
         """
-        Template object: 
+        model: extinction/attenuation object or str
+            
+            Allowable string arguments:
+                
+                'smc' = `~dust_extinction.averages.G03_SMCBar`
+                'lmc' = `~dust_extinction.averages.G03_LMCAvg`
+                'mw','f99' = `~dust_extinction.parameter_averages.F99`
+                'calzetti00', 'c00' = `~dust_attenuation.averages.C00`
+                'wg00' = '~dust_attenuation.radiative_transfer.WG00`
+        
+        Av: selective extinction/attenuation
+            (passed as tau_V for `WG00`)
+            
+        """
+        allowed = ['smc', 'lmc', 'mw', 'f99', 'c00', 'calzetti00', 'wg00']
+        
+        if isinstance(model, str):
+            if model in ['smc']:
+                from dust_extinction.averages import G03_SMCBar
+                self.model = G03_SMCBar()
+            elif model in ['lmc']:
+                from dust_extinction.averages import G03_LMCAvg
+                self.model = G03_LMCAvg()
+            elif model in ['mw','f99']:
+                from dust_extinction.parameter_averages import F99 
+                self.model = F99()
+            elif model in ['calzetti00', 'c00']:
+                from dust_attenuation.averages import C00
+                self.model = C00(Av=Av)
+            elif model in ['wg00']:
+                from dust_attenuation.radiative_transfer import WG00
+                if 'tau_V' in kwargs:
+                    self.model = WG00(**kwargs)
+                else:
+                    self.model = WG00(tau_V=Av, **kwargs)   
+            else:
+                msg = "Requested model ('{model}') not in {allowed}."          
+                raise IOError(msg.format(model=model, allowed=allowed))
+        else:
+            self.model = model
+        
+        for k in ['Av', 'tau_V']:
+            if hasattr(model, k):
+                Av = getattr(model, k)
+                break
+                
+        self.Av = Av
+    
+    @property 
+    def ebv(self):
+        if hasattr(self.model, 'Rv'):
+            return self.Av/self.model.Rv
+        else:
+            print('Warning: Rv not defined for model: ' + self.__repr__())
+            return 0.
+            
+    def __repr__(self):
+        return '{0}, Av/tau_V={1}'.format(self.model.__repr__(), self.Av)
+        
+    def __call__(self, wave, left=0, right=1., **kwargs):
+        """
+        Return reddening factor.  If input has no units, assume 
+        `~astropy.units.Angstrom`.
+        """
+                    
+        if not hasattr(wave, 'unit'):
+            xu = wave*u.Angstrom
+        else:
+            if wave.unit is None:
+                xu.unit = u.Angstrom
+            else:
+                xu = wave
+        
+        if 'Av' in kwargs:
+            self.Av = kwargs['Av']
+        
+        if 'tau_V' in kwargs:
+            self.Av = kwargs['tau_V']
+        
+        for k in kwargs:
+            if hasattr(self.model, k):
+                setattr(self.model, k, kwargs[k])
+        
+        ext = np.atleast_1d(np.ones_like(xu.value))
+        
+        if hasattr(self.model, 'x_range'):
+            if hasattr(self.model, 'extinguish'):
+                # dust_extinction has x_range in 1/micron
+                xblue = (1./xu.to(u.micron)).value > self.model.x_range[1]
+                xred = (1./xu.to(u.micron)).value < self.model.x_range[0]
+            else:
+                # dust_attenuation has x_range in micron
+                xblue = (xu.to(u.micron)).value < self.model.x_range[0]
+                xred = (xu.to(u.micron)).value > self.model.x_range[1]
+                
+            ext[xblue] = left
+            ext[xred] = right
+            xr = (~xblue) & (~xred)
+        else:
+            xr = np.isfinite(wave)    
+        
+        if (self.model is None) | (self.Av <= 0):
+            # Don't do anything
+            pass             
+        elif hasattr(self.model, 'extinguish'):
+            # extinction
+            ext[xr] = self.model.extinguish(xu[xr], Av=self.Av)
+        elif hasattr(self.model, 'attenuate'):
+            # attenuation
+            if hasattr(self.model, 'tau_V'):
+                # WG00
+                self.model.tau_V = self.Av
+            else:
+                self.model.Av = self.Av
+            
+            ext[xr] = self.model.attenuate(xu[xr])
+        else:
+            msg = ('Dust model must have either `attenuate` or `extinguish`'
+                  ' method.')
+            raise IOError(msg)
+        
+        if hasattr(wave, '__len__'):
+            return ext
+        elif ext.size == 1:
+            return ext[0]
+        else:
+            return ext
+            
+class Template():
+    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden()):
+        """
+        Template object.
         
         Attributes:
         
@@ -61,6 +198,7 @@ class Template():
         flux = flux density, f-lambda
         name = str
         meta = dict
+        redfunc = optional `Redden` object
         
         Properties: 
         
@@ -75,7 +213,7 @@ class Template():
         
         self.name = 'None'
         self.meta = meta
-        
+                
         self.velocity_smooth = velocity_smooth
         
         if name is None:
@@ -112,16 +250,23 @@ class Template():
         
         # Handle optional units
         if hasattr(self.wave, 'unit'):
-            self.wave = self.wave.to(u.Angstrom).value
+            if self.wave.unit is not None:
+                self.wave = self.wave.to(u.Angstrom).value
+            else:
+                self.wave = self.wave.data
         else:
             self.wave *= to_angstrom
+
+        flam_unit = u.erg/u.second/u.cm**2/u.Angstrom
         
         if hasattr(self.flux, 'unit'):
-            flam_unit = u.erg/u.second/u.cm**2/u.Angstrom
-            equiv = u.equivalencies.spectral_density(self.wave*u.Angstrom)
-            flam = self.flux.to(flam_unit, equivalencies=equiv) 
-            self.flux = flam.value
-        
+            if self.flux.unit is not None:
+                equiv = u.equivalencies.spectral_density(self.wave*u.Angstrom)
+                flam = self.flux.to(flam_unit, equivalencies=equiv) 
+                self.flux = flam.value
+            else:
+                self.flux = self.flux.data
+                
         # Smoothing   
         if velocity_smooth > 0:
             self.smooth_velocity(velocity_smooth, in_place=True)
@@ -130,19 +275,41 @@ class Template():
         self.resample(resample_wave, in_place=True)
                 
         #self.set_fnu()
-    
+         
+        # Reddening function
+        self.redfunc = redfunc
+        _red = self.redden # test to break at init if fails
+            
     def __repr__(self):
         if self.name is None:
             return self.__class__
         else:
             return '{0}: {1}'.format(self.__class__, self.name)
-            
+    
+    @property
+    def absorbed_energy(self):
+        diff = self.flux*(1-self.redden)*(self.redden > 0)
+        return np.trapz(diff, self.wave)
+        
+    @property
+    def redden(self):
+        """
+        Return multiplicative scaling from `self.redfunc`, which is expected
+        to return attenuation in magnitudes.
+        """
+        if self.redfunc is not None:
+            red = self.redfunc(self.wave*u.Angstrom)
+        else:
+            red = 1.
+        
+        return red
+        
     @property 
     def flux_fnu(self):
         """
         self.flux is flam.  Scale to fnu
         """
-        return self.flux * self.wave**2 / (utils.CLIGHT*1.e10)
+        return self.flux * self.wave**2 / (utils.CLIGHT*1.e10) * self.redden
                     
     def set_fnu(self):
         """
@@ -223,7 +390,7 @@ class Template():
                 return Template(arrays=(new_wave, new_flux), name=self.name, 
                             meta=self.meta)
                 
-    def integrate_filter(self, filt, flam=False, scale=1., z=0):
+    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -236,19 +403,42 @@ class Template():
         except ImportError:
             interp = utils.interp_conserve
         
-        templ_filt = interp(filt.wave, self.wave*(1+z),
-                            self.flux_fnu*scale, left=0, right=0)
-                
-        # f_nu/lam dlam == f_nu d (ln nu)    
-        integrator = np.trapz
-        temp_int = integrator(filt.throughput*templ_filt/filt.wave, filt.wave) 
-        temp_int /= filt.norm
+        if hasattr(filt, '__len__'):
+            filts = filt
+            single = False
+        else:
+            filts = [filt]
+            single = True
         
-        if flam:
-            temp_int *= utils.CLIGHT*1.e10/(filt.pivot/(1+z))**2
+        if include_igm > 0:
+            igmz = self.igm_absorption(z, pow=include_igm)
+        else:
+            igmz = 1.
+        
+        # Fnu flux density, with IGM and scaling
+        fnu = self.flux_fnu*scale*igmz
+        
+        fluxes = []
+        for filt_i in filts:    
+            templ_filt = interp(filt_i.wave, self.wave*(1+z),
+                                fnu, left=0, right=0)
+                
+            # f_nu/lam dlam == f_nu d (ln nu)    
+            integrator = np.trapz
+            temp_int = integrator(filt_i.throughput*templ_filt/filt_i.wave, 
+                                  filt_i.wave) 
+            temp_int /= filt_i.norm
+        
+            if flam:
+                temp_int *= utils.CLIGHT*1.e10/(filt_i.pivot/(1+z))**2
             
-        return temp_int
-    
+            fluxes.append(temp_int)
+        
+        if single:
+            return fluxes[0]
+        else:
+            return np.array(fluxes)
+                    
     def igm_absorption(self, z, pow=1):
         """
         Compute IGM absorption.  
@@ -266,22 +456,20 @@ class Template():
         igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])**pow
         return igmz
         
-    def integrate_filter_list(self, filters, z=0, flam=False, include_igm=True):
+    def integrate_filter_list(self, filters, include_igm=True, norm_index=None, **kwargs):
         """
         Integrate template through all filters
         
         filters: list of `~eazy.filters.Filter` objects
         
-        """            
-        if include_igm > 0:
-            igmz = self.igm_absorption(z, pow=include_igm)
-        else:
-            igmz = 1.
-        
-        fluxes = [self.integrate_filter(filt, flam=flam, scale=igmz, z=z)
-                  for filt in filters]
-        
-        return np.array(fluxes)
+        [rewritten as simple wrapper]
+        """                    
+        fluxes = self.integrate_filter(filters, include_igm=include_igm, 
+                                       **kwargs)        
+        if isinstance(norm_index, int):
+            fluxes /= fluxes[norm_index]
+            
+        return fluxes
         
     def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False):
         from astropy.table import Table
@@ -302,6 +490,50 @@ class Template():
         tab.meta = self.meta
         return tab
         
+class ModifiedBlackBody():
+    """
+    Modified black body: nu**beta * BB(nu) 
+    + FIR-radio correlation
+    
+    
+    """
+    def __init__(self, Td=47, beta=1.6, q=2.34, alpha=-0.75):
+        self.Td = Td
+        self.q = q
+        self.beta = beta
+        self.alpha = alpha
+    
+    @property 
+    def bb(self):
+        from astropy.modeling.models import BlackBody
+        return BlackBody(temperature=self.Td*u.K)
+        
+    def __call__(self, wave, q=None):
+        """
+        Return modified BlackBody (fnu) as a function of wavelength
+        """
+        from astropy.constants import L_sun, h, k_B, c
+        if not hasattr(wave, 'unit'):
+            mu = wave*u.micron
+        else:
+            mu = wave
+                 
+        nu = (c/mu).to(u.Hz).value
+        mbb = (self.bb(nu)*nu**self.beta).value
+        lim = (mu > 40*u.micron) & (mu < 120*u.micron) 
+        lir = np.trapz(mbb[lim][::-1], nu[lim][::-1])
+        
+        if q is None:
+            q = self.q
+            
+        radio = 10**(np.log10(lir/3.75e12)-q)
+        radio *= (nu/1.4e9)**self.alpha
+        
+        return (mbb+radio)
+    
+    def __repr__(self):
+        label = r'$T_\mathrm{{{{d}}}}$={0:.0f}, $\beta$={1:.1f}'
+        return label.format(self.Td, self.beta)
         
 # class TemplateInterpolator():
 #     """
