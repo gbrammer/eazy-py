@@ -4,6 +4,8 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 
+import astropy.stats
+
 CLIGHT = 299792458.0 # m/s
 
 def path_to_eazy_data():
@@ -27,12 +29,10 @@ def set_warnings(numpy_level='ignore', astropy_level='ignore'):
     np.seterr(all=numpy_level)
     warnings.simplefilter(astropy_level, category=AstropyWarning)
     
-def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=False, bins=None):
+def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=False, bins=None, x_func=astropy.stats.biweight_location, y_func=astropy.stats.biweight_location, std_func=astropy.stats.biweight_midvariance, integrate=False):
     """
     Running median/biweight/nmad
     """
-    import numpy as np
-    import astropy.stats
     
     NPER = xi.size // NBIN
     if bins is None:
@@ -52,24 +52,43 @@ def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=Fals
     ym = xm*0
     ys = xm*0
     N = np.arange(NBIN)
+    
+    if use_median:
+        y_func = np.median
+    
+    if use_nmad:
+        std_func = astropy.stats.mad_std
         
     #idx = np.arange(NPER, dtype=int)
     for i in range(NBIN):
         in_bin = (xi > bins[i]) & (xi <= bins[i+1])
         N[i] = in_bin.sum() #N[i] = xi[so][idx+NPER*i].size
         
-        if use_median:
-            xm[i] = np.median(xi[in_bin]) # [so][idx+NPER*i])
-            ym[i] =  np.median(yi[in_bin]) # [so][idx+NPER*i])
+        if integrate:
+            xso = np.argsort(xi[in_bin])
+            ma = xi[in_bin].max()
+            mi = xi[in_bin].min()
+            xm[i] = (ma+mi)/2.
+            dx = (ma-mi)
+            ym[i] = np.trapz(yi[in_bin][xso], xi[in_bin][xso])/dx
         else:
-            xm[i] = astropy.stats.biweight_location(xi[in_bin]) # [so][idx+NPER*i])
-            ym[i] = astropy.stats.biweight_location(yi[in_bin]) # [so][idx+NPER*i])
-            
-        if use_nmad:
-            mad = astropy.stats.median_absolute_deviation
-            ys[i] = 1.48*mad(yi[in_bin]) # [so][idx+NPER*i])
-        else:
-            ys[i] = astropy.stats.biweight_midvariance(yi[in_bin]) # [so][idx+NPER*i])
+            xm[i] = x_func(xi[in_bin])
+            ym[i] = y_func(yi[in_bin])
+        
+        ys[i] = std_func(yi[in_bin])
+        
+        # if use_median:
+        #     xm[i] = np.median(xi[in_bin]) # [so][idx+NPER*i])
+        #     ym[i] =  np.median(yi[in_bin]) # [so][idx+NPER*i])
+        # else:
+        #     xm[i] = astropy.stats.biweight_location(xi[in_bin]) # [so][idx+NPER*i])
+        #     ym[i] = astropy.stats.biweight_location(yi[in_bin]) # [so][idx+NPER*i])
+        #     
+        # if use_nmad:
+        #     mad = astropy.stats.median_absolute_deviation
+        #     ys[i] = 1.4826*mad(yi[in_bin]) # [so][idx+NPER*i])
+        # else:
+        #     ys[i] = astropy.stats.biweight_midvariance(yi[in_bin]) # [so][idx+NPER*i])
             
     return xm, ym, ys, N
 
@@ -301,7 +320,112 @@ class GalacticExtinction(object):
                 Alambda[clip] = self.f99(inwave[clip]*unit, self.Av)
         
         return Alambda
+
+def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2, selection=None, catastrophic_limit=0.15, title=None, min_zphot=0.02, alpha=0.2, extra_xlabel='', extra_ylabel='', xlabel=r'$z_\mathrm{spec}$', ylabel=r'$z_\mathrm{phot}$', **kwargs):
+    """
+    Make zphot_zspec plot scaled by log(1+z) and show uncertainties
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+
+    clip = (zphot > min_zphot) & (zspec > zmin) & (zspec <= zmax)
+
+    if selection is not None:
+        clip &= selection
+
+    dz = (zphot-zspec)/(1+zspec)
+
+    #izbest = np.argmin(self.fit_chi2, axis=1)
+
+    clip_cat = (np.abs(dz) < catastrophic_limit)
+    frac_cat = 1-(clip & clip_cat).sum() / clip.sum()
+    NOUT = (clip & ~clip_cat).sum()
     
+    gs = GridSpec(2,1, height_ratios=[6,1])
+    if axes is None:
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(gs[0,0])
+    else:
+        ax = axes[0]
+
+    if title is not None:
+        ax.set_title(title)
+
+    if zlimits is not None:
+        yerr = np.log10(1+np.abs(zlimits.T - zphot))
+        ax.errorbar(np.log10(1+zspec[clip & ~clip_cat]), 
+                    np.log10(1+zphot[clip & ~clip_cat]), 
+                    yerr=yerr[:,clip & ~clip_cat], marker='.', alpha=alpha, 
+                    color='r', linestyle='None')
+        
+        ax.errorbar(np.log10(1+zspec[clip & clip_cat]), 
+                    np.log10(1+zphot[clip & clip_cat]), 
+                    yerr=yerr[:,clip & clip_cat], marker='.', alpha=alpha, 
+                    color='k', linestyle='None')
+    else:
+        ax.scatter(np.log10(1+zspec[clip & ~clip_cat]),
+                   np.log10(1+zphot[clip & ~clip_cat]), 
+                   marker='.', alpha=alpha, color='r')
+
+        ax.scatter(np.log10(1+zspec[clip & clip_cat]), 
+                   np.log10(1+zphot[clip & clip_cat]), 
+                   marker='.', alpha=alpha, color='k')
+        
+    xt = np.arange(zmin, zmax+0.1, minor)
+    xl = np.log10(1+xt)
+    ax.plot(xl, xl, color='r', alpha=0.5)
+    ax.set_xlim(xl[0], xl[-1]); ax.set_ylim(xl[0],xl[-1])
+    xtl = list(xt)
+
+    if skip > 0:
+        for i in range(1, len(xt), skip):
+            xtl[i] = ''
+
+    ax.set_xticks(xl); ax.set_xticklabels([]);
+    ax.set_yticks(xl); ax.set_yticklabels(xtl);
+    ax.grid()
+    ax.set_ylabel(ylabel + extra_ylabel)
+
+    sample_nmad = nmad(dz[clip])
+    sample_cat_nmad = nmad(dz[clip & clip_cat])
+
+    ax.text(0.05, 0.925, r'N={0} ({4}, {1:4.1f}%), $\sigma$={2:.4f} ({3:.4f})'.format(clip.sum(), frac_cat*100, sample_nmad, sample_cat_nmad, NOUT),
+            ha='left', va='top', fontsize=10, transform=ax.transAxes)
+    
+
+    if axes is None:
+        ax = fig.add_subplot(gs[1,0])
+    else:
+        ax = axes[1]
+    
+    if zlimits is not None:
+        yerr = np.abs(zlimits.T-zphot)#/(1+self.cat['z_spec'])
+        ax.errorbar(np.log10(1+zspec[clip & ~clip_cat]), dz[clip & ~clip_cat], 
+                    yerr=yerr[:,clip & ~clip_cat], 
+                    marker='.', alpha=alpha, color='r', linestyle='None')
+                    
+        ax.errorbar(np.log10(1+zspec[clip & clip_cat]), dz[clip & clip_cat], 
+                    yerr=yerr[:,clip & clip_cat], 
+                    marker='.', alpha=alpha, color='k', linestyle='None')
+    else:
+        ax.scatter(np.log10(1+zspec[clip & ~clip_cat]), dz[clip & ~clip_cat], 
+                    marker='.', alpha=alpha, color='r')
+        ax.scatter(np.log10(1+zspec[clip & clip_cat]), dz[clip & clip_cat],
+                    marker='.', alpha=alpha, color='k')
+        
+    ax.set_xticks(xl); ax.set_xticklabels(xtl);
+    ax.set_xlim(xl[0], xl[-1])
+    ax.set_ylim(-6*sample_nmad, 6*sample_nmad)
+    ax.set_yticks([-3*sample_nmad, 0, 3*sample_nmad])
+    ax.set_yticklabels([r'$-3\sigma$',r'$0$',r'$+3\sigma$'])
+    ax.set_xlabel(xlabel + extra_xlabel)
+    ax.set_ylabel(r'$\Delta z / 1+z$')
+    ax.grid()
+
+    fig.tight_layout(pad=0.1)
+    
+    return fig
+        
 def interp_conserve(x, xp, fp, left=0., right=0.):
     """
     Interpolation analogous to `~numpy.interp` but conserving "flux".
