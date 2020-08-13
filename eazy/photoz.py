@@ -16,12 +16,16 @@ except:
     from astropy.table import Table
 
 import astropy.io.fits as pyfits
+import astropy.units as u
+import astropy.constants as const
 
 from . import filters
 from . import param 
 from . import igm as igm_module
 from . import templates as templates_module 
 from . import utils 
+
+IGM_OBJECT = igm_module.Inoue14()
 
 TRUE_VALUES = [True, 'y', 'yes', 'Y', 'Yes']
 
@@ -33,6 +37,8 @@ DEFAULT_RF_FILTERS = [270, 274] # UV tophat
 DEFAULT_RF_FILTERS += [120, 121] # GALEX
 DEFAULT_RF_FILTERS += [156, 157, 158, 159, 160] #SDSS
 DEFAULT_RF_FILTERS += [161, 162, 163] # 2MASS
+
+MIN_VALID_FILTERS = 1
 
 class PhotoZ(object):
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0):
@@ -110,7 +116,7 @@ class PhotoZ(object):
         #self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.filters, add_igm=True, galactic_ebv=0.0354)
 
         t0 = time.time()
-        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc)
+        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc)
         t1 = time.time()
         print('Process templates: {0:.3f} s'.format(t1-t0))
         
@@ -248,11 +254,13 @@ class PhotoZ(object):
                 self.efnu[:,i] *= self.translate.error[self.err_columns[i]]
                 
         self.efnu_orig = self.efnu*1.
+        #self.fnu_orig = self.fnu*1.
+        
         self.efnu = np.sqrt(self.efnu**2+(self.param['SYS_ERR']*self.fnu)**2)
         
         self.ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
-        self.fnu[~self.ok_data] = -99
-        self.efnu[~self.ok_data] = -99
+        self.fnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
+        self.efnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
         
         self.nusefilt = self.ok_data.sum(axis=1)
         self.lc_reddest = np.max(self.ok_data*self.lc, axis=1)
@@ -443,86 +451,119 @@ class PhotoZ(object):
         if save_templates:
             self.save_templates()
     
-    def zphot_zspec(self, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2):
-
-        import matplotlib.pyplot as plt
-        from matplotlib.gridspec import GridSpec
-
-        clip = (self.zbest > self.zgrid[0]) & (self.cat['z_spec'] > zmin) & (self.cat['z_spec'] <= zmax)
-
-        zlimits = self.pz_percentiles(percentiles=[16,84], oversample=10,
+    def zphot_zspec(self, selection=None, min_zphot=0.02, zmin=0, zmax=4, include_errors=True, **kwargs):
+        """
+        Make zphot - zspec comparison plot
+        """
+        clip = (self.zbest > min_zphot) 
+        clip &= (self.cat['z_spec'] > zmin) & (self.cat['z_spec'] <= zmax)
+        
+        if selection is not None:
+            clip &= selection
+            
+        if include_errors:
+            zlimits = self.pz_percentiles(percentiles=[16,84], oversample=10,
                                       selection=clip)
-        
-        dz = (self.zbest-self.cat['z_spec'])/(1+self.cat['z_spec'])
-        #izbest = np.argmin(self.fit_chi2, axis=1)
-        
-        gs = GridSpec(2,1, height_ratios=[6,1])
-        if axes is None:
-            fig = plt.figure(figsize=figsize)
-            ax = fig.add_subplot(gs[0,0])
         else:
-            ax = axes[0]
+            zlimits = None
             
-        ax.set_title(self.param['MAIN_OUTPUT_FILE'])
-
-        #ax = fig.add_subplot(gs[:,-1])
-        #ax.scatter(np.log10(1+self.cat['z_spec'][clip]), np.log10(1+self.zbest[clip]), marker='o', alpha=0.2, color='k')
+        fig = utils.zphot_zspec(self.zbest, self.cat['z_spec'], 
+                          zlimits=zlimits, 
+                          selection=selection, min_zphot=min_zphot, 
+                          zmin=zmin, zmax=zmax, **kwargs)
         
-        yerr = np.log10(1+np.abs(zlimits.T-self.zbest))
-        ax.errorbar(np.log10(1+self.cat['z_spec'][clip]), np.log10(1+self.zbest[clip]), yerr=yerr[:,clip], marker='.', alpha=0.2, color='k', linestyle='None')
-
-        xt = np.arange(zmin,zmax+0.1, minor)
-        xl = np.log10(1+xt)
-        ax.plot(xl, xl, color='r', alpha=0.5)
-        ax.set_xlim(xl[0], xl[-1]); ax.set_ylim(xl[0],xl[-1])
-        xtl = list(xt)
-        
-        if skip > 0:
-            for i in range(1, len(xt), skip):
-                xtl[i] = ''
-
-        ax.set_xticks(xl); ax.set_xticklabels([]);
-        ax.set_yticks(xl); ax.set_yticklabels(xtl);
-        ax.grid()
-        ax.set_ylabel(r'$z_\mathrm{phot}$')
-
-        sample_nmad = utils.nmad(dz[clip])
-        ax.text(0.05, 0.925, r'N={0}, $\sigma$={1:.4f}'.format(clip.sum(), sample_nmad), ha='left', va='top', fontsize=10, transform=ax.transAxes)
-        #ax.axis('scaled')
-        
-        if axes is None:
-            ax = fig.add_subplot(gs[1,0])
-        else:
-            ax = axes[1]
-            
-        yerr = np.abs(zlimits.T-self.zbest)#/(1+self.cat['z_spec'])
-        
-        ax.errorbar(np.log10(1+self.cat['z_spec'][clip]), dz[clip], yerr=yerr[:,clip], marker='.', alpha=0.2, color='k', linestyle='None')
-        
-        ax.set_xticks(xl); ax.set_xticklabels(xtl);
-        ax.set_xlim(xl[0], xl[-1])
-        ax.set_ylim(-6*sample_nmad, 6*sample_nmad)
-        ax.set_yticks([-3*sample_nmad, 0, 3*sample_nmad])
-        ax.set_yticklabels([r'$-3\sigma$',r'$0$',r'$+3\sigma$'])
-        ax.set_xlabel(r'$z_\mathrm{spec}$')
-        ax.set_ylabel(r'$\Delta z / 1+z_\mathrm{spec}$')
-        ax.grid()
-        
-        fig.tight_layout(pad=0.1)
-
         return fig
-    
-    def save_templates(self, prefix='tweak_'):
+        
+    def save_templates(self, prefix='tweak_', ext=None, format=None, overwrite=True):
+        """
+        Write scaled versions of the templates
+        """
         path = os.path.dirname(self.param['TEMPLATES_FILE'])
         for templ in self.templates:
-            templ_file = os.path.join('{0}/{1}{2}.txt'.format(path,prefix,
+            tab = templ.to_table()
+            
+            templ_file = os.path.join('{0}/{1}{2}'.format(path, prefix,
                                                           templ.name))
             
+            if ext is not None:
+                templ_file += ext
+            
             print('Save tweaked template {0}'.format(templ_file))
-                                      
-            np.savetxt(templ_file, np.array([templ.wave, templ.flux]).T,
-                       fmt='%.6e')
-                           
+            
+            file_ext = templ_file.split('.')[-1]
+            if (file_ext in ['dat', 'txt']) & (format is None):
+                fmt = 'ascii.commented_header'
+            else:
+                fmt = format
+                
+            if format is not None:
+                tab.write(templ_file, format=format, overwrite=overwrite)    
+            else:
+                tab.write(templ_file, overwrite=overwrite)
+                
+            #                          
+            #np.savetxt(templ_file, np.array([templ.wave, templ.flux]).T,
+            #           fmt='%.6e')
+    
+    def fit_single_templates(self, verbose=True):
+        """
+        Fit individual templates on the redshift grid
+        """
+        from tqdm import tqdm
+        
+        ampl = np.zeros((self.NTEMP, self.NOBJ, self.NZ))
+        chi2 = np.zeros((self.NTEMP, self.NOBJ, self.NZ))
+        
+        chiz = np.zeros((self.NZ, self.NOBJ))
+        amplz = np.zeros((self.NZ, self.NOBJ))
+                
+        for i in range(self.NTEMP):
+            print('Process template ', i)
+            templ_i = self.tempfilt.tempfilt[:,i,:].T
+            
+            for j in tqdm(range(self.NZ)):
+                #print(j)
+                tefz = self.TEF(self.zgrid[j])
+                full_err = np.sqrt(self.efnu**2+(self.fnu*tefz)**2)
+                templ_iz = templ_i[:,j]
+                num = (self.fnu/self.zp/full_err*self.ok_data).dot(templ_iz)
+                den = (1./full_err*self.ok_data).dot(templ_iz**2)
+                ampl_j = num/den
+                amplz[j,:] = ampl_j
+                
+                mz = ampl_j[:,None]*templ_iz[None,:]
+                chi = ((mz-self.fnu/self.zp)*self.ok_data)**2/full_err**2
+                chiz[j,:] = chi.sum(axis=1)
+        
+            chi2[i,:,:] = chiz.T
+            ampl[i,:,:] = amplz.T
+            
+        chimin = chi2.min(axis=2).min(axis=0)
+        if verbose:
+            print('Compute p(z|T)')
+            
+        logpz = -(chi2 - chimin[None,:,None])/2
+        
+        pzt = np.exp(logpz).sum(axis=0)
+        pznorm = np.trapz(pzt, self.zgrid, axis=1)
+        logpz -= pznorm[None,:,None]
+        
+        return ampl, chi2, logpz
+        
+        # Compute new best from pz
+        izbest = np.argmax(pzt, axis=1)
+        zbest = izbest*0.
+        for iobj in self.idx:
+            iz = izbest[iobj]
+            if iz == 0:
+                continue
+                
+            c = polyfit(self.zgrid[iz-1:iz+2], np.log(pzt[iobj, iz-1:iz+2]), 2)
+            #c = polyfit(self.zgrid[iz-1:iz+2], self.fit_chi2[iobj, iz-1:iz+2], 2)
+            
+            zbest[iobj] = -c[1]/(2*c[0])
+        
+        
     def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls'):
 
         import numpy as np
@@ -558,6 +599,7 @@ class PhotoZ(object):
         fnu_corr = self.fnu[idx_fit,:]*self.ext_redden*self.zp
         efnu_corr = self.efnu[idx_fit,:]*self.ext_redden*self.zp
             
+        efnu_corr[self.fnu[idx_fit,:] < self.param['NOT_OBS_THRESHOLD']] = self.param['NOT_OBS_THRESHOLD'] - 9.
         t0 = time.time()
         pool = mp.Pool(processes=n_proc)
         
@@ -592,7 +634,7 @@ class PhotoZ(object):
                 
         fnu_i = self.fnu[iobj, :]*self.ext_redden
         efnu_i = self.efnu[iobj,:]*self.ext_redden
-        ok_band = (fnu_i > -90) & (efnu_i > 0)
+        ok_band = (fnu_i > self.param['NOT_OBS_THRESHOLD']) & (efnu_i > 0)
         
         A = self.tempfilt(z)
         var = (0.0*fnu_i)**2 + efnu_i**2 + (self.TEF(z)*fnu_i)**2
@@ -680,6 +722,7 @@ class PhotoZ(object):
         
         fnu_corr = self.fnu*self.ext_redden*self.zp
         efnu_corr = self.efnu*self.ext_redden*self.zp
+        efnu_corr[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
         # self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
         # self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
@@ -756,7 +799,7 @@ class PhotoZ(object):
         
         return zbest, chi_best
     
-    def error_residuals(self, verbose=True):
+    def error_residuals(self, level=1, verbose=True):
         """
         Force error bars to touch the best-fit model
         """
@@ -771,7 +814,7 @@ class PhotoZ(object):
         
         # Update where residual larger than uncertainty
         upd = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD'])
-        upd &= (r > self.efnu) & (self.fmodel > 0)
+        upd &= (r > level*self.efnu) & (self.fmodel > 0)
         upd &= np.isfinite(self.fnu) & np.isfinite(self.efnu)
         
         self.efnu[upd] = r[upd] #np.sqrt(var_new[upd])
@@ -789,31 +832,28 @@ class PhotoZ(object):
         full_err = self.efnu*0.
         teff_err = self.efnu*0
         
-        teff_err = self.TEF(self.zbest[:,None])
-        
-        # for i in range(self.NOBJ):
-        #     teff_err[i,:] = self.TEF(self.zbest[i])*TEF_scale
-        
-        full_err = np.sqrt(self.efnu_orig**2+(self.fnu*teff_err)**2)
+        teff_err = self.TEF(np.maximum(self.zbest[:,None], self.zgrid[1]))         
             
         resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel
-        #eresid = np.clip(full_err/self.fmodel, 0.02, 0.2)
         
         self.efnu_i = self.efnu_orig*1
-        
-        eresid = np.sqrt((self.efnu_i/self.fmodel)**2+self.param.params['SYS_ERR']**2)
+                
+        eresid = np.sqrt((self.efnu_i/self.fmodel)**2+self.param.params['SYS_ERR']**2 + teff_err**2)
         
         okz = (self.zbest > 0.1) & (self.zbest < 3)
         scale_errors = self.lc*0.
         
         for ifilt in range(self.NFILT):
             iok = okz & (self.efnu_orig[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
-            
+            iok &= np.isfinite(resid[:,ifilt])
+            if iok.sum() < 10:
+               continue
+                
             # Spline interp
             xw = self.lc[ifilt]/(1+self.zbest[iok])
             so = np.argsort(xw)
             #spl = UnivariateSpline(xw[so], resid[iok,ifilt][so], w=1/np.clip(eresid[iok,ifilt][so], 0.002, 0.1), s=iok.sum()*4)
-            spl = LSQUnivariateSpline(xw[so], resid[iok,ifilt][so], np.exp(np.arange(np.log(xw.min()+100), np.log(xw.max()-100), 0.05)), w=1/eresid[iok,ifilt][so])#, s=10)
+            spl = LSQUnivariateSpline(xw[so], resid[iok,ifilt][so], np.exp(np.arange(np.log(xw.min()+100), np.log(xw.max()-100), 0.2)), w=1/eresid[iok,ifilt][so])#, s=10)
             
             nm = utils.nmad((resid[iok,ifilt]-spl(xw))/eresid[iok,ifilt])
             print('{3}: {0} {1:d} {2:.2f}'.format(self.flux_columns[ifilt], self.f_numbers[ifilt], nm, ifilt))
@@ -824,7 +864,79 @@ class PhotoZ(object):
         
         # Overall average
         lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
+    
+    def make_template_error_function(self, te_wave=None, log_wave=True, selection=None, optimizer=None, optimizer_args={}, in_place=False, sn_limits=[-2, 100], min_err=0.02):
+        """
+        Generate a template error function based on template fit residuals
+        """    
+        from grizli import utils
+        from scipy.optimize import nnls
         
+        if optimizer is None:
+            optimizer = nnls
+            
+        if selection is None:
+            selection = (self.zbest > 0.1) & (self.zbest < 5)
+                
+        sigma = self.efnu_orig[selection,:]
+        if hasattr(self, 'err_scale'):
+            sigma *= self.err_scale
+            
+        M = (self.fmodel/self.ext_redden/self.zp)[selection,:]*1
+        F = self.fnu[selection,:]*1
+        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
+        lcz = lcz[selection]
+        
+        # Normalize residuals, uncertainties by model flux
+        E2 = ((F-M)/M)**2 - (sigma/M)**2 
+        clip = (sigma.flatten() > 0) & np.isfinite(M.flatten()) & np.isfinite(F.flatten())
+        clip &= (np.isfinite(E2.flatten())) & (np.abs(E2.flatten()) < 2)
+        
+        SN = (self.fnu[selection,:]/sigma).flatten()
+        clip &= (SN > sn_limits[0]) & (SN < sn_limits[1])
+        
+        M = M.flatten()[clip]
+        F = F.flatten()[clip]
+        sigma = sigma.flatten()[clip]
+        lcz = lcz.flatten()[clip]
+        E2 = ((F-M)/M)**2 - (sigma/M)**2 
+        
+        so = np.argsort(lcz)
+        
+        wave_inp = lcz
+            
+        Aspl = utils.bspline_templates(wave_inp, degree=3, df=7, 
+                                       get_matrix=True, log=log_wave)
+        
+        # Sampled
+        wave_samp = np.linspace(wave_inp.min(), wave_inp.max(), 1024)
+        Asamp = utils.bspline_templates(wave_samp, degree=3, df=7, 
+                                        get_matrix=True, log=log_wave)
+        
+        _lsq = optimizer(Aspl, E2, **optimizer_args)
+        coeffs = _lsq[0]
+        spline_samp = Asamp.dot(coeffs)
+        
+        if te_wave is None:
+            te_wave = self.TEF.te_x*1
+        
+        te_y = np.interp(te_wave, wave_samp, np.maximum(spline_samp, min_err), 
+                         left=spline_samp[0], right=spline_samp[-1])
+        
+        if in_place:
+            self.TEF = templates_module.TemplateError(file='internal', 
+                                                      arrays=(te_wave, te_y),
+                                                      lc=self.lc, scale=1.0)
+
+            self.TEFgrid = np.zeros((self.NZ, self.NFILT))
+            for i in range(self.NZ):
+                self.TEFgrid[i,:] = self.TEF(self.zgrid[i])
+            
+            
+        return te_wave, te_y
+        
+
+
     def residuals(self, selection=None, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True, min_width=500, NBIN=None):
         """
         Show residuals and compute zeropoint offsets
@@ -851,7 +963,7 @@ class PhotoZ(object):
         zbest = self.zgrid[izbest]
                 
         if selection is not None:
-            idx = self.idx[(izbest > 0) & selection]
+            idx = self.idx[(izbest > self.zgrid[0]) & selection]
         else:
             idx = self.idx[izbest > 0]
             
@@ -863,6 +975,9 @@ class PhotoZ(object):
         fig = plt.figure(figsize=[16,4])
         gs = gridspec.GridSpec(1, 4)
         ax = fig.add_subplot(gs[:,:3])
+        
+        ax.text(0.9, -0.05, f'N={len(idx)}', ha='left', va='top', 
+                fontsize=8, transform=ax.transAxes)
         
         cmap = cm.rainbow
         cnorm = mpl.colors.Normalize(vmin=0, vmax=self.NFILT-1)
@@ -912,7 +1027,11 @@ class PhotoZ(object):
         
         for i in range(self.NFILT):
             ifilt = so[i]
-            clip = (izbest > 0) & (sn[:,ifilt] > 3) & (self.efnu[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD']) & (resid[:,ifilt] > 0)
+            clip = (izbest > 0) & (sn[:,ifilt] > 3) & (self.efnu[:,ifilt] > 0)
+            clip &= (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD']) 
+            clip &= (resid[:,ifilt] > 0)
+            clip &= selection
+            
             color = cmap(cnorm(i))
             
             if clip.sum() == 0:
@@ -920,7 +1039,9 @@ class PhotoZ(object):
                 continue
                 
             xi = self.lc[ifilt]/(1+self.zgrid[izbest][clip])
-            xm, ym, ys, N = utils.running_median(xi, resid[clip, ifilt], NBIN=20, use_median=True, use_nmad=True)
+            xm, ym, ys, N = utils.running_median(xi, resid[clip, ifilt], 
+                                                 NBIN=20, use_median=True, 
+                                                 use_nmad=True)
             
             # Normalize to overall median
             #xgi = (w_best * norm(xi[:, None], locs, widths)).sum(1)
@@ -936,9 +1057,18 @@ class PhotoZ(object):
             if fname.count('.') > 1:
                 fname = '.'.join(fname.split('.')[:-1])
             
-            ax.plot(xm, ym/delta_i*image_corrections[i], color=color, alpha=0.8, label='{0:30s} {1:.3f}'.format(fname, delta_i/image_corrections[i]), linewidth=2)
-            ax.fill_between(xm, ym/delta_i*image_corrections[i]-ys/np.sqrt(N), ym/delta_i*image_corrections[i]+ys/np.sqrt(N), color=color, alpha=0.1) 
+            ax.plot(xm, ym/delta_i*image_corrections[i], color=color, 
+                    alpha=0.8, label='{0:30s} {1:.3f}'.format(fname, delta_i/image_corrections[i]), linewidth=2)
+            ax.fill_between(xm, ym/delta_i*image_corrections[i]-ys/np.sqrt(N), 
+                            ym/delta_i*image_corrections[i]+ys/np.sqrt(N), 
+                            color=color, alpha=0.1) 
                     
+        try:
+            ax.plot(self.TEF.te_x, self.TEF.te_y*self.TEF.scale+1, 
+                    color='pink', zorder=1001, label='TEF')
+        except:
+            pass
+        
         ax.semilogx()
         ax.set_ylim(0.8,1.2)
         ax.set_xlim(800,8.e4)
@@ -947,7 +1077,7 @@ class PhotoZ(object):
         ax.grid()
         ax.vlines([2175, 3727, 5007, 6563.], 0.8, 1.0, linestyle='--', color='k', zorder=-18)
         ax.set_xlabel(r'$\lambda_\mathrm{rest}$')
-        ax.set_ylabel('(temp - phot) / temp')
+        ax.set_ylabel('(temp - phot) / temp + 1')
         
         ## zphot-zspec
         dz = (self.zbest-self.cat['z_spec'])/(1+self.cat['z_spec'])
@@ -993,7 +1123,7 @@ class PhotoZ(object):
                 #templ.flux_fnu /= templ_tweak
             
             # Recompute filter fluxes from tweaked templates    
-            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
         
         return fig
         
@@ -1010,21 +1140,22 @@ class PhotoZ(object):
         templ = self.templates[0]
         tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]))
         for i in range(self.NTEMP):
-            tempflux[i, :] = self.templates[i].flux_fnu
+            iz = self.templates[i].zindex(z=z, redshift_type='nearest')
+            tempflux[i, :] = self.templates[i].flux_fnu[iz,:]
             
         templz = templ.wave*(1+z)
         
         if self.tempfilt.add_igm:
             igmz = templ.wave*0.+1
             lyman = templ.wave < 1300
-            igmz[lyman] = igm_module.Inoue14().full_IGM(z, templz[lyman])
+            igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
         else:
             igmz = 1.
         
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
                 
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, zshow=None, ds9=None, ds9_sky=False, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, show_redshift_draws=False, zshow=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=0):
         """
         Show SED and p(z) of a single object
         
@@ -1105,19 +1236,29 @@ class PhotoZ(object):
             z = zshow
         
         if ds9 is not None:
+            pan = ds9.get('pan fk5')
+            if pan == '0 0':
+                ds9_sky = False
+                
             if ds9_sky:
+                #for c in ['ra','RA','x_world']:
                 ds9.set('pan to {0} {1} fk5'.format(self.cat['x_world'][ix], self.cat['y_world'][ix]))
             else:
                 ds9.set('pan to {0} {1}'.format(self.cat['x_image'][ix], self.cat['y_image'][ix]))
                 
         ## SED
-        A = np.squeeze(self.tempfilt(z))
         fnu_i = np.squeeze(self.fnu[ix, :])*self.ext_redden*self.zp
         efnu_i = np.squeeze(self.efnu[ix,:])*self.ext_redden*self.zp
+        ok_band = (fnu_i/self.zp > self.param['NOT_OBS_THRESHOLD']) 
+        ok_band &= (efnu_i/self.zp > 0)
+        efnu_i[~ok_band] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
-        ok_band = (fnu_i/self.zp > -90) & (efnu_i/self.zp > 0)
+        tef_i = self.TEF(z)
         
-        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, self.TEF(z), self.zp, NDRAW, fitter)
+        A = np.squeeze(self.tempfilt(z))
+        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, 
+                                                   tef_i, self.zp, 
+                                                   NDRAW, fitter)
         if draws is None:
             efmodel = 0
         else:
@@ -1129,17 +1270,18 @@ class PhotoZ(object):
             templ = self.templates[0]
             tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]))
             for i in range(self.NTEMP):
+                iz = self.templates[i].zindex(z=z, redshift_type='nearest')
                 try:
-                    tempflux[i, :] = self.templates[i].flux_fnu
+                    tempflux[i, :] = self.templates[i].flux_fnu[iz,:]
                 except:
-                    tempflux[i, :] = np.interp(templ.wave, self.templates[i].wave, self.templates[i].flux_fnu)
+                    tempflux[i, :] = np.interp(templ.wave, self.templates[i].wave, self.templates[i].flux_fnu[iz,:])
                     
             templz = templ.wave*(1+z)
 
             if self.tempfilt.add_igm:
                 igmz = templ.wave*0.+1
                 lyman = templ.wave < 1300
-                igmz[lyman] = igm_module.Inoue14().full_IGM(z, templz[lyman])
+                igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
             else:
                 igmz = 1.
 
@@ -1151,17 +1293,20 @@ class PhotoZ(object):
         
         if show_fnu:
             if show_fnu == 2:
+                templz_power = -1
                 flam_spec = 1.e29/(templz/1.e4)
                 flam_sed = 1.e29/self.ext_corr/(self.lc/1.e4)
                 ylabel = (r'$f_\nu / \lambda$ [$\mu$Jy / $\mu$m]')
                 flux_unit = u.uJy / u.micron
             else:
+                templz_power = 0
                 flam_spec = 1.e29
                 flam_sed = 1.e29
                 ylabel = (r'$f_\nu$ [$\mu$Jy]')    
                 flux_unit = u.uJy
             
         else:
+            templz_power = -2
             flam_spec = utils.CLIGHT*1.e10/templz**2/1.e-19
             flam_sed = utils.CLIGHT*1.e10/self.lc**2/self.ext_corr/1.e-19
             ylabel = (r'$f_\lambda [10^{-19}$ erg/s/cm$^2$]')
@@ -1224,26 +1369,123 @@ class PhotoZ(object):
         # S/N < 2
         sn2_not = (~missing) & (fnu_i/efnu_i <= 2)
         
-        ax.errorbar(self.lc[sn2_detection]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_detection], (efnu_i*fnu_factor*flam_sed)[sn2_detection], color='k', marker='s', linestyle='None', label=None, zorder=10)
+        ax.errorbar(self.lc[sn2_detection]/1.e4, 
+                    (fnu_i*fnu_factor*flam_sed)[sn2_detection], 
+                    (efnu_i*fnu_factor*flam_sed)[sn2_detection], 
+                    color='k', marker='s', linestyle='None', label=None, 
+                    zorder=10)
 
-        ax.errorbar(self.lc[sn2_not]/1.e4, (fnu_i*fnu_factor*flam_sed)[sn2_not], (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', marker='s', alpha=0.4, linestyle='None', label=None)
+        ax.errorbar(self.lc[sn2_not]/1.e4, 
+                    (fnu_i*fnu_factor*flam_sed)[sn2_not], 
+                    (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', 
+                    marker='s', alpha=0.4, linestyle='None', label=None)
 
         if show_missing:
-            ax.errorbar(self.lc[missing]/1.e4, (fnu_i*fnu_factor*flam_sed)[missing]*0, (efnu_i*fnu_factor*flam_sed)[missing], color='0.7', marker='x', linestyle='None', alpha=0.4, label=None)
+            ax.errorbar(self.lc[missing]/1.e4, 
+                        (fnu_i*fnu_factor*flam_sed)[missing]*0, 
+                        (efnu_i*fnu_factor*flam_sed)[missing], 
+                        color='0.7', marker='x', linestyle='None', 
+                        alpha=0.4, label=None)
         
-        pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, zorder=-1, color=template_color, label='z={0:.2f}'.format(z))
+        pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, 
+                     zorder=-1, color=template_color, 
+                     label='z={0:.2f}'.format(z))
         
         if show_components:
-            colors = ['#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+            colors = ['#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
+                      '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
             
             for i in range(self.NTEMP):
                 if coeffs_i[i] != 0:
-                    pi = ax.plot(templz/1.e4, coeffs_i[i]*tempflux[i,:]*igmz*fnu_factor*flam_spec, alpha=0.5, zorder=-1, label=self.templates[i].name.split('.dat')[0], color=colors[i % len(colors)])
-                    
-        if draws is not None:
-            templf_width = np.percentile(templf_draws*fnu_factor*flam_spec, [16,84], axis=0)
-            ax.fill_between(templz/1.e4, templf_width[0,:], templf_width[1,:], color=pl[0].get_color(), alpha=0.1, label=None)
+                    pi = ax.plot(templz/1.e4, 
+                        coeffs_i[i]*tempflux[i,:]*igmz*fnu_factor*flam_spec, 
+                              alpha=0.5, zorder=-1, 
+                              label=self.templates[i].name.split('.dat')[0], 
+                              color=colors[i % len(colors)])
+                            
+        elif show_redshift_draws:
+            # Draw random values from p(z)
+            pz = self.pz[ix,:].flatten()
+            pzcum = pz*0.
+            for j in range(1, self.NZ):
+                pzcum[j] = np.trapz(pz[:j], self.zgrid[:j])
             
+            if show_redshift_draws == 1:
+                nzdraw = 100
+            else:
+                nzdraw = show_redshift_draws*1
+            
+            rvs = np.random.rand(nzdraw)
+            zdraws = np.interp(rvs, pzcum, self.zgrid)
+            
+            for zi in zdraws:
+                Az = np.squeeze(self.tempfilt(zi))
+                chi2_zi, coeffs_zi, fmodelz, __ = _fit_obj(fnu_i, efnu_i, Az, 
+                                                       self.TEF(zi), self.zp, 
+                                                       0, fitter)
+                c_i = np.interp(zi, self.zgrid, np.arange(self.NZ)/self.NZ)
+                
+                templzi = templ.wave*(1+zi)
+                if self.tempfilt.add_igm:
+                    igmz = templ.wave*0.+1
+                    lyman = templ.wave < 1300
+                    igmz[lyman] = IGM_OBJECT.full_IGM(zi, 
+                                                              templzi[lyman])
+                else:
+                    igmz = 1.
+
+                templfz = np.dot(coeffs_zi, tempflux)*igmz                
+                templfz *=  flam_spec * (templz / templzi)**templz_power
+                
+                plz = ax.plot(templzi/1.e4, templfz*fnu_factor,
+                             alpha=np.maximum(0.1, 1./nzdraw), 
+                             zorder=-1, color=plt.cm.rainbow(c_i))
+                
+        if draws is not None:
+            templf_width = np.percentile(templf_draws*fnu_factor*flam_spec, 
+                                         [16,84], axis=0)
+            ax.fill_between(templz/1.e4, templf_width[0,:], templf_width[1,:], 
+                            color=pl[0].get_color(), alpha=0.1, label=None)
+                                                       
+        if show_stars & (not hasattr(self, 'star_chi2')):
+            print('`star_chi2` attribute not found, run `fit_phoenix_stars`.')
+            
+        elif show_stars & hasattr(self, 'star_chi2'):
+            if __name__ == '__main__':
+                # debug
+                ix = _[1]['ix']
+                chi2_i = self.chi2_noprior[ix]  
+                ax = _[0].axes[0]
+                
+            delta_chi2 = self.star_chi2[ix,:] - chi2_i    
+            good_stars = delta_chi2 < delta_chi2_stars
+            good_stars &= (self.star_chi2[ix,:] - self.star_chi2[ix,:].min() < 100)
+            
+            if good_stars.sum() == 0:
+                msg = 'Min delta_chi2 = {0:.1f} ({1})'
+                sname = self.star_templates[np.argmin(delta_chi2)].name
+                print(msg.format(delta_chi2.min(), sname))
+                
+            else:
+                # dummy for cycler
+                ax.plot(np.inf, np.inf)
+                star_models  = self.star_tnorm[ix,:] * self.star_flux
+                so = np.argsort(self.lc)
+                order = np.where(good_stars)[0]
+                order = order[np.argsort(delta_chi2[order])]
+            
+                for si in order:
+                    label = self.star_templates[si].name.strip('bt-settl_')
+                    label = '{0} {1:5.1f}'.format(label.replace('_', ' '),
+                                                 delta_chi2[si])
+                    print(label)
+                    ax.plot(self.lc[so]/1.e4,
+                            (star_models[:,si]*fnu_factor*flam_sed)[so], 
+                            marker='o', alpha=0.5, label=label)
+
+                if __name__ == '__main__':
+                    ax.legend()
+                
         if axes is None:            
             ax.set_ylabel(ylabel)
             
@@ -1314,7 +1556,8 @@ class PhotoZ(object):
         pz = self.pz[ix,:].flatten()
         
         ax.plot(self.zgrid, pz, color='orange', label=None)
-        ax.plot(self.zgrid, prior/prior.max()*pz.max(), color='g',
+        if show_prior:
+            ax.plot(self.zgrid, prior/prior.max()*pz.max(), color='g',
                 label='prior')
         
         ax.fill_between(self.zgrid, pz, pz*0, color='yellow', alpha=0.5, 
@@ -1372,8 +1615,10 @@ class PhotoZ(object):
         
         fnu_corr = self.fnu*self.ext_redden*self.zp
         efnu_corr = self.efnu*self.ext_redden*self.zp
+        efnu_corr[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
-        f_rest = np.zeros((self.NOBJ, NREST, len(percentiles)))-99
+        f_rest = np.zeros((self.NOBJ, NREST, len(percentiles)))
+        f_rest += self.param['NOT_OBS_THRESHOLD'] - 9.
         
         fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         
@@ -1606,7 +1851,7 @@ class PhotoZ(object):
         
         return peaks, numpeaks
     
-    def uv_abs_mag(self, f_numbers=[271, 272, 274], cosmo=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5]}):
+    def uv_abs_mag(self, f_numbers=[271, 272, 274], cosmology=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5]}):
         """
         Get UV absolute mags.
         
@@ -1628,14 +1873,14 @@ class PhotoZ(object):
            information.
            
         """    
-        if cosmo is None:
-            from astropy.cosmology import WMAP9 as cosmo
+        if cosmology is None:
+            from astropy.cosmology import WMAP9 as cosmology
         
         _uv = self.rest_frame_fluxes(f_numbers=f_numbers, **rest_kwargs) 
         uv_tf, uv = _uv
         
         zdm = utils.log_zgrid([0.01, 13], 0.01)
-        dm = cosmo.distmod(zdm).value - 2.5*np.log10(1+zdm)
+        dm = cosmology.distmod(zdm).value - 2.5*np.log10(1+zdm)
         DM = np.interp(self.zbest, zdm, dm, left=0, right=0)
         
         lc_round = ['{0}'.format(int(np.round(lc/100))*100) 
@@ -1656,13 +1901,14 @@ class PhotoZ(object):
         
         return tab
                       
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5]):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz)):
         """
         Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
-        """        
-        import astropy.units as u
-        import astropy.constants as const
         
+        template_fnu_units: Units of templates when converted to ``flux_fnu``, 
+                            e.g., L_sun / Hz for fsps templates.
+        
+        """        
         if cosmology is None:
             from astropy.cosmology import WMAP9 as cosmology
             
@@ -1712,9 +1958,6 @@ class PhotoZ(object):
             for c in cols:
                 tab_temp[c] = np.ones(self.NTEMP)*np.nan
                 
-        temp_MLv = tab_temp['mass']/tab_temp['Lv']
-        temp_SFRv = tab_temp['sfr']
-        
         # Normalize fit coefficients to template V-band
         coeffs_norm = self.coeffs_best*self.ubvj_tempfilt.tempfilt[:,2]
                 
@@ -1763,7 +2006,7 @@ class PhotoZ(object):
         for j in range(self.NTEMP):
             templ = self.templates[j]
             clip = (templ.wave > LIR_wave[0]*1e4) & (templ.wave < LIR_wave[1]*1e4)
-            templ_LIR[j] = np.trapz(templ.flux[clip], templ.wave[clip])
+            templ_LIR[j] = np.trapz(templ.flux[0,clip], templ.wave[clip])
         
         LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
         LIRv = LIR_norm / Lv_norm
@@ -1772,7 +2015,8 @@ class PhotoZ(object):
         SFRv = SFR_norm / Lv_norm
                
         # Convert observed maggies to fnu
-        uJy_to_cgs = u.Jy.to(u.erg/u.s/u.cm**2/u.Hz)*1.e-6
+        fnu_units = u.erg/u.s/u.cm**2/u.Hz
+        uJy_to_cgs = u.microJansky.to(u.erg/u.s/u.cm**2/u.Hz)
         fnu_scl = 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))*uJy_to_cgs
         
         fnu = restV*fnu_scl*(u.erg/u.s/u.cm**2/u.Hz)
@@ -1789,7 +2033,33 @@ class PhotoZ(object):
         SFR = SFRv*Lv
         LIR = LIRv*Lv
         energy_abs = energy_abs_v*Lv
-                
+        
+        ##### Use physical units
+        if template_fnu_units is not None:
+            
+            print(f'... Physical quantities directly from coeffs and templates ({template_fnu_units})')
+            
+            to_physical = fnu_scl*fnu_units*4*np.pi*dL**2/(1+self.zbest)
+            to_physical /= template_fnu_units.to(u.erg/u.second/u.Hz)
+            coeffs_rest = (self.coeffs_best.T*to_physical).T
+            
+            # Remove unit (which should be null)
+            coeffs_rest = np.array(coeffs_rest)
+
+            mass = coeffs_rest.dot(tab_temp['mass'])*u.solMass
+            SFR = coeffs_rest.dot(tab_temp['sfr'])*u.solMass/u.yr
+            Lv = coeffs_rest.dot(tab_temp['Lv'])*u.solLum
+            LIR = coeffs_rest.dot(tab_temp['LIR'])*u.solLum
+            energy_abs_rest = coeffs_rest.dot(tab_temp['energy_abs'])*u.solLum
+            
+            MLv = mass/Lv
+            
+        if 'ageV' in tab_temp.colnames:
+            age_norm = (coeffs_norm*tab_temp['ageV']).sum(axis=1)*u.Gyr
+            lw_age_V = age_norm
+        else:
+            lw_age_V = -99*u.Gyr
+            
         # Emission line fluxes
         line_flux = {}
         line_EW = {}
@@ -1860,10 +2130,13 @@ class PhotoZ(object):
         
         tab['energy_abs'] = energy_abs
         tab['energy_abs'].format = '.3e'
+
+        tab['lw_age_V'] = lw_age_V
+        tab['lw_age_V'].format = '.2f'
         
         if self.get_err:
             # Propagate coeff covariance to parameters
-            
+            print('... Get uncertainties')
             coeffs_draws = np.maximum(self.coeffs_draws, 0)
             coeffs_draws *= self.ubvj_tempfilt.tempfilt[:,2]
             draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
@@ -1906,7 +2179,7 @@ class PhotoZ(object):
         
         for col in tab.colnames:
             bad = ~np.isfinite(tab[col])
-            tab[col][bad] = -99e29
+            tab[col][bad] = -9e29
             
         tab.meta['FNUSCALE'] = (fnu_scl, 'Scale factor to f-nu CGS')
         tab.meta['COSMOL'] = (cosmology.name, 'Cosmological model')
@@ -1931,7 +2204,10 @@ class PhotoZ(object):
                 
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', clip_wavelength=1100):
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', clip_wavelength=1100, MUV_filters=[271, 272, 274]):#
+        """
+        SPS output, stellar masses, etc.
+        """
         import astropy.io.fits as pyfits
         from .version import __version__
         
@@ -1992,13 +2268,29 @@ class PhotoZ(object):
         if verbose:
             print('Get parameters (UBVJ={0}, LIR={1})'.format(UBVJ, LIR_wave))
             
-        sps_tab = self.sps_parameters(UBVJ=UBVJ, extra_rf_filters=extra_rf_filters, cosmology=cosmology, LIR_wave=LIR_wave, rf_pad_width=rf_pad_width, rf_max_err=rf_max_err, percentile_limits=percentile_limits)
+        sps_tab = self.sps_parameters(UBVJ=UBVJ, 
+                          extra_rf_filters=extra_rf_filters, 
+                          cosmology=cosmology, LIR_wave=LIR_wave, 
+                          rf_pad_width=rf_pad_width, rf_max_err=rf_max_err, 
+                          percentile_limits=percentile_limits)
+                          
         for col in sps_tab.colnames:
             tab[col] = sps_tab[col]
         
         for key in sps_tab.meta:
             tab.meta[key] = sps_tab.meta[key]
-
+        
+        if MUV_filters is not None:
+            print('... UV ABs Mag')
+            MUV = self.uv_abs_mag(f_numbers=MUV_filters, cosmology=cosmology, 
+                            rest_kwargs={'percentiles':percentile_limits})
+            
+            for c in MUV.colnames:
+                tab[c] = MUV[c]
+            
+            for key in MUV.meta:
+                tab.meta[key] = MUV.meta[key]
+                
         if not save_fits:
             return tab, None
         
@@ -2027,12 +2319,12 @@ class PhotoZ(object):
         for i, t in enumerate(self.templates):
             h['TEMP{0:04d}'.format(i)] = t.name
         
-        hdu.append(pyfits.ImageHDU(self.templates[0].wave, name='TEMPL'))
-        temp_flux = np.zeros((self.NTEMP, len(self.templates[0].wave)))
-        for i in range(self.NTEMP):
-            temp_flux[i,:] = self.templates[i].flux
-            
-        hdu.append(pyfits.ImageHDU(temp_flux, name='TEMPF'))
+        # hdu.append(pyfits.ImageHDU(self.templates[0].wave, name='TEMPL'))
+        # temp_flux = np.zeros((self.NTEMP, len(self.templates[0].wave)))
+        # for i in range(self.NTEMP):
+        #     temp_flux[i,:] = self.templates[i].flux
+        #     
+        # hdu.append(pyfits.ImageHDU(temp_flux, name='TEMPF'))
         
         # Rest-frame fluxes
         hdu.append(pyfits.ImageHDU(self.ubvj.astype(np.float32), name='REST_UBVJ'))
@@ -2042,7 +2334,9 @@ class PhotoZ(object):
         hdu[-1].header['VFILT'] = (UBVJ[2], 'V-band filter ID')
         hdu[-1].header['JFILT'] = (UBVJ[3], 'J-band filter ID')
         
-        hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
+        if write_fits == 1:
+            hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
+            
         return tab, hdu
         
     def get_match_index(self, id=None, rd=None, verbose=True):
@@ -2075,7 +2369,7 @@ class PhotoZ(object):
         ZP = self.param['PRIOR_ABZP']
         maggies = self.fnu[ix,:]*10**(-0.4*ZP)
         maggies_unc = self.efnu[ix,:]*10**(-0.4*ZP)
-        dq = (self.fnu[ix,:] > -90) & (self.efnu[ix,:] > 0) & np.isfinite(self.fnu[ix,:]) & np.isfinite(self.efnu[ix,:])
+        dq = (self.fnu[ix,:] > self.param['NOT_OBS_THRESHOLD']) & (self.efnu[ix,:] > 0) & np.isfinite(self.fnu[ix,:]) & np.isfinite(self.efnu[ix,:])
         
         sedpy_filters = []
         for i in range(self.NFILT):
@@ -2105,7 +2399,7 @@ class PhotoZ(object):
         if grizli_templates is not None:
             template_list = [templates_module.Template(arrays=(grizli_templates[k].wave, grizli_templates[k].flux), name=k) for k in grizli_templates]
             
-            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=True, galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'])
+            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'])
         else:
             tempfilt = None
         
@@ -2121,10 +2415,10 @@ class PhotoZ(object):
             idx = np.where(self.cat['id'] == id)[0][0]
             dr = 0
         
-        notobs_mask =  self.fnu[idx,:] < -90
+        notobs_mask =  self.fnu[idx,:] < self.param['NOT_OBS_THRESHOLD']
         sed = self.show_fit(idx, show_fnu=False, xlim=[0.3, 9], get_spec=True, id_is_idx=True)
-        sed['fobs'][notobs_mask] = -99
-        sed['efobs'][notobs_mask] = -99
+        sed['fobs'][notobs_mask] = self.param['NOT_OBS_THRESHOLD'] - 9.
+        sed['efobs'][notobs_mask] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
         photom = OrderedDict()
         photom['flam'] = sed['fobs']*1.e-19
@@ -2335,7 +2629,7 @@ class PhotoZ(object):
         
         #fig.savefig('gs_eazypy.RF_{0}.png'.format(label))
     
-    def spatial_statistics(self, band_indices=None, xycols=('ra','dec'), is_sky=True, nbin=(50,50), bins=None, apply=False, min_sn=10, catalog_mask=None, statistic='median', zrange=[0.05, 4], verbose=True, vm=(0.92, 1.08), output_suffix='', save_results=True, make_plot=True, cmap='plasma', figsize=5, plot_format='png', close=True):
+    def spatial_statistics(self, band_indices=None, xycols=('ra','dec'), is_sky=True, nbin=(50,50), bins=None, apply=False, min_sn=10, catalog_mask=None, statistic='median', zrange=[0.05, 4], verbose=True, vm=(0.92, 1.08), output_suffix='', save_results=True, make_plot=True, cmap='plasma', figsize=5, plot_format='png', close=True, scale_by_uncertainties=False):
         """
         Show statistics as a function of position
         
@@ -2350,6 +2644,7 @@ class PhotoZ(object):
         """
         from scipy.stats import binned_statistic_2d
         import matplotlib.pyplot as plt
+        import astropy.stats
         
         # Coordinate things
         xc = self.cat[xycols[0]]
@@ -2373,10 +2668,13 @@ class PhotoZ(object):
             aspect /= cosd
 
         # Residuals
-        resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel
+        if scale_by_uncertainties:
+            resid = (self.fmodel/self.ext_redden/self.zp - self.fnu)/self.efnu
+        else:
+            resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel
         
         # Data mask
-        mask = (self.fnu/self.efnu > min_sn) & (self.efnu > 0) & (self.fnu > -98) & np.isfinite(resid)
+        mask = (self.fnu/self.efnu_orig > min_sn) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(resid)
         
         object_mask = (self.zbest > zrange[0]) & (self.zbest < zrange[1])
         if catalog_mask is not None:
@@ -2394,16 +2692,19 @@ class PhotoZ(object):
             msum = mask[:,i].sum()
             
             label = '{0} / {1} (N={2:>6d})'.format(col_i, f_name, msum)
-            if verbose:
-                print(label)
             
             if msum == 0:
                 continue
                 
             ret = binned_statistic_2d(xc[mask[:,i]], yc[mask[:,i]], resid[mask[:,i],i]+1, bins=(xbins, ybins), statistic=statistic)
             
-            if apply & (statistic in ['mean', 'median']):
+            if apply & (statistic in ['mean', 'median', astropy.stats.biweight_location]):
                 self.apply_spatial_offset(i, ret, xycols=xycols)
+                if verbose:
+                    print(label + ' (applied)')
+            else:
+                if verbose:
+                    print(label)
                 
             if save_results:
                 save_file = '{0}_{1}{2}.{3}'.format(self.param.params['MAIN_OUTPUT_FILE'], col_i, output_suffix, 'npy')
@@ -2421,6 +2722,7 @@ class PhotoZ(object):
                 ax.set_xlabel(xycols[0])
                 ax.set_ylabel(xycols[1])
                 ax.grid(zorder=500)
+                ax.set_aspect(1./cosd)
                 
                 fig.tight_layout(pad=0.1)
                 fig_file = '{0}_{1}{2}.{3}'.format(self.param.params['MAIN_OUTPUT_FILE'], col_i, output_suffix, plot_format)
@@ -2429,39 +2731,127 @@ class PhotoZ(object):
                     plt.close()
         
     def apply_spatial_offset(self, f_ix, bin2d, xycols=('ra','dec')):
-            """
-            Apply a spatial zeropoint offset determined from    
-            spatial_statistics.
-            """
-            xc = self.cat[xycols[0]]
-            yc = self.cat[xycols[1]]
+        """
+        Apply a spatial zeropoint offset determined from    
+        spatial_statistics.
+        """
+        xc = self.cat[xycols[0]]
+        yc = self.cat[xycols[1]]
+        
+        nx = len(bin2d.x_edge)
+        ny = len(bin2d.y_edge)
+        
+        ex = np.arange(nx)
+        ey = np.arange(ny)
+        
+        ix = np.cast[int](np.interp(xc, bin2d.x_edge, ex))
+        iy = np.cast[int](np.interp(yc, bin2d.y_edge, ey))
+        
+        corr = bin2d.statistic[ix, iy]
+        corr[~np.isfinite(corr)] = 1
+        
+        try:
+            self.spatial_offset[:,f_ix] *= corr
+        except:
+            self.spatial_offset = np.ones_like(self.fnu)
+            self.spatial_offset[:,f_ix] *= corr
             
-            nx = len(bin2d.x_edge)
-            ny = len(bin2d.y_edge)
+        mask = (self.fnu[:,f_ix] > self.param['NOT_OBS_THRESHOLD']) 
+        mask &= (self.efnu_orig[:,f_ix] > 0)
+        self.fnu[mask,f_ix] *= corr[mask]
+        self.efnu_orig[mask,f_ix] *= corr[mask]
+
+
+    def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None):
+        """
+        Fit grid of Phoenix stars
+        
+        `apply_extcorr` defaults to False because stars not necessarily 
+        "behind" MW extinction
+        
+        """
+        stars = templates_module.load_phoenix_stars(add_carbon_star=False)
+        self.star_templates = stars
+        tflux = [t.integrate_filter(self.filters, z=0, include_igm=False)
+                     for t in self.star_templates]
+        
+        templ_params = [[float(s[1:]) for s in t.name.split('_')[1:]] 
+                         for t in stars]
+        self.star_teff = np.array(templ_params)[:,0]
+        self.star_logg = np.array(templ_params)[:,1]
+        self.star_zmet = np.array(templ_params)[:,2]
+
+        if apply_extcorr:
+            self.star_flux = (np.array(tflux)*self.ext_corr).T
+        else:
+            self.star_flux = np.array(tflux).T
             
-            ex = np.arange(nx)
-            ey = np.arange(ny)
+        self.NSTAR = self.star_flux.shape[1]
+        
+        # Least squares normalization of stellar templates
+        if sys_err is None:
+            _wht = 1/(self.efnu**2+(self.param.params['SYS_ERR']*self.fnu)**2)
+        else:
+            _wht = 1/(self.efnu**2+(sys_err*self.fnu)**2)
             
-            ix = np.cast[int](np.interp(xc, bin2d.x_edge, ex))
-            iy = np.cast[int](np.interp(yc, bin2d.y_edge, ey))
+        _wht[(~self.ok_data) | (self.efnu <= 0)] = 0
+        
+        clip_filter = (self.lc < wave_lim[0]) | (self.lc > wave_lim[1])
+         
+        _wht[:, clip_filter] = 0
             
-            corr = bin2d.statistic[ix, iy]
-            corr[~np.isfinite(corr)] = 1
+        _num = np.dot(self.fnu*_wht, self.star_flux)
+        _den= np.dot(1*_wht, self.star_flux**2)
+        _den[_den == 0] = 0
+        self.star_tnorm = _num/_den
+        
+        # Chi-squared
+        self.star_chi2 = np.zeros(self.star_tnorm.shape, dtype=np.float32)
+        for i in range(self.NSTAR):
+            _m = self.star_tnorm[:,i:i+1]*self.star_flux[:,i]
+            self.star_chi2[:,i] = ((self.fnu - _m)**2*_wht).sum(axis=1)
+        
+        self.star_min_chi2 = self.star_chi2.min(axis=1)
+        
+        if False:
+            # Galaxy template fit, chi2 on same filters
+            izbest = np.argmin(self.fit_chi2, axis=1)
+            tempfilt_best = self.tempfilt.tempfilt[izbest[sample],:,:]
+            gal_model = (self.coeffs_best[sample,:].T * tempfilt_best.T).sum(axis=1).T
+            gal_chi2 = ((self.fnu[sample,:] - gal_model)**2*_wht[sample,:]).sum(axis=1)
             
-            try:
-                self.spatial_offset[:,f_ix] *= corr
-            except:
-                self.spatial_offset = np.ones_like(self.fnu)
-                self.spatial_offset[:,f_ix] *= corr
+        if False:
+            chi2i = self.star_chi2[idx[i],:]
+            cso = np.argsort(chi2i)
+            ok_i = self.ok_data[idx[i],:]
+
+            for j in cso:
+                tstar = self.star_templates[j]
+                tnorm = self.star_tnorm[idx[i], j]*self.to_flam[ok_i]
+                alpha = (1-np.minimum(chi2i[j] - chi2i.min(), 9)/9.)**2*0.5
+                if alpha < 0.01:
+                    continue
+                                                 
+                xso = np.argsort(self.lc[ok_i])
+                pl = ax.plot(self.lc[ok_i][xso]/1.e4, 
+                             ((self.star_flux)[ok_i,j]*tnorm)[xso], 
+                             marker='None', alpha=alpha, zorder=2, 
+                             label=self.star_templates[j].name)
                 
-            mask = (self.fnu[:,f_ix] > -98) & (self.efnu_orig[:,f_ix] > 0)
-            self.fnu[mask,f_ix] *= corr[mask]
-            self.efnu_orig[mask,f_ix] *= corr[mask]
+                
+                ax.scatter(self.lc[ok_i]/1.e4, (self.star_flux)[ok_i,j]*tnorm, 
+                           s=200, color='w', alpha=1., zorder=2)
+                                        
+                ax.scatter(self.lc[ok_i]/1.e4, (self.star_flux)[ok_i,j]*tnorm, 
+                           s=100,
+                           color=pl[0].get_color(), alpha=alpha, zorder=3)
             
+            ax.legend(loc='upper left')
             
 def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     fmodel = np.dot(coeffs, A)
     return -0.5*np.sum((fmodel-fnu_i)**2/efnu_i**2)
+
              
 class TemplateGrid(object):
     def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2):
@@ -2508,7 +2898,7 @@ class TemplateGrid(object):
             for res in results:
                 itemp, tf_i = res.get(timeout=1)
                 if verbose > 1:
-                    print('Process template {0}.'.format(templates[itemp].name))
+                    print('Process template {0} (NZ={1}).'.format(templates[itemp].name, templates[itemp].NZ))
                 self.tempfilt[:,itemp,:] = tf_i        
         else:
             # Serial
@@ -2598,7 +2988,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     NFILT = len(filters)
         
     if add_igm:
-        igm = igm_module.Inoue14()
+        igm = igm_module.Inoue14(scale_tau=add_igm)
     else:
         igm = 1.
 
@@ -2607,7 +2997,8 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     # Add bump with Drude profile in template rest frame
     width = 350
     l0 = 2175
-    Abump = Eb/4.05*(templ.wave*width)**2/((templ.wave**2-l0**2)**2+(templ.wave*width)**2)
+    tw = templ.wave
+    Abump = Eb/4.05*(tw*width)**2/((tw**2-l0**2)**2+(tw*width)**2)
     Fbump = 10**(-0.4*Abump)
     
     tempfilt = np.zeros((NZ, NFILT))
@@ -2630,7 +3021,11 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
         F_MW = 10**(-0.4*A_MW)
         
         for ifilt in range(NFILT):
-            fnu = templ.integrate_filter(filters[ifilt], scale=igmz*F_MW*Fbump, z=zgrid[iz])
+            fnu = templ.integrate_filter(filters[ifilt], 
+                                         scale=igmz*F_MW*Fbump, 
+                                         z=zgrid[iz], 
+                                         include_igm=False)
+                                         
             tempfilt[iz, ifilt] = fnu
     
     return itemp, tempfilt
@@ -2650,7 +3045,7 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose, fitter):
         
         fnu_i = fnu_corr[iobj, :]
         efnu_i = efnu_corr[iobj,:]
-        ok_band = (fnu_i > -90) & (efnu_i > 0)
+        ok_band = (efnu_i > 0)
         
         if ok_band.sum() < 2:
             continue
@@ -2665,8 +3060,8 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     sh = A.shape
 
     # Valid fluxes
-    ok_band = (fnu_i/zp > -90) & (efnu_i/zp > 0) & np.isfinite(fnu_i) & np.isfinite(efnu_i)
-    if ok_band.sum() < 2:
+    ok_band = (efnu_i/zp > 0) & np.isfinite(fnu_i) & np.isfinite(efnu_i)
+    if ok_band.sum() < MIN_VALID_FILTERS:
         coeffs_i = np.zeros(sh[0])
         fmodel = np.dot(coeffs_i, A)
         return np.inf, np.zeros(A.shape[0]), fmodel, None
