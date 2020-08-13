@@ -243,6 +243,7 @@ def spline_sfh():
     age100 = ages <= 0.1
     
     sp = eazy.sps.ExtendedFsps(logzsol=0, zcontinuous=True, add_neb_emission=True, sfh=4)
+    
     sp.set_fir_template()
     #sp.set_dust(dust_obj_type='KC13')    
     #sp.params['dust_index'] = 0. #-0.3
@@ -584,7 +585,9 @@ class KC13(BaseAttAvModel):
     
     delta = Parameter(description="delta: slope of the power law",
                       default=0., min=-3., max=3.)
-                      
+    
+    extra_bump = 1.
+    
     def _init_N09(self):
         from dust_attenuation import averages, shapes, radiative_transfer
 
@@ -603,7 +606,7 @@ class KC13(BaseAttAvModel):
         #Av = np.polyval(self.coeffs['Av'], tau_V)
         x0 = 0.2175
         gamma = 0.0350
-        ampl = 0.85 - 1.9*delta
+        ampl = (0.85 - 1.9*delta)*self.extra_bump
         
         return self.N09.evaluate(x, Av, x0, gamma, ampl, delta)
             
@@ -670,7 +673,7 @@ class ParameterizedWG00(BaseAttAvModel):
         x0 = np.polyval(self.coeffs['x0'], tau_V)
         gamma = np.polyval(self.coeffs['gamma'], tau_V)
         if self.include_bump:
-            ampl = np.polyval(self.coeffs['ampl'], tau_V)
+            ampl = np.polyval(self.coeffs['ampl'], tau_V)*self.include_bump
         else:
             ampl = 0.
             
@@ -721,6 +724,7 @@ class ExtendedFsps(StellarPopulation):
     
     cosmology = WMAP9
     scale_lyman_series = 0.1
+    scale_lines = OrderedDict()
     
     #_meta_bands = ['v']
     
@@ -820,6 +824,9 @@ class ExtendedFsps(StellarPopulation):
                 if dl.min() < 0.5:
                     self.emline_names[np.argmin(dl)] = n
         
+        for l in self.emline_names:
+            self.scale_lines[l] = 1.
+            
         # Precomputed arrays for WG00 reddening defined between 0.1..3 um
         self.wg00lim = (self.wavelengths > 1000) & (self.wavelengths < 3.e4)
         self.wg00red = (self.wavelengths > 1000)*1.
@@ -827,7 +834,7 @@ class ExtendedFsps(StellarPopulation):
         self.exec_params = None
         self.narrow = None
         
-    def narrow_emission_lines(self, tage=0.1, emwave=DEFAULT_LINES, line_sigma=100, oversample=5, clip_sigma=10, verbose=False, get_eqw=True, scale_lyman_series=None, force_recompute=False, use_sigma_smooth=True, lorentz=False, **kwargs):
+    def narrow_emission_lines(self, tage=0.1, emwave=DEFAULT_LINES, line_sigma=100, oversample=5, clip_sigma=10, verbose=False, get_eqw=True, scale_lyman_series=None, scale_lines={}, force_recompute=False, use_sigma_smooth=True, lorentz=False, **kwargs):
         """
         Replace broad FSPS lines with specified line widths
     
@@ -838,6 +845,7 @@ class ExtendedFsps(StellarPopulation):
         oversample : factor by which to sample the Gaussian profiles
         clip_sigma : sigmas from line center to use for the line
         scale_lyman_series : scaling to apply to Lyman-series emission lines
+        scale_lines : scaling to apply to other emission lines, by name
         
         Returns: `dict` with keys
             wave_full, flux_full, line_full = wave and flux with fine lines
@@ -854,9 +862,19 @@ class ExtendedFsps(StellarPopulation):
             scale_lyman_series = self.scale_lyman_series
         else:
             self.scale_lyman_series = scale_lyman_series
-            
+        
+        if scale_lines is None:
+            scale_lines = self.scale_lines
+        else:
+            for k in scale_lines:
+                if k in self.scale_lines:
+                    self.scale_lines[k] = scale_lines[k]
+                else:
+                    print(f'Line "{k}" not found in `self.scale_lines`')
+        
         # Avoid recomputing if all parameters are the same (i.e., change Av)
         call_params = np.hstack([self.param_floats(params=None), emwave, 
+                                 list(self.scale_lines.values()), 
                         [tage, oversample, clip_sigma, scale_lyman_series]])
         try:
             is_close = np.allclose(call_params, self.exec_params)
@@ -939,7 +957,10 @@ class ExtendedFsps(StellarPopulation):
                 
             if self.emline_names[line_ix[i]].startswith('Ly'):
                 norm *= scale_lyman_series
-                
+            
+            if self.emline_names[line_ix[i]] in self.scale_lines:
+                norm *= self.scale_lines[self.emline_names[line_ix[i]]]
+                    
             gfull += gline*norm
             
             if get_eqw:
