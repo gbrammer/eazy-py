@@ -116,7 +116,7 @@ class Redden():
             return 0.
             
     def __repr__(self):
-        return '{0}, Av/tau_V={1}'.format(self.model.__repr__(), self.Av)
+        return '<Redden {0}, Av/tau_V={1}>'.format(self.model.__repr__(), self.Av)
         
     def __call__(self, wave, left=0, right=1., **kwargs):
         """
@@ -188,7 +188,7 @@ class Redden():
             return ext
             
 class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden()):
+    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), template_redshifts=[0], verbose=True):
         """
         Template object.
         
@@ -203,6 +203,12 @@ class Template():
         Properties: 
         
         flux_fnu = flux density, f-nu
+        
+        Can optionally specify a 2-dimensional flux array with the first
+        dimension indicating the template for the nearest redshift in the 
+        correspoinding ``template_redshifts`` list.  When integrating the 
+        filter fluxes with ``integrate_filter``, the template index with the 
+        redshift nearest to the specified redshift will be used.
         
         """
         from astropy.table import Table
@@ -235,6 +241,11 @@ class Template():
                 tab = Table.read(file)
                 self.wave = tab['wave'].data.astype(np.float)
                 self.flux = tab[fits_column].data.astype(np.float)
+                
+                # Transpose because FITS tables stored like NWAVE, NZ
+                if self.flux.ndim == 2:
+                    self.flux = self.flux.T
+                    
                 for k in tab.meta:
                     self.meta[k] = tab.meta[k]
                     
@@ -244,10 +255,31 @@ class Template():
                         
         elif arrays is not None:
             self.wave, self.flux = arrays[0]*1, arrays[1]*1
-            self.set_fnu()
+            #self.set_fnu()
         else:
             raise TypeError('Must specify either `sp`, `file` or `arrays`')
         
+        if self.flux.ndim == 1:
+            # For redshift dependence
+            self.flux = np.atleast_2d(self.flux)
+            self.template_redshifts = np.zeros(1)
+            self.NZ, self.NWAVE = self.flux.shape
+        else:
+            self.NZ, self.NWAVE = self.flux.shape
+            if 'NZ' in self.meta:
+                template_redshifts = [self.meta[f'Z{j}'] 
+                                      for j in range(self.meta['NZ'])]
+            
+            if len(template_redshifts) != self.NZ:
+                msg = (f'template_redshifts ({len(template_redshifts)})'
+                       f' doesn\'t match flux dimension ({self.NZ})!')
+                raise ValueError(msg)
+            
+            self.template_redshifts = np.array(template_redshifts)
+        
+            # if verbose:
+            #     print(f'Redshift dependent! (NZ={self.NZ})')
+                
         # Handle optional units
         if hasattr(self.wave, 'unit'):
             if self.wave.unit is not None:
@@ -289,8 +321,12 @@ class Template():
     @property
     def absorbed_energy(self):
         diff = self.flux*(1-self.redden)*(self.redden > 0)
-        return np.trapz(diff, self.wave)
-        
+        absorbed = np.trapz(diff, self.wave)
+        if self.NZ == 1:
+            return absorbed[0]
+        else:
+            return absorbed
+               
     @property
     def redden(self):
         """
@@ -336,8 +372,9 @@ class Template():
             else:
                 return self
                 
-        sm_flux = smooth_vel(self.wave, self.flux, self.wave, 
-                             velocity_smooth)
+        sm_flux = np.array([smooth_vel(self.wave, self.flux[i,:], self.wave, 
+                             velocity_smooth) for i in range(self.NZ)])
+                             
         sm_flux[~np.isfinite(sm_flux)] = 0.
         
         if in_place:
@@ -346,8 +383,9 @@ class Template():
             self.flux = sm_flux
             return True
         else:
-            return Template(arrays=(self.wave, sm_flux), name=self.name, 
-                            meta=self.meta)
+            return Template(arrays=(self.wave, sm_flux), 
+                            name=self.name, meta=self.meta, 
+                            template_redshifts=self.template_redshifts)
             
     def resample(self, new_wave, z=0, in_place=True, return_array=False, interp_func=utils.interp_conserve):
         """
@@ -378,7 +416,10 @@ class Template():
         if hasattr(new_wave, 'unit'):
             new_wave = new_wave.to(u.Angstrom).value
             
-        new_flux = interp_func(new_wave, self.wave*(1+z), self.flux)
+        new_flux = [interp_func(new_wave, self.wave*(1+z), self.flux[i,:])
+                    for i in range(self.NZ)]
+        new_flux = np.array(new_flux)
+        
         if in_place:
             self.wave = new_wave*1
             self.flux = new_flux
@@ -387,10 +428,28 @@ class Template():
             if return_array:
                 return new_flux
             else:
-                return Template(arrays=(new_wave, new_flux), name=self.name, 
-                            meta=self.meta)
-                
-    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False):
+                return Template(arrays=(new_wave, new_flux), 
+                                name=self.name, meta=self.meta, 
+                                template_redshifts=self.template_redshifts)
+    
+    def zindex(self, z=0., redshift_type='nearest'):
+        """
+        Get the redshift index of a multi-dimensional template array
+        """
+        dz = z - self.template_redshifts
+        if redshift_type == 'nearest':
+            iz = np.argmin(np.abs(dz))
+        else:
+            # First above requested redshift
+            test = np.where(dz > 0)[0]
+            if test.sum() == 0:
+                iz = np.argmin(self.template_redshifts)
+            else:
+                iz = np.argmin(self.template_redshifts[test])
+        
+        return iz
+        
+    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, redshift_type='nearest'):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -416,8 +475,9 @@ class Template():
             igmz = 1.
         
         # Fnu flux density, with IGM and scaling
-        fnu = self.flux_fnu*scale*igmz
-        
+        iz = self.zindex(z=z, redshift_type=redshift_type)
+        fnu = self.flux_fnu[iz,:]*scale*igmz
+                        
         fluxes = []
         for filt_i in filts:    
             templ_filt = interp(filt_i.wave, self.wave*(1+z),
@@ -439,7 +499,7 @@ class Template():
         else:
             return np.array(fluxes)
                     
-    def igm_absorption(self, z, pow=1):
+    def igm_absorption(self, z, scale_tau=1., pow=1):
         """
         Compute IGM absorption.  
         
@@ -450,7 +510,7 @@ class Template():
         except:
             from eazy import igm as igm_module
         
-        igm = igm_module.Inoue14()
+        igm = igm_module.Inoue14(scale_tau=scale_tau)
         igmz = self.wave*0.+1
         lyman = self.wave < 1300
         igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])**pow
@@ -471,13 +531,13 @@ class Template():
             
         return fluxes
         
-    def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False):
+    def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False, flatten=True):
         from astropy.table import Table
         import astropy.units as u
         
         tab = Table()
         tab['wave'] = self.wave
-        tab['flux'] = self.flux
+        tab['flux'] = self.flux.T
         
         if with_units:
             tab['wave'].unit = u.Angstrom
@@ -488,6 +548,14 @@ class Template():
                 tab[c].format = formats[c]
                 
         tab.meta = self.meta
+        if self.NZ > 1:
+            tab.meta['NZ'] = self.NZ
+            for j in range(self.NZ):
+                tab.meta[f'Z{j}'] = self.template_redshifts[j]
+        else:
+            if flatten:
+                tab['flux'] = self.flux[0,:]
+                               
         return tab
         
 class ModifiedBlackBody():
@@ -534,7 +602,81 @@ class ModifiedBlackBody():
     def __repr__(self):
         label = r'$T_\mathrm{{{{d}}}}$={0:.0f}, $\beta$={1:.1f}'
         return label.format(self.Td, self.beta)
-        
+
+
+PHOENIX_LOGG_FULL = [3.0, 3.5, 4.0, 4.5, 5.0, 5.5]
+PHOENIX_LOGG = [4.0, 4.5, 5.0, 5.5]
+
+PHOENIX_TEFF_FULL = [400.0, 420.0, 450.0, 500.0, 550.0, 600.0, 650.0, 700.0, 750.0, 800.0, 850.0, 900.0, 950.0, 1000.0, 1050.0, 1100.0, 1150.0, 1200.0, 1250.0, 1300.0, 1350.0, 1400.0, 1450.0, 1500.0, 1550.0, 1600.0, 1650.0, 1700.0, 1750.0, 1800.0, 1850.0, 1900.0, 1950.0, 2000.0, 2100.0, 2200.0, 2300.0, 2400.0, 2500.0, 2600.0, 2700.0, 2800.0, 2900.0, 3000.0, 3100.0, 3200.0, 3300.0, 3400.0, 3500.0, 3600.0, 3700.0, 3800.0, 3900.0, 4000.0, 4100.0, 4200.0, 4300.0, 4400.0, 4500.0, 4600.0, 4700.0, 4800.0, 4900.0, 5000.0]
+
+PHOENIX_TEFF = [400.,  420., 450., 500.,  550., 600.,  650., 700.,  750.,
+       800.,  850., 900., 950., 1000., 1050., 1100., 1150., 1200.,
+       1300., 1400., 1500., 1600., 1700., 1800., 1900., 2000., 2100.,
+       2200., 2300., 2400., 2500., 2600., 2700., 2800., 2900., 3000.,
+       3100., 3200., 3300., 3400., 3500., 3600., 3700., 3800., 3900., 4000.,
+       4200., 4400., 4600., 4800., 5000., 5500., 5500, 6000., 6500., 7000.]
+
+PHOENIX_ZMET_FULL = [-2.5, -2.0, -1.5, -1.0, -0.5, -0., 0.5]
+PHOENIX_ZMET = [-1.0, -0.5, -0.]
+
+def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list=PHOENIX_ZMET, add_carbon_star=True, file='bt-settl_t400-7000_g4.5.fits'):
+    """
+    Load Phoenix stellar templates
+    """
+    try:
+        from urllib.request import urlretrieve
+    except:
+        from urllib import urlretrieve
+
+    from astropy.table import Table
+    import astropy.io.fits as pyfits
+
+    if os.path.exists(os.path.join('./templates/stars/', file)):
+        hdu = pyfits.open(os.path.join('./templates/stars/', file))
+    else:
+        url = 'https://s3.amazonaws.com/grizli/CONF'
+        print('Fetch {0}/{1}'.format(url, file))
+
+        #os.system('wget -O /tmp/{1} {0}/{1}'.format(url, file))
+        res = urlretrieve('{0}/{1}'.format(url, file),
+                          filename=os.path.join('/tmp', file))
+
+        hdu = pyfits.open(os.path.join('/tmp/', file))
+
+    tab = Table.read(hdu[1])
+
+    tstars = []
+    N = tab['flux'].shape[1]
+    for i in range(N):
+        teff = tab.meta['TEFF{0:03d}'.format(i)]
+        logg = tab.meta['LOGG{0:03d}'.format(i)]
+        if 'ZMET{0:03d}'.format(i) in tab.meta:
+            met = tab.meta['ZMET{0:03d}'.format(i)]
+        else:
+            met = 0.
+
+        if (logg not in logg_list) | (teff not in teff_list) | (met not in zmet_list):
+            #print('Skip {0} {1}'.format(logg, teff))
+            continue
+
+        label = 'bt-settl_t{0:05.0f}_g{1:3.1f}_m{2:.1f}'.format(teff, logg, met)
+        arrays = (tab['wave'], tab['flux'][:, i])
+        tstars.append(Template(arrays=arrays, name=label, redfunc=None))
+
+    cfile = 'templates/stars/carbon_star.txt'
+    if add_carbon_star & os.path.exists(cfile):
+        sp = Table.read(cfile, format='ascii.commented_header')
+        if add_carbon_star > 1:
+            import scipy.ndimage as nd
+            cflux = nd.gaussian_filter(sp['flux'], add_carbon_star)
+        else:
+            cflux = sp['flux']
+
+        tstars.append(Template(arrays=(sp['wave'], cflux), 
+                               name='carbon-lancon2002'))
+
+    return tstars
+            
 # class TemplateInterpolator():
 #     """
 #     Class to use scipy spline interpolator to interpolate pre-computed eazy template 
