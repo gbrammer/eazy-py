@@ -21,6 +21,8 @@ TEMP_ERR_FILE        templates/uvista_nmf/template_error_10.def # Template error
 TEMP_ERR_A2          0.20               # Template error amplitude
 SYS_ERR              0.01               # Systematic flux error (% of flux)
 APPLY_IGM            y                  # Apply Madau 1995 IGM absorption
+IGM_SCALE_TAU        1.4                # Scale factor times Inoue14 IGM tau
+
 SCALE_2175_BUMP      0.00               # Scaling of 2175A bump.  Values 0.13 (0.27) absorb ~10 (20) % at peak.
 TEMPLATE_SMOOTH       0.0               # Velocity smoothing (km/s) for templates, < 0 for no smoothing
 RESAMPLE_WAVE        None

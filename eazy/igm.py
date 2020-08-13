@@ -6,11 +6,12 @@ from . import __file__ as filepath
 __all__ = ["Inoue14"]
 
 class Inoue14(object):
-    def __init__(self):
+    def __init__(self, scale_tau=1.):
         """
         IGM absorption from Inoue et al. (2014)
         """
         self._load_data()
+        self.scale_tau = scale_tau
         
     def _load_data(self):
         path = os.path.join(os.path.dirname(filepath),'data')
@@ -175,7 +176,7 @@ class Inoue14(object):
         #tau_clip = 100*(1-1./(1+np.exp(-k*(lobs/(1+z)-l0))))
         tau_clip = 0.
         
-        return np.exp(-(tau_LC + tau_LS + tau_clip))
+        return np.exp(-self.scale_tau*(tau_LC + tau_LS + tau_clip))
     
     def build_grid(self, zgrid, lrest):
         """Build a spline interpolation object for fast IGM models
