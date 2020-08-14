@@ -114,7 +114,9 @@ class PhotoZ(object):
         
         ### Interpolate templates
         #self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.filters, add_igm=True, galactic_ebv=0.0354)
-
+        
+        print('Template grid: {0}'.format(self.param['TEMPLATES_FILE']))
+        
         t0 = time.time()
         self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc)
         t1 = time.time()
@@ -865,7 +867,7 @@ class PhotoZ(object):
         # Overall average
         lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
     
-    def make_template_error_function(self, te_wave=None, log_wave=True, selection=None, optimizer=None, optimizer_args={}, in_place=False, sn_limits=[-2, 100], min_err=0.02):
+    def make_template_error_function(self, te_wave=None, log_wave=True, selection=None, optimizer=None, optimizer_args={}, in_place=False, sn_limits=[-2, 100], min_err=0.02, scale_errors=False):
         """
         Generate a template error function based on template fit residuals
         """    
@@ -879,13 +881,112 @@ class PhotoZ(object):
             selection = (self.zbest > 0.1) & (self.zbest < 5)
                 
         sigma = self.efnu_orig[selection,:]
-        if hasattr(self, 'err_scale'):
+        if hasattr(self, 'err_scale') & scale_errors:
             sigma *= self.err_scale
             
         M = (self.fmodel/self.ext_redden/self.zp)[selection,:]*1
         F = self.fnu[selection,:]*1
         lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
         lcz = lcz[selection]
+        
+        clip = ((M-F)**2 < 25*(sigma**2+(0.03*M)**2)) & np.isfinite(M) & np.isfinite(F) & (M > 0) & (sigma > 0)
+        
+        _A = np.zeros((clip.sum(), self.NFILT))
+        j = 0
+        _r = np.zeros(clip.sum())
+        _m = np.zeros(clip.sum())
+        _w = _m*0.
+        _ix = _A*0
+        
+        for i in range(self.NFILT):
+            print(i, j)
+            clip_i = clip[:,i]
+            csum = clip_i.sum()
+            _A[j:j+csum,i] = sigma[clip_i, i]**2
+            _ix[j:j+csum,i] = i+1
+            _r[j:j+csum] = (F-M)[clip_i, i]
+            _m[j:j+csum] = M[clip_i, i]**2
+            _w[j:j+csum] = lcz[clip_i, i]
+            j += csum
+        
+        _y = _r**2
+            
+        _N = clip.sum(axis=0)
+        _ok = _N > 300
+        _Ax = np.hstack([_A[:, _ok], 0.03**2*_m[:,None]])
+        _NF = _ok.sum()
+        
+        df = 9
+        Aspl = utils.bspline_templates(_w, degree=3, df=df, 
+                                       get_matrix=True, log=log_wave)
+        
+        NTEF = Aspl.shape[1]
+        
+        TEF0 = 0.03
+        #_Ax = np.hstack([(_m*(TEF0*Aspl.T)**2).T, _A[:, _ok]])
+        _Ax = np.hstack([_A[:, _ok], (_m*(TEF0*Aspl.T)**2).T])
+        
+        RHS = _y.sum()
+        def _objfun_nmad(scl, _Ax, _r, _NF, norm, indices, verb):
+            val = 0.
+            LHS = _Ax*(scl/norm)**2
+            
+            sig = np.sqrt(LHS.sum(axis=1))
+            #val = (utils.nmad(_r/sig)-1)**2
+            val = 0.
+            for ix in indices:
+                val += (eazy.utils.nmad((_r/sig)[ix])-1)**2
+                
+            #val = (RHS - (_Ax*scl/norm).sum())**2
+            #val += ((scl[-_NF:]-norm)**2).sum()
+            #val += ((scl[:_NF]/norm-1)**2).sum()
+            #val += ((scl[:]/norm-1)**2).sum()*ix.sum()
+            if verb:
+                print('{0} {1:.4f}'.format(scl/norm, val))
+                
+            return val
+        
+        def _objfun_resid(scl, _Ax, _y, _NF, norm, verb):
+            val = 0.
+            LHS = _Ax*(scl/norm)**2
+            for i in range(_NF):
+                ix = _Ax[:,i] > 0
+                val += (_y[ix].sum() - LHS[ix,:].sum())**2
+                
+            #val = (RHS - (_Ax*scl/norm).sum())**2
+            #val += ((scl[-_NF:]-norm)**2).sum()
+            #val += ((scl[:_NF]/norm-1)**2).sum()
+            #val += ((scl[:]/norm-1)**2).sum()*ix.sum()
+            if verb:
+                print('{0} {1:.1f}'.format(scl/norm, val))
+                
+            return val
+        
+        x0 = np.ones(_Ax.shape[1])
+        #x0[0] = 2.
+        #x0[NTEF-2:NTEF] = 10.
+        
+        norm = 20.
+        
+        args = (_Ax, _y, _NF, norm, True)
+        _x = minimize(_objfun_resid, x0*norm, args=args, method='COBYLA')
+
+        indices = [_Ax[:,i] > 0 for i in range(_NF)]
+        args = (_Ax, _r, _NF, norm, indices, True)
+        _x = minimize(_objfun_nmad, x0*norm, args=args, method='COBYLA')
+        
+        coeffs = (_x.x/norm)
+        tef_y = np.dot(Aspl, coeffs[-NTEF:])*TEF0
+        
+        LHS = _Ax*(coeffs**2)
+        sig = np.sqrt(LHS.sum(axis=1))
+        sig_band = np.sqrt(LHS[:, :_NF].sum(axis=1))
+        
+        _band_ix = np.where(_ok)[0]
+        
+        for i in range(_NF):
+            ix = indices[i]
+            print('{0:>10} {1:.3f}  {2:.2f} {3:.2f}'.format(self.flux_columns[_band_ix[i]], coeffs[i], eazy.utils.nmad(_r[ix]/sig[ix]), eazy.utils.nmad(_r[ix]/sig_band[ix])))
         
         # Normalize residuals, uncertainties by model flux
         E2 = ((F-M)/M)**2 - (sigma/M)**2 
@@ -2334,7 +2435,7 @@ class PhotoZ(object):
         hdu[-1].header['VFILT'] = (UBVJ[2], 'V-band filter ID')
         hdu[-1].header['JFILT'] = (UBVJ[3], 'J-band filter ID')
         
-        if write_fits == 1:
+        if save_fits == 1:
             hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
             
         return tab, hdu
