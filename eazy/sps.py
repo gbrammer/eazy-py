@@ -11,7 +11,7 @@ from astropy.cosmology import WMAP9
 try:
     from dust_attenuation.baseclasses import BaseAttAvModel
 except:
-    BaseAtttauVModel = object
+    BaseAttAvModel = object
 
 from astropy.modeling import Parameter
 import astropy.units as u
