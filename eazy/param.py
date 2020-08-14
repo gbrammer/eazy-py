@@ -13,9 +13,9 @@ class EazyParam():
     
     Example: 
     
-    >>> params = EazyParam(PARAM_FILE='zphot.param')
-    >>> params['Z_STEP']
-    '0.010'
+        >>> if os.path.exists('zphot.param'):
+        ...     params = EazyParam(PARAM_FILE='zphot.param')
+        ...     print(params['Z_STEP'])
 
     """    
     def __init__(self, PARAM_FILE=None, read_filters=False,
@@ -27,7 +27,7 @@ class EazyParam():
             
         self.filename = PARAM_FILE
         self.param_path = os.path.dirname(PARAM_FILE)
-        
+            
         f = open(PARAM_FILE,'r')
         self.lines = f.readlines()
         f.close()
@@ -165,11 +165,7 @@ class EazyParam():
             
     def __getitem__(self, param_name):
         """
-    __getitem__(param_name)
-
-        >>> cat = mySexCat('drz.cat')
-        >>> print cat['NUMBER']
-
+        Get item from ``params`` dict.
         """
         if param_name not in self.param_names:
             print('Column {0} not found.  Check `column_names` attribute.'.format(param_name))

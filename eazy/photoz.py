@@ -115,7 +115,7 @@ class PhotoZ(object):
         ### Interpolate templates
         #self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.filters, add_igm=True, galactic_ebv=0.0354)
         
-        print('Template grid: {0}'.format(self.param['TEMPLATES_FILE']))
+        print('Template grid: {0} (this may take some time)'.format(self.param['TEMPLATES_FILE']))
         
         t0 = time.time()
         self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc)
@@ -123,7 +123,7 @@ class PhotoZ(object):
         print('Process templates: {0:.3f} s'.format(t1-t0))
         
         ### Template Error
-        self.get_template_error()
+        self.set_template_error()
         
         self.ubvj = None
         
@@ -286,8 +286,13 @@ class PhotoZ(object):
                 ix = self.f_numbers == fnum
                 self.zp[ix] = float(line.split()[1])
                 
-    def get_template_error(self):
-        self.TEF = templates_module.TemplateError(self.param['TEMP_ERR_FILE'], lc=self.lc, scale=self.param['TEMP_ERR_A2'])
+    def set_template_error(self, TEF=None):
+        if TEF is None:
+            TEF = templates_module.TemplateError(self.param['TEMP_ERR_FILE'], 
+                                              lc=self.lc, 
+                                              scale=self.param['TEMP_ERR_A2'])
+        
+        self.TEF = TEF
         
         self.TEFgrid = np.zeros((self.NZ, self.NFILT))
         for i in range(self.NZ):
@@ -310,8 +315,14 @@ class PhotoZ(object):
         To evaluate the prior, the likelihood of the observed beta(z) is 
         computed from a normal distribution with redshift-dependent width set
         by a logistic function
-        
-            >>> sigma_beta_z = 1./(1+np.exp(-k*(self.zgrid - z_split)))*sigma0 + sigma1
+            
+            >>> import numpy as np
+            >>> zgrid = np.arange(0.1, 6, 0.010)
+            >>> k = -5
+            >>> z_split = 4
+            >>> sigma0 = 20
+            >>> sigma1 = 0.5
+            >>> sigma_beta_z = 1./(1+np.exp(-k*(zgrid - z_split)))*sigma0 + sigma1
         
         that has width sigma0 at z < z_split and sigma1 otherwise. `center` 
         specifies the middle of the beta distribution.
@@ -2151,7 +2162,7 @@ class PhotoZ(object):
             SFR = coeffs_rest.dot(tab_temp['sfr'])*u.solMass/u.yr
             Lv = coeffs_rest.dot(tab_temp['Lv'])*u.solLum
             LIR = coeffs_rest.dot(tab_temp['LIR'])*u.solLum
-            energy_abs_rest = coeffs_rest.dot(tab_temp['energy_abs'])*u.solLum
+            energy_abs = coeffs_rest.dot(tab_temp['energy_abs'])*u.solLum
             
             MLv = mass/Lv
             
