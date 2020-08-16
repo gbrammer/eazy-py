@@ -41,8 +41,12 @@ DEFAULT_RF_FILTERS += [161, 162, 163] # 2MASS
 MIN_VALID_FILTERS = 1
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0):
-                
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None):
+        """
+        Main object for fitting templates / photometric redshifts
+        """
+        from astropy.cosmology import LambdaCDM
+        
         self.param_file = param_file
         self.translate_file = translate_file
         self.zeropoint_file = zeropoint_file
@@ -76,13 +80,20 @@ class PhotoZ(object):
         self.templates = self.param.read_templates(templates_file=self.param['TEMPLATES_FILE'], 
                           velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
                           resample_wave=self.param['RESAMPLE_WAVE'])
-                          
-        self.NTEMP = len(self.templates)
         
         ### Set redshift fit grid
-        #self.param['Z_STEP'] = 0.003
         self.get_zgrid()
-                
+        
+        ### Set cosmology
+        if cosmology is None:
+            # Simple 
+            self.cosmology = LambdaCDM(H0=self.param['H0'], 
+                                       Om0=self.param['OMEGA_M'], 
+                                       Ode0=self.param['OMEGA_L'], 
+                                       Tcmb0=2.725, Ob0=0.048)
+        else:
+            self.cosmology = cosmology
+            
         ### Read catalog and filters
         self.read_catalog()
         if self.NFILT < 1:
@@ -131,21 +142,84 @@ class PhotoZ(object):
         if load_products:
             self.load_products()
         
-        ### Flam conversion factors
-        self.to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
-        self.to_flam *= utils.CLIGHT*1.e10/1.e-19/self.lc**2/self.ext_corr
+                    
+    @property 
+    def to_flam(self):
+        """
+        Conversion factor to 1e-19 erg/s/cm**2/A
+        """
+        to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
+        to_flam *= utils.CLIGHT*1.e10/1.e-19/self.lc**2/self.ext_corr
+        return to_flam
         
-        #### testing
-        if False:
-            
-            idx = self.idx[self.cat['z_spec'] > 0]
-            i=37
-            fig = eazy.plotExampleSED(idx[i], MAIN_OUTPUT_FILE='m0416.uvista.full')
-         
-            obj_ix = 2480
-            obj_ix = idx[i]
+    
+    @property 
+    def to_uJy(self):
+        """
+        Conversion of observed fluxes to microJansky
+        """
+        return 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))
+    
+    
+    @property 
+    def NOBJ(self):
+        """
+        Number of objects in catalog
+        """
+        if not hasattr(self, 'cat'):
+            return 0
+        else:
+            return len(self.cat)
+    
+    
+    @property
+    def NFILT(self):
+        """
+        Number of filters
+        """
+        if hasattr(self, 'filters'):
+            return len(self.filters)
+        else:
+            return 0
+    
+    
+    @property 
+    def lc(self):
+        """
+        Filter pivot wavelengths
+        """        
+        if hasattr(self, 'filters'):
+            return np.array([f.pivot for f in self.filters])
+        else:
+            return None
+        
+    
+    @property 
+    def NTEMP(self):
+        """
+        Number of templates
+        """
+        if hasattr(self, 'templates'):
+            return len(self.templates)
+        else:
+            return 0
+    
+    
+    @property
+    def NZ(self):
+        """
+        Number of redshift grid points
+        """
+        if hasattr(self, 'zgrid'):
+            return len(self.zgrid)
+        else:
+            return 0
+    
     
     def load_products(self, compute_error_residuals=True, fitter='nnls'):
+        """
+        Load results from ``zout`` and ``data`` FITS files.
+        """
         zout_file = '{0}.zout.fits'.format(self.param['MAIN_OUTPUT_FILE'])
         if os.path.exists(zout_file):
             print('Load products: {0}'.format(zout_file))
@@ -167,8 +241,9 @@ class PhotoZ(object):
                               fitter=fitter)
                
     def read_catalog(self, verbose=True):
-        #from astropy.table import Table
-               
+        """
+        Read catalog file
+        """
         if verbose:
             print('Read CATALOG_FILE:', self.param['CATALOG_FILE'])
              
@@ -176,7 +251,7 @@ class PhotoZ(object):
             self.cat = Table.read(self.param['CATALOG_FILE'], format='fits')
         else:
             self.cat = Table.read(self.param['CATALOG_FILE'], format='ascii.commented_header')
-        self.NOBJ = len(self.cat)
+        # self.NOBJ = len(self.cat)
         self.prior_mag_cat = np.zeros(self.NOBJ)-1
         
         all_filters = filters.FilterFile(self.param['FILTERS_RES'])
@@ -228,14 +303,15 @@ class PhotoZ(object):
                         
         self.f_numbers = np.array(self.f_numbers)
         
-        self.lc = np.array([f.pivot for f in self.filters])
+        #self.lc = np.array([f.pivot for f in self.filters])
                 
-        self.NFILT = len(self.filters)
+        #self.NFILT = len(self.filters)
         self.fnu = np.zeros((self.NOBJ, self.NFILT))
         self.efnu = np.zeros((self.NOBJ, self.NFILT))
         
         # MW extinction correction: dered = fnu/self.ext_corr
-        ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) for f in self.filters]
+        ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) 
+                   for f in self.filters]
         self.ext_corr = 10**(0.4*np.array(ext_mag))
 
         # Does catalog already have extinction correction applied?
@@ -268,14 +344,12 @@ class PhotoZ(object):
         self.lc_reddest = np.max(self.ok_data*self.lc, axis=1)
         self.lc_zmax = self.zgrid.max()
         self.clip_wavelength = None
-        
-        # Translate the file itself    
-        # for k in self.translate.trans:
-        #     if k in self.cat.colnames:
-        #         #self.cat.rename_column(k, self.translate.trans[k])
-        #         self.cat[self.translate.trans[k]] = self.cat[k]
-        
+
+
     def read_zeropoint(self, zeropoint_file='zphot.zeropoint'):
+        """
+        Read zphot.zeropoint file
+        """
         lines = open(zeropoint_file).readlines()
         for line in lines:
             if not line.startswith('F'):
@@ -287,6 +361,9 @@ class PhotoZ(object):
                 self.zp[ix] = float(line.split()[1])
                 
     def set_template_error(self, TEF=None):
+        """
+        Set the Template Error Function 
+        """
         if TEF is None:
             TEF = templates_module.TemplateError(self.param['TEMP_ERR_FILE'], 
                                               lc=self.lc, 
@@ -299,9 +376,12 @@ class PhotoZ(object):
             self.TEFgrid[i,:] = self.TEF(self.zgrid[i])
             
     def get_zgrid(self):
+        """
+        Set zgrid from Z_MIN, Z_MAX, Z_STEP params
+        """
         zr = [self.param['Z_MIN'], self.param['Z_MAX']]
         self.zgrid = utils.log_zgrid(zr=zr, dz=self.param['Z_STEP'])
-        self.NZ = len(self.zgrid)
+        #self.NZ = len(self.zgrid)
     
     def prior_beta(self, w1=1350, w2=1800, dw=100, sample=None, width_params={'k':-5, 'z_split':4, 'sigma0':20, 'sigma1':0.5, 'center':-1.5}):
         """
@@ -1707,7 +1787,43 @@ class PhotoZ(object):
             return fig, data
         else:
             return fig, data
+    
+    def observed_frame_fluxes(self, f_numbers=[], get_table=True):
+        """
+        Observed-frame fluxes in additional (e.g., unobserved) filters
+        """        
+        from astropy.table import Table
+        
+        print('Compute template grid for filters {0}'.format(f_numbers))
+        
+        _tempfilt = TemplateGrid(self.zgrid, self.templates, 
+                                   RES=self.param['FILTERS_RES'], 
+                                   f_numbers=np.array(f_numbers), 
+                                   add_igm=True,
+                                   galactic_ebv=self.param['MW_EBV'], 
+                                   Eb=self.param['SCALE_2175_BUMP'], 
+                                   n_proc=-1, verbose=verbose)
+        
+        NOBS = len(f_numbers)
+        izbest = np.argmax(self.pz, axis=1)
+        templ_fluxes = _tempfilt.tempfilt[izbest, :, :]
+        if get_table:
+            tab = Table()
+            for i in range(NOBS):
+                flux_i = (self.coeffs_best*templ_fluxes[:,:,i]).sum(axis=1) 
+                tab['obs{0}'.format(f_numbers[i])] = flux_i
+                key = 'name{0}'.format(f_numbers[i])
+                tab.meta[key] = _tempfilt.filter_names[i]
+                key = 'pivw{0}'.format(f_numbers[i])
+                tab.meta[key] = _tempfilt.lc[i]
             
+            return tab
+        else:
+            obs_fluxes = [(self.coeffs_best*templ_fluxes[:,:,i]).sum(axis=1) 
+                          for i in range(NOBS)]
+            
+            return np.array(obs_fluxes).T
+        
     def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], verbose=1, fitter='nnls'):
         """
         Rest-frame colors
@@ -1963,17 +2079,17 @@ class PhotoZ(object):
         
         return peaks, numpeaks
     
-    def uv_abs_mag(self, f_numbers=[271, 272, 274], cosmology=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5]}):
+    def abs_mag(self, f_numbers=[271, 272, 274], cosmology=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5], 'pad_width':0.5, 'max_err':0.5}):
         """
-        Get UV absolute mags.
+        Get absolute mags (e.g., UV).
         
         Parameters
         ==========
         f_numbers : list
             Filter numbers in `FILTER_FILE`.
             
-        cosmo : `~astropy.cosmology`
-            If `None`, default to `~astropy.cosmology.WMAP9`
+        cosmology : `~astropy.cosmology` object
+            If ``None``, default to ``self.cosmology``.
         
         rest_kwargs : dict
             Arguments passed to `~eazy.photoz.PhotoZ.rest_frame_fluxes`
@@ -1986,30 +2102,32 @@ class PhotoZ(object):
            
         """    
         if cosmology is None:
-            from astropy.cosmology import WMAP9 as cosmology
+            #from astropy.cosmology import WMAP9 as cosmology
+            cosmology = self.cosmology
+            
+        _rf = self.rest_frame_fluxes(f_numbers=f_numbers, **rest_kwargs) 
+        rf_tf, rf = _rf
         
-        _uv = self.rest_frame_fluxes(f_numbers=f_numbers, **rest_kwargs) 
-        uv_tf, uv = _uv
-        
-        zdm = utils.log_zgrid([0.01, 13], 0.01)
+        zdm = self.zgrid #utils.log_zgrid([0.01, 13], 0.01)
         dm = cosmology.distmod(zdm).value - 2.5*np.log10(1+zdm)
         DM = np.interp(self.zbest, zdm, dm, left=0, right=0)
         
-        lc_round = ['{0}'.format(int(np.round(lc/100))*100) 
-                    for lc in uv_tf.lc]
+        #lc_round = ['{0}'.format(int(np.round(lc/100))*100) 
+        #            for lc in rf_tf.lc]
         
         tab = Table()
-        for i in range(uv_tf.NFILT):
-            tab.meta['UVF{0}'.format(lc_round[i])] = (f_numbers[i], 
-                                                       'Filter number')
+        tab['DISTMOD'] = DM
+        
+        for i in range(rf_tf.NFILT):
+            key_i = f_numbers[i]
+            tab.meta['MNAME{0}'.format(key_i)] = (rf_tf.filters[i].name, 
+                                                     'Filter name')
 
-            tab.meta['UVN{0}'.format(lc_round[i])] = (uv_tf.filters[i].name, 
-                                                       'Filter name')
-
-            tab.meta['UVL{0}'.format(lc_round[i])] = (uv_tf.filters[i].pivot, 'Filter pivot')
+            tab.meta['MWAVE{0}'.format(key_i)] = (rf_tf.filters[i].pivot, 
+                                                 'Pivot wavelength, Angstrom')
                                                         
-            obsm = self.param.params['PRIOR_ABZP'] - 2.5*np.log10(uv[:,i,:])
-            tab['M_{0}'.format(lc_round[i])] = (obsm.T - DM).T
+            obsm = self.param.params['PRIOR_ABZP'] - 2.5*np.log10(rf[:,i,:])
+            tab['ABSM_{0}'.format(key_i)] = (obsm.T - DM).T
         
         return tab
                       
@@ -2022,7 +2140,8 @@ class PhotoZ(object):
         
         """        
         if cosmology is None:
-            from astropy.cosmology import WMAP9 as cosmology
+            #from astropy.cosmology import WMAP9 as cosmology
+            cosmology = self.cosmology
             
         self.ubvj_tempfilt, self.ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[2.5,16,50,84,97.5]) 
         
@@ -2131,7 +2250,7 @@ class PhotoZ(object):
         uJy_to_cgs = u.microJansky.to(u.erg/u.s/u.cm**2/u.Hz)
         fnu_scl = 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))*uJy_to_cgs
         
-        fnu = restV*fnu_scl*(u.erg/u.s/u.cm**2/u.Hz)
+        fnu = restV*fnu_scl*(fnu_units)
         dL = np.zeros(self.NOBJ)*u.cm
         mask = self.zbest > 0
         dL[mask] = cosmology.luminosity_distance(self.zbest[mask]).to(u.cm)
@@ -2152,7 +2271,7 @@ class PhotoZ(object):
             print(f'... Physical quantities directly from coeffs and templates ({template_fnu_units})')
             
             to_physical = fnu_scl*fnu_units*4*np.pi*dL**2/(1+self.zbest)
-            to_physical /= template_fnu_units.to(u.erg/u.second/u.Hz)
+            to_physical /= (1*template_fnu_units).to(u.erg/u.second/u.Hz)
             coeffs_rest = (self.coeffs_best.T*to_physical).T
             
             # Remove unit (which should be null)
@@ -2165,7 +2284,10 @@ class PhotoZ(object):
             energy_abs = coeffs_rest.dot(tab_temp['energy_abs'])*u.solLum
             
             MLv = mass/Lv
-            
+        
+        else:
+            to_physical = None
+                
         if 'ageV' in tab_temp.colnames:
             age_norm = (coeffs_norm*tab_temp['ageV']).sum(axis=1)*u.Gyr
             lw_age_V = age_norm
@@ -2250,17 +2372,35 @@ class PhotoZ(object):
             # Propagate coeff covariance to parameters
             print('... Get uncertainties')
             coeffs_draws = np.maximum(self.coeffs_draws, 0)
-            coeffs_draws *= self.ubvj_tempfilt.tempfilt[:,2]
-            draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
+            if to_physical is None:
+                coeffs_draws *= self.ubvj_tempfilt.tempfilt[:,2]
+                draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
         
-            massv_draws = (draws_norm*tab_temp['mass']).sum(axis=2)*u.solMass
-            Lv_draws= (draws_norm*tab_temp['Lv']).sum(axis=2)*u.solLum
-            LIR_draws = (draws_norm*templ_LIR).sum(axis=2)*u.solLum
-            SFR_draws = (draws_norm*tab_temp['sfr']).sum(axis=2)*u.solMass/u.yr
+                massv_draws = (draws_norm*tab_temp['mass']).sum(axis=2)*u.solMass
+                Lv_draws= (draws_norm*tab_temp['Lv']).sum(axis=2)*u.solLum
+                LIR_draws = (draws_norm*templ_LIR).sum(axis=2)*u.solLum
+                SFR_draws = (draws_norm*tab_temp['sfr']).sum(axis=2)*u.solMass/u.yr
             
-            mass_err  = np.percentile(((massv_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
-            LIR_err = np.percentile(((LIR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
-            SFR_err = np.percentile(((SFR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
+                mass_err  = np.percentile(((massv_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
+                LIR_err = np.percentile(((LIR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
+                SFR_err = np.percentile(((SFR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
+            else:
+                rest_draws = (coeffs_draws.T*to_physical).T
+                
+                coeffs_draws *= self.ubvj_tempfilt.tempfilt[:,2]
+                draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
+                
+                # Remove unit (which should be null)
+                rest_draws = np.array(rest_draws)
+
+                massv_draws = rest_draws.dot(tab_temp['mass'])*u.solMass
+                SFR_draws = rest_draws.dot(tab_temp['sfr'])*u.solMass/u.yr
+                LIR_draws = rest_draws.dot(tab_temp['LIR'])*u.solLum
+
+                mass_err  = np.percentile(massv_draws, percentile_limits, axis=1).T
+                SFR_err  = np.percentile(SFR_draws, percentile_limits, axis=1).T
+                LIR_err  = np.percentile(LIR_draws, percentile_limits, axis=1).T
+                
             #sSFR_err = np.percentile(((massv_draws / Lv_draws).T*Lv).T/((SFR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
             sSFR_err = np.percentile(SFR_draws / massv_draws, percentile_limits, axis=1).T
             
@@ -2269,7 +2409,7 @@ class PhotoZ(object):
             tau_den = np.dot(draws_norm, tau_corr*0+1)
             tau_dust = np.log(tau_num/tau_den)
             Av = tau_dust / Av_tau
-            Avp = np.percentile(Av, [2.5, 16, 50, 84, 97.5], axis=1).T
+            Avp = np.percentile(Av, percentile_limits, axis=1).T
             tab['Avp'] = Avp
             tab['Avp'].format = '.2f'
             
@@ -2292,6 +2432,17 @@ class PhotoZ(object):
         for col in tab.colnames:
             bad = ~np.isfinite(tab[col])
             tab[col][bad] = -9e29
+        
+        for k in ['TEMPLATES_FILE', 'SYS_ERR', 'TEMP_ERR_FILE', 
+                  'TEMP_ERR_A2', 'PRIOR_ABZP']:
+            tab.meta[k] = self.param[k]
+        
+        for i in range(self.NFILT):
+            f_i = self.f_numbers[i]
+            c_i = self.flux_columns[i]
+            
+            comment = 'ZP offset in filter {0} ({1})'.format(f_i, c_i)
+            tab.meta['ZP{0}'.format(f_i)] = self.zp[i], comment
             
         tab.meta['FNUSCALE'] = (fnu_scl, 'Scale factor to f-nu CGS')
         tab.meta['COSMOL'] = (cosmology.name, 'Cosmological model')
@@ -2394,8 +2545,10 @@ class PhotoZ(object):
         
         if MUV_filters is not None:
             print('... UV ABs Mag')
-            MUV = self.uv_abs_mag(f_numbers=MUV_filters, cosmology=cosmology, 
-                            rest_kwargs={'percentiles':percentile_limits})
+            MUV = self.abs_mag(f_numbers=MUV_filters, cosmology=cosmology, 
+                               rest_kwargs={'percentiles':percentile_limits, 
+                                            'pad_width':rf_pad_width, 
+                                            'max_err':rf_max_err})
             
             for c in MUV.colnames:
                 tab[c] = MUV[c]
@@ -2977,8 +3130,8 @@ class TemplateGrid(object):
         self.galactic_ebv = galactic_ebv
         self.Eb = Eb
         
-        self.NTEMP = len(templates)
-        self.NZ = len(zgrid)
+        #self.NTEMP = len(templates)
+        #self.NZ = len(zgrid)
         
         self.zgrid = zgrid
         self.dz = np.diff(zgrid)
@@ -2988,10 +3141,10 @@ class TemplateGrid(object):
             all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
             filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
         
-        self.lc = np.array([f.pivot for f in filters])
+        #self.lc = np.array([f.pivot for f in filters])
         self.filter_names = np.array([f.name for f in filters])
         self.filters = filters
-        self.NFILT = len(self.filters)
+        #self.NFILT = len(self.filters)
         
         self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT))
         
@@ -3028,6 +3181,62 @@ class TemplateGrid(object):
             
         self.interpolator_function = interpolator
         self.init_interpolator(interpolator=interpolator)
+    
+    
+    @property 
+    def NOBJ(self):
+        """
+        Number of objects in catalog
+        """
+        if not hasattr(self, 'cat'):
+            return 0
+        else:
+            return len(self.cat)
+    
+    
+    @property
+    def NFILT(self):
+        """
+        Number of filters
+        """
+        if hasattr(self, 'filters'):
+            return len(self.filters)
+        else:
+            return 0
+    
+    
+    @property 
+    def lc(self):
+        """
+        Filter pivot wavelengths
+        """        
+        if hasattr(self, 'filters'):
+            return np.array([f.pivot for f in self.filters])
+        else:
+            return None
+    
+    
+    @property 
+    def NTEMP(self):
+        """
+        Number of templates
+        """
+        if hasattr(self, 'templates'):
+            return len(self.templates)
+        else:
+            return 0
+    
+    
+    @property
+    def NZ(self):
+        """
+        Number of redshift grid points
+        """
+        if hasattr(self, 'zgrid'):
+            return len(self.zgrid)
+        else:
+            return 0
+    
         
     def init_interpolator(self, interpolator=None):
         import scipy.interpolate 
@@ -3061,8 +3270,9 @@ class TemplateGrid(object):
         import astropy.units as u
         
         if cosmology is None:
-            from astropy.cosmology import WMAP9 as cosmology
-        
+            #from astropy.cosmology import WMAP9 as cosmology
+            cosmology = self.cosmology
+            
         sfh = Table.read(sfh_file)
         mass_accum = np.cumsum(sfh['SFH'][::-1,:], axis=0)
         mass_accum = (mass_accum / mass_accum[-1,:])[::-1,:]
