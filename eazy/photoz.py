@@ -129,7 +129,7 @@ class PhotoZ(object):
         print('Template grid: {0} (this may take some time)'.format(self.param['TEMPLATES_FILE']))
         
         t0 = time.time()
-        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc)
+        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc, cosmology=self.cosmology)
         t1 = time.time()
         print('Process templates: {0:.3f} s'.format(t1-t0))
         
@@ -1315,7 +1315,7 @@ class PhotoZ(object):
                 #templ.flux_fnu /= templ_tweak
             
             # Recompute filter fluxes from tweaked templates    
-            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0)
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0, cosmology=self.cosmology)
         
         return fig
         
@@ -1802,7 +1802,8 @@ class PhotoZ(object):
                                    add_igm=True,
                                    galactic_ebv=self.param['MW_EBV'], 
                                    Eb=self.param['SCALE_2175_BUMP'], 
-                                   n_proc=-1, verbose=verbose)
+                                   n_proc=-1, verbose=verbose, 
+                                   cosmology=self.cosmology)
         
         NOBS = len(f_numbers)
         izbest = np.argmax(self.pz, axis=1)
@@ -1834,7 +1835,8 @@ class PhotoZ(object):
                                    f_numbers=np.array(f_numbers), 
                                    add_igm=False, galactic_ebv=0, 
                                    Eb=self.param['SCALE_2175_BUMP'], 
-                                   n_proc=-1, verbose=verbose)
+                                   n_proc=-1, verbose=verbose, 
+                                   cosmology=self.cosmology)
                                    
         #rf_tempfilt.tempfilt = np.squeeze(rf_tempfilt.tempfilt[0,:,:])
         rf_tempfilt.tempfilt = rf_tempfilt.tempfilt[0,:,:]*1
@@ -2664,7 +2666,7 @@ class PhotoZ(object):
         if grizli_templates is not None:
             template_list = [templates_module.Template(arrays=(grizli_templates[k].wave, grizli_templates[k].flux), name=k) for k in grizli_templates]
             
-            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'])
+            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], cosmology=self.cosmology)
         else:
             tempfilt = None
         
@@ -3119,16 +3121,25 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
              
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2):
+    def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2, cosmology=None):
+        """
+        Integrate filters through filters on a redshift grid
+        """
         import multiprocessing as mp
         import astropy.units as u
-                
+        from astropy.cosmology import WMAP9
+        
         self.templates = templates
         self.RES = RES
         self.f_numbers = f_numbers
         self.add_igm = add_igm
         self.galactic_ebv = galactic_ebv
         self.Eb = Eb
+        
+        if cosmology is None:
+            cosmology = WMAP9
+        
+        self.cosmology = cosmology
         
         #self.NTEMP = len(templates)
         #self.NZ = len(zgrid)
