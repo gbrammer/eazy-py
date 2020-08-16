@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import astropy.stats
+import astropy.units as u
 
 CLIGHT = 299792458.0 # m/s
 
@@ -321,6 +322,39 @@ class GalacticExtinction(object):
         
         return Alambda
 
+def abs_mag_to_luminosity(absmag, pivot=None, output_unit=u.L_sun):
+    """
+    Convert absolute AB mag to luminosity units
+    
+    Parameters
+    ----------
+    absmag : array-like
+        Absolute AB magnitude.
+    
+    pivot : float
+        Filter pivot wavelength associated with the magnitude.  If no units, 
+        then assume `~astropy.units.Angstrom`.
+    
+    output_unit : `~astropy.units.core.Unit`
+        Desired output unit.  Must specify a ``pivot`` wavelength for output
+        power units, e.g., `~astropy.unit.L_sun`.
+    
+    """
+    if pivot is None:
+        nu = 1.
+    else:
+        if hasattr(pivot, 'unit'):
+            wunit = 1
+        else:
+            wunit = u.Angstrom
+            
+        nu = ((CLIGHT*u.m/u.second)/(pivot*wunit)).to(u.Hz)
+        
+    fjy = 3631*u.jansky * 10**(-0.4*absmag)
+    d10 = (10*u.pc).to(u.cm)
+    f10 = fjy * 4 * np.pi * d10**2 * nu
+    return f10.to(output_unit)
+    
 def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2, selection=None, catastrophic_limit=0.15, title=None, min_zphot=0.02, alpha=0.2, extra_xlabel='', extra_ylabel='', xlabel=r'$z_\mathrm{spec}$', ylabel=r'$z_\mathrm{phot}$', **kwargs):
     """
     Make zphot_zspec plot scaled by log(1+z) and show uncertainties
