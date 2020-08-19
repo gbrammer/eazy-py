@@ -83,7 +83,9 @@ setup(
     ],
     package_data={'eazy': ['data/*', 'data/filters/*', 'data/templates/*',
                            'data/hdfn_fs99/*', 'data/templates/fsps_full/*',
-                           'data/templates/uvista_nmf/*']},
+                           'data/templates/uvista_nmf/*', 
+                           'data/templates/spline_templates_v2/*',
+                           'data/templates/magdis/*']},
     # scripts=['grizli/scripts/flt_info.sh'],
     # ext_modules = extensions,
 )
