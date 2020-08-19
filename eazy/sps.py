@@ -599,6 +599,7 @@ class KC13(BaseAttAvModel):
         self.N09 = shapes.N09()
                 
     def evaluate(self, x, Av, delta):
+        import dust_attenuation
         
         if not hasattr(self, 'N09'):
             self._init_N09()
@@ -608,7 +609,15 @@ class KC13(BaseAttAvModel):
         gamma = 0.0350
         ampl = (0.85 - 1.9*delta)*self.extra_bump
         
-        return self.N09.evaluate(x, Av, x0, gamma, ampl, delta)
+        if not hasattr(x, 'unit'):
+            xin = np.atleast_1d(x)*u.Angstrom
+        else:
+            xin = x
+        
+        if dust_attenuation.__version__ >= '0.0.dev131':                
+            return self.N09.evaluate(xin, x0, gamma, ampl, delta, Av)
+        else:
+            return self.N09.evaluate(xin, Av, x0, gamma, ampl, delta)
             
 class ParameterizedWG00(BaseAttAvModel):
     
@@ -664,6 +673,8 @@ class ParameterizedWG00(BaseAttAvModel):
         
     def evaluate(self, x, Av):
         
+        import dust_attenuation
+        
         if not hasattr(self, 'N09'):
             self._init_N09()
             
@@ -679,7 +690,15 @@ class ParameterizedWG00(BaseAttAvModel):
             
         slope = np.polyval(self.coeffs['slope'], tau_V)
         
-        return self.N09.evaluate(x, Av, x0, gamma, ampl, slope)
+        if not hasattr(x, 'unit'):
+            xin = np.atleast_1d(x)*u.Angstrom
+        else:
+            xin = x
+        
+        if dust_attenuation.__version__ >= '0.0.dev131':                
+            return self.N09.evaluate(xin, x0, gamma, ampl, slope, Av)
+        else:
+            return self.N09.evaluate(xin, Av, x0, gamma, ampl, slope)
         
 def fsps_line_info(wlimits=None):
     """
@@ -1288,11 +1307,11 @@ class ExtendedFsps(StellarPopulation):
             elif hasattr(self, '_sfh_tab'):
                 age_lb = self.params['tage'] - self._sfh_tab[0]
                 age10 = (age_lb < 0.01) & (age_lb >= 0)
-                if age100.sum() < 2:
+                if age10.sum() < 2:
                     sfr_avg = 0.
                 else:
-                    sfr_avg = np.trapz(self._sfh_tab[1][age100][::-1],
-                                       age_lb[age][::-1])/0.01
+                    sfr_avg = np.trapz(self._sfh_tab[1][age10][::-1],
+                                       age_lb[age10][::-1])/0.01
                 
             else:
                 sfr_avg = 0.
