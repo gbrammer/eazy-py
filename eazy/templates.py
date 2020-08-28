@@ -211,6 +211,7 @@ class Template():
         redshift nearest to the specified redshift will be used.
         
         """
+        import copy
         from astropy.table import Table
         import astropy.units as u
         
@@ -218,7 +219,7 @@ class Template():
         self.flux = None
         
         self.name = 'None'
-        self.meta = meta
+        self.meta = copy.deepcopy(meta)
                 
         self.velocity_smooth = velocity_smooth
         
@@ -227,6 +228,8 @@ class Template():
                 self.name = os.path.basename(file)
         else:
             self.name = name
+        
+        self.orig_table = None
         
         if sp is not None:
             # Prospector        
@@ -241,6 +244,7 @@ class Template():
                 tab = Table.read(file)
                 self.wave = tab['wave'].data.astype(np.float)
                 self.flux = tab[fits_column].data.astype(np.float)
+                self.orig_table = tab
                 
                 # Transpose because FITS tables stored like NWAVE, NZ
                 if self.flux.ndim == 2:
@@ -318,14 +322,15 @@ class Template():
         else:
             return '{0}: {1}'.format(self.__class__, self.name)
     
-    @property
-    def absorbed_energy(self):
-        diff = self.flux*(1-self.redden)*(self.redden > 0)
+    #@property
+    def absorbed_energy(self, i=0):
+        diff = self.flux[i,:]*(1-self.redden)*(self.redden > 0)
         absorbed = np.trapz(diff, self.wave)
-        if self.NZ == 1:
-            return absorbed[0]
-        else:
-            return absorbed
+        return absorbed
+        # if self.NZ == 1:
+        #     return absorbed[0]
+        # else:
+        #     return absorbed
                
     @property
     def redden(self):
@@ -340,12 +345,12 @@ class Template():
         
         return red
         
-    @property 
-    def flux_fnu(self):
+    #@property 
+    def flux_fnu(self, i=0):
         """
         self.flux is flam.  Scale to fnu
         """
-        return self.flux * self.wave**2 / (utils.CLIGHT*1.e10) * self.redden
+        return self.flux[i,:] * self.wave**2 / (utils.CLIGHT*1.e10) * self.redden
                     
     def set_fnu(self):
         """
@@ -436,20 +441,19 @@ class Template():
         """
         Get the redshift index of a multi-dimensional template array
         """
-        dz = z - self.template_redshifts
-        if redshift_type == 'nearest':
-            iz = np.argmin(np.abs(dz))
-        else:
-            # First above requested redshift
-            test = np.where(dz > 0)[0]
-            if test.sum() == 0:
-                iz = np.argmin(self.template_redshifts)
-            else:
-                iz = np.argmin(self.template_redshifts[test])
+        #dz = z - self.template_redshifts
         
+        zint = np.interp(z, self.template_redshifts, np.arange(self.NZ),
+                         left=0, right=self.NZ-1)
+                         
+        if redshift_type == 'nearest':
+            iz = np.round(zint).astype(int)
+        else:
+            iz = zint.astype(int)
+                    
         return iz
         
-    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, redshift_type='nearest'):
+    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, redshift_type='nearest', iz=None):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -475,8 +479,10 @@ class Template():
             igmz = 1.
         
         # Fnu flux density, with IGM and scaling
-        iz = self.zindex(z=z, redshift_type=redshift_type)
-        fnu = self.flux_fnu[iz,:]*scale*igmz
+        if iz is None:
+            iz = self.zindex(z=z, redshift_type=redshift_type)
+        
+        fnu = self.flux_fnu(iz)*scale*igmz
                         
         fluxes = []
         for filt_i in filts:    
@@ -534,6 +540,7 @@ class Template():
     def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False, flatten=True):
         from astropy.table import Table
         import astropy.units as u
+        import copy
         
         tab = Table()
         tab['wave'] = self.wave
@@ -547,7 +554,7 @@ class Template():
             if c in formats:
                 tab[c].format = formats[c]
                 
-        tab.meta = self.meta
+        tab.meta = copy.deepcopy(self.meta)
         if self.NZ > 1:
             tab.meta['NZ'] = self.NZ
             for j in range(self.NZ):
