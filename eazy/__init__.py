@@ -9,7 +9,7 @@ from . import photoz
 #__version__ = "0.2.0"
 from .version import __version__
 
-def symlink_eazy_inputs(path=None, get_hdfn_test_catalog=False):
+def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False):
     """
     Make symbolic links to EAZY inputs
     
@@ -34,15 +34,16 @@ def symlink_eazy_inputs(path=None, get_hdfn_test_catalog=False):
     Returns
     -------
     Symbolic links to the `FILTER.RES.latest` file and `templates` 
-    directory in the current working directory (`./`).
+    directory are created in the current working directory (`./`).
     
     """
-    if path is None:
-        # Use the code attached to the repository
-        path = os.path.join(os.path.dirname(__file__), 'data/')
     
     if path.startswith('$'):
         path = os.getenv(path)
+    
+    if path is None:
+        # Use the code attached to the repository
+        path = os.path.join(os.path.dirname(__file__), 'data/')
         
     if not os.path.exists(path):
         print('Couldn\'t find path {0}'.format(path))
