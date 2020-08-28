@@ -97,7 +97,7 @@ class EazyParam():
         
         return templates
             
-    def show_templates(self, interp_wave=None, ax=None, fnu=False):
+    def show_templates(self, interp_wave=None, ax=None, fnu=False, i=0):
         """
         Show the templates
         """
@@ -107,7 +107,7 @@ class EazyParam():
         
         for templ in self.templ:
             if fnu:
-                flux = templ.flux_fnu
+                flux = templ.flux_fnu(i=i)
             else:
                 flux = templ.flux
                 
