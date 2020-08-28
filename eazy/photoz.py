@@ -40,12 +40,15 @@ DEFAULT_RF_FILTERS += [161, 162, 163] # 2MASS
 
 MIN_VALID_FILTERS = 1
 
+NUVRK_FILTERS = [121, 158, 163]
+
 class PhotoZ(object):
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None):
         """
         Main object for fitting templates / photometric redshifts
         """
         from astropy.cosmology import LambdaCDM
+        global IGM_OBJECT
         
         self.param_file = param_file
         self.translate_file = translate_file
@@ -65,9 +68,21 @@ class PhotoZ(object):
             # from eazypy.photoz import TemplateGrid
             
         ### Read parameters
-        self.param = param.EazyParam(param_file, read_templates=False, read_filters=False)
+        self.param = param.EazyParam(param_file, read_templates=False, 
+                                     read_filters=False)
         self.translate = param.TranslateFile(translate_file)
-                
+        
+        if 'IGM_SCALE_TAU' in self.param.params:
+            IGM_OBJECT.scale_tau = self.param['IGM_SCALE_TAU']
+        
+        if 'ARRAY_NBITS' in self.param.params:
+            if self.param['ARRAY_NBITS'] == 64:
+                self.ARRAY_DTYPE = np.float64
+            else:
+                self.ARRAY_DTYPE = np.float32
+        else:
+            self.ARRAY_DTYPE = np.float32
+                    
         if 'MW_EBV' not in self.param.params:
             self.param.params['MW_EBV'] = 0.0354 # MACS0416
             #self.param.params['MW_EBV'] = 0.0072 # GOODS-S
@@ -103,24 +118,31 @@ class PhotoZ(object):
         self.idx = np.arange(self.NOBJ, dtype=int)
         
         ### Read prior file
-        self.full_prior = np.ones((self.NOBJ, self.NZ))
+        self.full_logprior = np.ones((self.NOBJ, self.NZ), 
+                                  dtype=self.ARRAY_DTYPE)
         if load_prior:
             self.read_prior()
         
-        self.pz = np.ones_like(self.full_prior)
-        self.p_beta = self.pz*0.
+        self.lnp = np.zeros_like(self.full_logprior)
+        self.chi2_fit = np.zeros_like(self.lnp)
+        
+        self.lnp_beta = self.lnp*0.
         
         if zeropoint_file is not None:
             self.read_zeropoint(zeropoint_file)
         else:
             self.zp = self.f_numbers*0+1.
             
-        self.fit_chi2 = np.zeros((self.NOBJ, self.NZ))
-        self.pz = np.zeros((self.NOBJ, self.NZ))
-        self.fit_coeffs = np.zeros((self.NOBJ, self.NZ, self.NTEMP))
+        self.lnpmax = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)
+        self.zbest = np.zeros_like(self.lnpmax)
         
-        self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
-        self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
+        self.fit_coeffs = np.zeros((self.NOBJ, self.NZ, self.NTEMP),
+                                   dtype=self.ARRAY_DTYPE)
+        
+        self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP), 
+                                    dtype=self.ARRAY_DTYPE)
+        self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP), 
+                                     dtype=self.ARRAY_DTYPE)
         self.get_err = False
         
         ### Interpolate templates
@@ -129,7 +151,7 @@ class PhotoZ(object):
         print('Template grid: {0} (this may take some time)'.format(self.param['TEMPLATES_FILE']))
         
         t0 = time.time()
-        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc, cosmology=self.cosmology)
+        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
         t1 = time.time()
         print('Process templates: {0:.3f} s'.format(t1-t0))
         
@@ -226,18 +248,18 @@ class PhotoZ(object):
 
             data_file = '{0}.data.fits'.format(self.param['MAIN_OUTPUT_FILE'])
             data = pyfits.open(data_file)
-            self.fit_chi2 = data['CHI2'].data*1
+            self.chi2_fit = data['CHI2'].data*1
             self.compute_pz()
             self.ubvj = data['REST_UBVJ'].data*1
             
             self.zout = Table.read(zout_file)
             if compute_error_residuals:
                 for iter in range(2):
-                    self.best_fit(zbest=self.zout['z_phot'].data, prior=False, 
-                                  fitter=fitter)
+                    self.fit_at_zbest(zbest=self.zout['z_phot'].data, 
+                                      prior=False, fitter=fitter)
                     self.error_residuals()
             else:
-                self.best_fit(zbest=self.zout['z_phot'].data, prior=False,
+                self.fit_at_zbest(zbest=self.zout['z_phot'].data, prior=False,
                               fitter=fitter)
                
     def read_catalog(self, verbose=True):
@@ -250,11 +272,17 @@ class PhotoZ(object):
         if 'fits' in self.param['CATALOG_FILE'].lower():
             self.cat = Table.read(self.param['CATALOG_FILE'], format='fits')
         else:
-            self.cat = Table.read(self.param['CATALOG_FILE'], format='ascii.commented_header')
+            self.cat = Table.read(self.param['CATALOG_FILE'], 
+                                  format='ascii.commented_header')
+        
+        if verbose:
+            print(f'   >>> NOBJ = {len(self.cat)}')    
+            
         # self.NOBJ = len(self.cat)
         self.prior_mag_cat = np.zeros(self.NOBJ)-1
         
         all_filters = filters.FilterFile(self.param['FILTERS_RES'])
+        self.RES = all_filters
         np.save(self.param['FILTERS_RES']+'.npy', [all_filters])
 
         self.filters = []
@@ -273,7 +301,7 @@ class PhotoZ(object):
                 if ke not in self.cat.colnames:
                     continue
                 
-                self.filters.append(all_filters.filters[f_number-1])
+                self.filters.append(self.RES[f_number])
                 self.flux_columns.append(k)
                 self.err_columns.append(ke)
                 self.f_numbers.append(f_number)
@@ -295,7 +323,7 @@ class PhotoZ(object):
                         break
                                  
                 if (k in self.cat.colnames) & (ke in self.cat.colnames):
-                    self.filters.append(all_filters.filters[f_number-1])
+                    self.filters.append(self.RES[f_number])
                     self.flux_columns.append(k)
                     self.err_columns.append(ke)
                     self.f_numbers.append(f_number)
@@ -306,8 +334,9 @@ class PhotoZ(object):
         #self.lc = np.array([f.pivot for f in self.filters])
                 
         #self.NFILT = len(self.filters)
-        self.fnu = np.zeros((self.NOBJ, self.NFILT))
-        self.efnu = np.zeros((self.NOBJ, self.NFILT))
+        self.fnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
+        self.efnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
+        self.spatial_offset = None
         
         # MW extinction correction: dered = fnu/self.ext_corr
         ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) 
@@ -371,18 +400,23 @@ class PhotoZ(object):
         
         self.TEF = TEF
         
-        self.TEFgrid = np.zeros((self.NZ, self.NFILT))
+        self.TEFgrid = np.zeros((self.NZ, self.NFILT), dtype=self.ARRAY_DTYPE)
         for i in range(self.NZ):
             self.TEFgrid[i,:] = self.TEF(self.zgrid[i])
-            
+        
+        # lnP term for TEF
+        self.compute_tef_lnp(in_place=True)
+        
     def get_zgrid(self):
         """
         Set zgrid from Z_MIN, Z_MAX, Z_STEP params
         """
         zr = [self.param['Z_MIN'], self.param['Z_MAX']]
-        self.zgrid = utils.log_zgrid(zr=zr, dz=self.param['Z_STEP'])
+        self.zgrid = utils.log_zgrid(zr=zr, 
+                        dz=self.param['Z_STEP']).astype(self.ARRAY_DTYPE)
         #self.NZ = len(self.zgrid)
-    
+        self.trdz = utils.trapz_dx(self.zgrid)
+        
     def prior_beta(self, w1=1350, w2=1800, dw=100, sample=None, width_params={'k':-5, 'z_split':4, 'sigma0':20, 'sigma1':0.5, 'center':-1.5}):
         """
         Prior on UV slope beta to try to fix red low-z galaxies put at z>4.  
@@ -453,7 +487,9 @@ class PhotoZ(object):
         
         
     def read_prior(self, verbose=True):
-        
+        """
+        Read ``PRIOR_FILE`` 
+        """
         if not os.path.exists(self.param['PRIOR_FILE']):
             return False
             
@@ -462,8 +498,11 @@ class PhotoZ(object):
         
         self.prior_mags = np.cast[float](prior_header.split()[2:])
         self.prior_data = np.zeros((self.NZ, len(self.prior_mags)))
+                                   
         for i in range(self.prior_data.shape[1]):
-            self.prior_data[:,i] = np.interp(self.zgrid, prior_raw[:,0], prior_raw[:,i+1])
+            self.prior_data[:,i] = np.interp(self.zgrid, prior_raw[:,0], 
+                                             prior_raw[:,i+1], 
+                                             left=0, right=0)
         
         self.prior_data /= np.trapz(self.prior_data, self.zgrid, axis=0)
         
@@ -486,7 +525,7 @@ class PhotoZ(object):
         if ix.sum() == 0:
             print('PRIOR_FILTER ({0}) not found in the catalog!'.format(self.param['PRIOR_FILTER']))
             
-            self.prior_mag_cat = np.zeros(self.NOBJ)-1
+            self.prior_mag_cat = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)-1
             
         else:
             self.prior_mag_cat = self.param['PRIOR_ABZP'] - 2.5*np.log10(np.squeeze(self.fnu[:,ix]))
@@ -495,7 +534,8 @@ class PhotoZ(object):
             for i in range(self.NOBJ):
                 if self.prior_mag_cat[i] > 0:
                     #print(i)
-                    self.full_prior[i,:] = self._get_prior(self.prior_mag_cat[i])
+                    lnp = self._get_prior(self.prior_mag_cat[i])
+                    self.full_logprior[i,:] = lnp
 
         if verbose:
             print('Read PRIOR_FILE: ', self.param['PRIOR_FILE'])
@@ -515,10 +555,9 @@ class PhotoZ(object):
         prior = np.maximum(nd.map_coordinates(self.prior_data, [self.prior_map_z, mag_ix], **kwargs), 1.e-8)
         return prior
     
-    def iterate_zp_templates(self, idx=None, update_templates=True, update_zeropoints=True, iter=0, n_proc=4, save_templates=False, error_residuals=False, prior=True, max_Ng=180, NBIN=None, get_spatial_offset=False, spatial_offset_keys={'apply':True}):
+    def iterate_zp_templates(self, idx=None, update_templates=True, update_zeropoints=True, iter=0, n_proc=4, save_templates=False, error_residuals=False, prior=True, get_spatial_offset=False, spatial_offset_keys={'apply':True}, **kwargs):
         
         self.fit_parallel(idx=idx, n_proc=n_proc, prior=prior)        
-        #self.best_fit()
         if error_residuals:
             self.error_residuals()
         
@@ -527,15 +566,23 @@ class PhotoZ(object):
             selection[idx] = True
         else:
             selection = None
-             
+        
+        
+        label = '{0}_zp_{1:03d}'.format(self.param['MAIN_OUTPUT_FILE'], iter)
+        
         fig = self.residuals(update_zeropoints=update_zeropoints,
                        ref_filter=int(self.param['PRIOR_FILTER']),
-                       selection=selection, 
-                       update_templates=update_templates,
-                       Ng=np.minimum((self.zbest > 0.1).sum()//50, max_Ng),
-                       min_width=500,  NBIN=NBIN)
+                       selection=selection, update_templates=update_templates,
+                       full_label=label, **kwargs)
+            
+        # fig = self.residuals(update_zeropoints=update_zeropoints,
+        #                ref_filter=int(self.param['PRIOR_FILTER']),
+        #                selection=selection, 
+        #                update_templates=update_templates,
+        #                Ng=np.minimum((self.zbest > 0.1).sum()//50, max_Ng),
+        #                min_width=500,  NBIN=NBIN)
         
-        fig_file = '{0}_zpoint_{1:03d}.png'.format(self.param['MAIN_OUTPUT_FILE'], iter)
+        fig_file = '{0}.png'.format(label)
         fig.savefig(fig_file)
         
         if get_spatial_offset:
@@ -555,7 +602,7 @@ class PhotoZ(object):
             clip &= selection
             
         if include_errors:
-            zlimits = self.pz_percentiles(percentiles=[16,84], oversample=10,
+            zlimits = self.pz_percentiles(percentiles=[16,84], oversample=5,
                                       selection=clip)
         else:
             zlimits = None
@@ -567,21 +614,29 @@ class PhotoZ(object):
         
         return fig
         
-    def save_templates(self, prefix='tweak_', ext=None, format=None, overwrite=True):
+    def save_templates(self, prefix='corr_', ext=None, format=None, overwrite=True, make_param=True):
         """
         Write scaled versions of the templates
         """
-        path = os.path.dirname(self.param['TEMPLATES_FILE'])
-        for templ in self.templates:
+        import shutil
+        
+        pardir = os.path.dirname(self.param['TEMPLATES_FILE'])
+        parfile = os.path.basename(self.param['TEMPLATES_FILE'])
+                
+        new_files = []
+        
+        for i, templ in enumerate(self.templates):
             tab = templ.to_table()
             
-            templ_file = os.path.join('{0}/{1}{2}'.format(path, prefix,
+            templ_file = os.path.join('{0}/{1}{2}'.format(pardir, prefix,
                                                           templ.name))
             
+            new_files.append(templ_file)
+                            
             if ext is not None:
                 templ_file += ext
             
-            print('Save tweaked template {0}'.format(templ_file))
+            print('Save modified template {0}'.format(templ_file))
             
             file_ext = templ_file.split('.')[-1]
             if (file_ext in ['dat', 'txt']) & (format is None):
@@ -593,22 +648,40 @@ class PhotoZ(object):
                 tab.write(templ_file, format=format, overwrite=overwrite)    
             else:
                 tab.write(templ_file, overwrite=overwrite)
-                
-            #                          
-            #np.savetxt(templ_file, np.array([templ.wave, templ.flux]).T,
-            #           fmt='%.6e')
-    
+
+        if make_param:
+            
+            new_parfile = os.path.join(pardir, prefix+parfile)
+            print(f'{parfile} >> {new_parfile}')
+            with open(new_parfile,'w') as fp:
+                for i, file in enumerate(new_files):
+                    fp.write(f'{i+1} {file} 1.0\n')
+            
+            parfits = os.path.join(pardir, parfile+'.fits')
+            if os.path.exists(parfits):
+                new_parfits = os.path.join(pardir, prefix+parfile+'.fits')
+                print(f'{parfits} >> {new_parfits}')
+
+                partab = Table.read(parfits)
+                partab['file'] = [os.path.basename(f) for f in new_files]                
+                partab.write(new_parfits, overwrite=True)
+
+
     def fit_single_templates(self, verbose=True):
         """
         Fit individual templates on the redshift grid
         """
         from tqdm import tqdm
         
-        ampl = np.zeros((self.NTEMP, self.NOBJ, self.NZ))
-        chi2 = np.zeros((self.NTEMP, self.NOBJ, self.NZ))
+        ampl = np.zeros((self.NTEMP, self.NOBJ, self.NZ), 
+                        dtype=self.ARRAY_DTYPE)
+        chi2 = np.zeros((self.NTEMP, self.NOBJ, self.NZ),
+                        dtype=self.ARRAY_DTYPE)
         
-        chiz = np.zeros((self.NZ, self.NOBJ))
-        amplz = np.zeros((self.NZ, self.NOBJ))
+        chiz = np.zeros((self.NZ, self.NOBJ),
+                        dtype=self.ARRAY_DTYPE)
+        amplz = np.zeros((self.NZ, self.NOBJ),
+                         dtype=self.ARRAY_DTYPE)
                 
         for i in range(self.NTEMP):
             print('Process template ', i)
@@ -643,18 +716,18 @@ class PhotoZ(object):
         
         return ampl, chi2, logpz
         
-        # Compute new best from pz
-        izbest = np.argmax(pzt, axis=1)
-        zbest = izbest*0.
-        for iobj in self.idx:
-            iz = izbest[iobj]
-            if iz == 0:
-                continue
-                
-            c = polyfit(self.zgrid[iz-1:iz+2], np.log(pzt[iobj, iz-1:iz+2]), 2)
-            #c = polyfit(self.zgrid[iz-1:iz+2], self.fit_chi2[iobj, iz-1:iz+2], 2)
-            
-            zbest[iobj] = -c[1]/(2*c[0])
+        # # Compute new best from pz
+        # izbest = np.argmax(pzt, axis=1)
+        # zbest = izbest*0.
+        # for iobj in self.idx:
+        #     iz = izbest[iobj]
+        #     if iz == 0:
+        #         continue
+        #         
+        #     c = polyfit(self.zgrid[iz-1:iz+2], np.log(pzt[iobj, iz-1:iz+2]), 2)
+        #     #c = polyfit(self.zgrid[iz-1:iz+2], self.chi2_fit[iobj, iz-1:iz+2], 2)
+        #     
+        #     zbest[iobj] = -c[1]/(2*c[0])
         
         
     def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls'):
@@ -703,17 +776,18 @@ class PhotoZ(object):
                 
         for res in results:
             iz, chi2, coeffs = res.get(timeout=1)
-            self.fit_chi2[idx_fit,iz] = chi2
+            self.chi2_fit[idx_fit,iz] = chi2
             self.fit_coeffs[idx_fit,iz,:] = coeffs
-        
-        self.compute_pz(prior=prior, beta_prior=beta_prior)
-                
+                    
         if get_best_fit:
             if verbose:
                 print('Compute best fits')
             
-            self.best_fit(prior=prior, beta_prior=beta_prior, fitter=fitter)
-        
+            self.fit_at_zbest(prior=prior, beta_prior=beta_prior, 
+                              fitter=fitter, zbest=None)
+        else:
+            self.compute_lnp(prior=prior, beta_prior=beta_prior)
+            
         t1 = time.time()
         if verbose:
             print('Fit {1:.1f} s (n_proc={0}, NOBJ={2})'.format(n_proc, t1-t0, len(idx_fit)))
@@ -732,8 +806,8 @@ class PhotoZ(object):
         A = self.tempfilt(z)
         var = (0.0*fnu_i)**2 + efnu_i**2 + (self.TEF(z)*fnu_i)**2
         
-        chi2 = np.zeros(self.NZ)
-        coeffs = np.zeros((self.NZ, self.NTEMP))
+        chi2 = np.zeros(self.NZ, dtype=self.ARRAY_DTYPE)
+        coeffs = np.zeros((self.NZ, self.NTEMP), dtype=self.ARRAY_DTYPE)
         
         for iz in range(self.NZ):
             A = self.tempfilt(self.zgrid[iz])
@@ -748,67 +822,57 @@ class PhotoZ(object):
                 
             try:
                 coeffs_x, rnorm = nnls((A/rms).T[ok_band,:][:,ok_temp], (fnu_i/rms)[ok_band])
-                coeffs_i = np.zeros(A.shape[0])
+                coeffs_i = np.zeros(A.shape[0], dtype=self.ARRAY_DTYPE)
                 coeffs_i[ok_temp] = coeffs_x
             except:
-                coeffs_i = np.zeros(A.shape[0])
+                coeffs_i = np.zeros(A.shape[0], dtype=self.ARRAY_DTYPE)
                 
             fmodel = np.dot(coeffs_i, A)
             chi2[iz] = np.sum((fnu_i-fmodel)**2/var*ok_band)
             coeffs[iz, :] = coeffs_i
         
         return iobj, chi2, coeffs
-        
-        if show:
-            pz = np.exp(-(chi2-chi2.min())/2.)
-            pz /= np.trapz(pz, self.zgrid)
-            fig.axes[1].plot(self.zgrid, pz)
-            fig.axes[1].set_ylim(0,pz.max()*1.05)
-        
-            izbest = np.argmax(pz)
-            A = self.tempfilt(self.zgrid[izbest])
-            ivar = 1/((0.0*fnu_i)**2 + efnu_i**2 + (self.TEF(zgrid[izbest])*fnu_i)**2)
-            rms = 1./np.sqrt(ivar)
-            model = np.dot(coeffs[izbest,:], A)
-            flam_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
-            flam_factor *= utils.CLIGHT*1.e10/1.e-17/self.lc**2/self.ext_corr
-            fig.axes[0].scatter(self.lc, model*flam_factor, color='orange')
-            fig.axes[0].errorbar(self.lc, fnu_i*flam_factor, rms*flam_factor, color='g', marker='s', linestyle='None')
     
-    def best_fit(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls'):
+    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls'):
+        """
+        Recompute the fit coefficients at the "best" redshift
+        """
         self.fmodel = self.fnu*0.
         self.efmodel = self.fnu*0.
         
-        izbest = np.argmin(self.fit_chi2, axis=1)
-        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
+        #izbest = np.argmin(self.chi2_fit, axis=1)
+        izbest = self.izbest*1
+        has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
         
         self.get_err = get_err
         
         self.zbest_grid = self.zgrid[izbest]
+        #self.chi_best
+        
         if zbest is None:
-            self.zbest, self.chi_best = self.best_redshift(prior=prior,
+            self.zbest, _lnpmax = self.get_maxlnp_redshift(prior=prior,
                                                     beta_prior=beta_prior,
                                             clip_wavelength=clip_wavelength)
             
-            self.zbest_with_prior = prior
-            self.zbest_with_beta_prior = beta_prior
+            self.ZBEST_WITH_PRIOR = prior
+            self.ZBEST_WITH_BETA_PRIOR = beta_prior
             self.zbest[~has_chi2] = -1
-            
-            # No prior, redshift at minimum chi-2
-            self.zchi2, self.chi2_noprior = self.best_redshift(prior=False,
-                                                    beta_prior=False,
-                                            clip_wavelength=clip_wavelength)
-            self.zchi2[~has_chi2] = -1
+                            
         else:
             self.zbest = zbest
-            self.chi_best = np.zeros_like(self.zbest)-1
-            self.zchi2 = np.zeros_like(self.zbest)-1
-            self.chi2_noprior = np.zeros_like(self.zbest)-1
+            #self.zchi2 = np.zeros_like(self.zbest)-1
+            self.ZBEST_WITH_PRIOR = False
+            self.ZBEST_WITH_BETA_PRIOR = False
             
-        if (self.param['FIX_ZSPEC'] in TRUE_VALUES) & ('z_spec' in self.cat.colnames):
-            #print('USE ZSPEC!')
-            has_zsp = self.cat['z_spec'] > 0
+        self.chi2_best = np.zeros_like(self.zbest)-1
+        
+        if ((self.param['FIX_ZSPEC'] in TRUE_VALUES) & 
+            ('z_spec' in self.cat.colnames)):
+            has_zsp = self.cat['z_spec'] > self.zgrid[0]
             self.zbest[has_zsp] = self.cat['z_spec'][has_zsp]
+            self.ZBEST_AT_ZSPEC = True
+        else:
+            self.ZBEST_AT_ZSPEC = False
             
         # Compute Risk function at z=zbest
         self.zbest_risk = self.compute_best_risk()
@@ -817,18 +881,15 @@ class PhotoZ(object):
         efnu_corr = self.efnu*self.ext_redden*self.zp
         efnu_corr[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
-        # self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP))
-        # self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP))
-        # self.get_err = False
-        
-        idx = self.idx[(self.zbest > self.zgrid[0])]
+        idx = self.idx[(self.zbest > self.zgrid[0]) & 
+                       (self.zbest < self.zgrid[-1])]
         
         # Set seed
         np.random.seed(self.random_seed)
         
         for iobj in idx:
-            #A = self.tempfilt(self.zgrid[izbest[iobj]])
-            #self.fmodel[iobj,:] = np.dot(self.fit_coeffs[iobj, izbest[iobj],:], A) 
+            
+            # Evaluate templates at continuous `zbest`
             zi = self.zbest[iobj]
             A = self.tempfilt(zi)
             TEFz = self.TEF(zi)
@@ -836,61 +897,21 @@ class PhotoZ(object):
             fnu_i = fnu_corr[iobj, :]
             efnu_i = efnu_corr[iobj,:]
             if get_err:
-                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
+                _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
+                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _
                 if draws is None:
                     self.efmodel[iobj,:] = -1
                 else:
                     #tf = self.tempfilt(zi)
-                    self.efmodel[iobj,:] = np.diff(np.percentile(np.dot(draws, A), [16,84], axis=0), axis=0)/2.
+                    efm = np.diff(np.percentile(np.dot(draws, A), [16,84], 
+                                                axis=0), axis=0)/2.
+                    self.efmodel[iobj,:] = efm
                     self.coeffs_draws[iobj, :, :] = draws
             else:
-                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False, fitter)
-                
-    def best_redshift(self, prior=True, beta_prior=True, clip_wavelength=1100):
-        """Fit parabola to chi2 to get best minimum
-        
-        TBD: include prior
-        """
-        from scipy import polyfit, polyval
-                
-        if beta_prior:
-            p_beta = self.p_beta
-        else:
-            p_beta = 1
-        
-        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
+                _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False, fitter)
+                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _
             
-        if prior:
-            test_chi2 = self.fit_chi2-2*np.log(self.full_prior*p_beta)
-        else:
-            test_chi2 = self.fit_chi2-2*np.log(p_beta)
-        
-        if clip_wavelength is not None:
-            # Set pz=0 at redshifts where clip_wavelength beyond reddest 
-            # filter
-            red_mask = ((clip_wavelength*(1+self.zgrid))[:,None] > self.lc_reddest[None, :]).T
-            test_chi2[red_mask] = np.inf
-            self.lc_zmax = self.lc_reddest/clip_wavelength - 1
-            self.clip_wavelength = clip_wavelength
-            
-        #izbest0 = np.argmin(self.fit_chi2, axis=1)
-        izbest = np.argmin(test_chi2, axis=1)*has_chi2
-        
-        zbest = self.zgrid[izbest]
-        zbest[izbest == 0] = -1
-        chi_best = self.fit_chi2.min(axis=1)
-        
-        mask = (izbest > 0) & (izbest < self.NZ-1) & has_chi2
-        for iobj in self.idx[mask]:
-            iz = izbest[iobj]
-            
-            c = polyfit(self.zgrid[iz-1:iz+2], test_chi2[iobj, iz-1:iz+2], 2)
-            #c = polyfit(self.zgrid[iz-1:iz+2], self.fit_chi2[iobj, iz-1:iz+2], 2)
-            
-            zbest[iobj] = -c[1]/(2*c[0])
-            chi_best[iobj] = polyval(c, zbest[iobj])
-        
-        return zbest, chi_best
+            self.chi2_best[iobj] = chi2
     
     def error_residuals(self, level=1, verbose=True):
         """
@@ -919,7 +940,8 @@ class PhotoZ(object):
         
         TEF_scale = 1.
         
-        izbest = np.argmin(self.fit_chi2, axis=1)
+        #izbest = np.argmin(self.chi2_fit, axis=1)
+        izbest = self.izbest*1
         zbest = self.zgrid[izbest]
         
         full_err = self.efnu*0.
@@ -982,7 +1004,7 @@ class PhotoZ(object):
         
         clip = ((M-F)**2 < 25*(sigma**2+(0.03*M)**2)) & np.isfinite(M) & np.isfinite(F) & (M > 0) & (sigma > 0)
         
-        _A = np.zeros((clip.sum(), self.NFILT))
+        _A = np.zeros((clip.sum(), self.NFILT), dtype=self.ARRAY_DTYPE)
         j = 0
         _r = np.zeros(clip.sum())
         _m = np.zeros(clip.sum())
@@ -1120,16 +1142,341 @@ class PhotoZ(object):
                                                       arrays=(te_wave, te_y),
                                                       lc=self.lc, scale=1.0)
 
-            self.TEFgrid = np.zeros((self.NZ, self.NFILT))
+            self.TEFgrid = np.zeros((self.NZ, self.NFILT),
+                                    dtype=self.ARRAY_DTYPE)
             for i in range(self.NZ):
                 self.TEFgrid[i,:] = self.TEF(self.zgrid[i])
             
             
         return te_wave, te_y
-        
 
 
-    def residuals(self, selection=None, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True, min_width=500, NBIN=None):
+    def residuals(self, selection=None, minsn=3, resid_sig_clip=5, update_zeropoints=False, update_templates=False, ref_filter=None, correct_zp=True, n_knots=-1, use_bspline=False, logspline=True, wlimits=[1000, 3.e4], runmed_kwargs={'NBIN':16}, zpanel_kwargs={'zmin':0, 'zmax':4, 'catastrophic_limit':0.15}, full_label=None, ignore_zeropoint=False, ignore_spline=False, run_iterative=True, iterative_nsteps=3, **kwargs):
+        """
+        Show residuals and compute zeropoint offsets
+
+        selection=None
+        update_zeropoints=False
+        update_templates=False
+        ref_filter=226
+        correct_zp=True
+        NBIN=None
+
+        """
+        import os
+        import matplotlib as mpl
+        import matplotlib.cm as cm
+        import matplotlib.pyplot as plt
+        import matplotlib.gridspec as gridspec
+        import scipy.interpolate
+
+        from grizli.utils import bspline_templates
+        from eazy import utils
+
+        #import threedhst
+        #from astroML.sum_of_norms import sum_of_norms, norm
+
+        #izbest = np.argmin(self.chi2_fit, axis=1)
+        izbest = self.izbest*1
+        zbest = self.zgrid[izbest]
+
+        fnu_i = self.fnu*self.ext_redden*self.zp
+        resid = (self.fmodel - fnu_i)/self.fmodel+1
+
+        valid = (zbest > self.zgrid[0]) & (zbest < self.zgrid[-1])
+        if selection is not None:
+            valid &= selection
+
+        idx = self.idx[valid]
+
+        ## Full variance
+        teff_err = self.TEF(np.maximum(self.zbest[:,None], self.zgrid[1]))         
+        var = fnu_i**2*(self.param.params['SYS_ERR']**2 + teff_err**2)
+        var += (self.efnu*self.ext_redden*self.zp)**2
+        var *= self.ok_data
+        inv_sig = 1/np.sqrt(var)
+        del(var)
+
+        ## Data to use
+        sn = self.fnu/self.efnu_orig
+        clip = (sn > minsn) & np.isfinite(inv_sig)
+        clip &= (self.fnu > self.param['NOT_OBS_THRESHOLD']) 
+        clip &= (resid > 0) & (self.fmodel != 0)
+        clip &= np.isfinite(self.fnu) & np.isfinite(self.efnu) 
+        clip &= np.abs(self.fmodel - fnu_i)*inv_sig < resid_sig_clip
+        clip[~valid,:] = False
+
+        ## Helper arrays
+        # Redshifted filter wavelengths
+        lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]),
+                     self.lc[np.newaxis,:])
+
+        so = np.argsort(lcz[clip])
+        lczso = lcz[clip][so]
+
+        yp, xp = np.indices(lcz.shape)
+        xpc = xp[clip][so]
+        del(xp)
+        del(yp)
+
+        ## Splines for template correction
+        if n_knots < 0:
+            n_knots = self.NFILT
+
+        wlim = np.clip(wlimits, lcz[clip][so][0], lcz[clip][so][-1])
+
+        if logspline:
+            wfunc = np.log
+        else:
+            wfunc = np.abs # Dummy
+
+        if use_bspline:
+            bspl = bspline_templates(wfunc(lcz[clip][so]), df=n_knots, 
+                                    log=False, get_matrix=True, 
+                                    minmax=wfunc(wlim))
+        else:
+            # Gaussian knots
+            wclip = (lczso > wlim[0]) & (lczso < wlim[1])
+
+            wi = np.interp(np.linspace(0, 1, n_knots),
+                           np.cumsum(np.ones(wclip.sum()))/wclip.sum(), 
+                           lczso[wclip])
+            dw = np.gradient(wi)
+
+            bspl = utils.gaussian_templates(lczso, centers=wi, widths=dw)
+
+        # Pedestal
+        #bspl = np.hstack([np.ones((clip.sum(), 1)), bspl])
+
+        ## Design matrix for lstsq optimization
+        sh = bspl.shape
+        _A = np.hstack([np.zeros((sh[0], self.NFILT)), bspl])
+
+        for i in range(self.NFILT):
+            _A[xpc == i, i] = 1
+
+        # Iterative
+        if run_iterative:
+            print('Iterative correction - zeropoint / template')
+
+            fmodel = self.fmodel[clip][so]*1.
+            mask_zeropoint = np.arange(_A.shape[1]) < self.NFILT
+            mask_spline = np.arange(_A.shape[1]) > self.NFILT
+            _Af = _A[:,:self.NFILT].T*inv_sig[clip][so]
+            nzf = _Af.sum(axis=1) != 0
+            _Af = _Af[nzf]
+            _As = _A[:,self.NFILT:].T*inv_sig[clip][so]
+            nzs = _As.sum(axis=1) != 0
+            _As = _As[nzs]
+
+            #_f, _a = plt.subplots(1,1,figsize=(6,4))
+
+            corr = np.ones_like(fmodel)
+            zcorr = np.ones(nzf.sum())
+            scorr = np.ones(nzs.sum())
+
+            for _iter in range(iterative_nsteps):
+
+                # Fit zeropoint
+                _yi = (fnu_i[clip][so] - fmodel*corr)*inv_sig[clip][so]
+
+                _res = np.linalg.lstsq((_Af*fmodel*corr).T, _yi, rcond=None)
+                zcorr_i = _A[:,:self.NFILT][:,nzf].dot(_res[0])
+                zcorr *= (1+_res[0])
+                corr *= 1 + zcorr_i
+                #print('Iterative zeropoints: ', _iter, _res[0])
+
+                # Fit spline
+                _yi = (fnu_i[clip][so] - fmodel*corr)*inv_sig[clip][so]
+                _res = np.linalg.lstsq((_As*fmodel*corr).T, _yi, rcond=None)
+                scorr_i = _A[:,self.NFILT:][:,nzs].dot(_res[0])
+                scorr *= (1+_res[0])
+                corr *= 1 + scorr_i
+
+                #_a.plot(lcz[clip][so], 1 + scorr_i, label=f'iter {_iter}')
+
+            _yx = (fnu_i[clip][so] - fmodel*corr)*inv_sig[clip][so]
+
+            _N = _A.shape[1]
+            coeffs = np.zeros(_N)
+            coeffs[np.arange(_N)[:self.NFILT][nzf]] += zcorr - 1
+            coeffs[np.arange(_N)[self.NFILT:][nzs]] += scorr - 1
+            #_a.semilogx()
+            #_a.set_ylim(0.8, 1.2)
+
+        else:
+
+            if ref_filter is None:
+                print('!! Warning - normalization may not be constrained with `ref_filter = None` !!')
+
+            if ignore_zeropoint:
+                _A[:, :self.NFILT] = 0.
+            elif ignore_spline:
+                _A[:, self.NFILT:] = 0
+
+            # weighted by uncertainties
+            _Ax = _A.T*(self.fmodel*inv_sig)[clip][so]
+            _yx = ((fnu_i - self.fmodel)*inv_sig)[clip][so]
+
+            nonzero = _Ax.sum(axis=1) != 0
+
+            ### Least squares
+            _res = np.linalg.lstsq(_Ax[nonzero,:].T, _yx, rcond=None)
+            coeffs = np.zeros(len(nonzero))
+            coeffs[nonzero] = _res[0]
+
+        # Zeropoints
+        zp_i = 1 + coeffs[:self.NFILT]
+        if ref_filter is None:
+            #ref_filter = self.param['PRIOR_FILTER']
+            zp_ref = 1.
+        else:
+            zp_ref = zp_i[self.f_numbers == ref_filter][0]
+            zp_i /= zp_ref
+
+        # Spline template correction
+        templ_wave = self.templates[0].wave
+        if use_bspline:
+            templ_spl = bspline_templates(wfunc(templ_wave), df=n_knots, 
+                                      log=False, get_matrix=True, 
+                                      minmax=wfunc(wlim))
+        else:
+            templ_spl = utils.gaussian_templates(templ_wave, centers=wi, 
+                                                 widths=dw)
+
+        #templ_spl = np.hstack([np.ones_like(templ_wave), templ_spl])
+
+        templ_corr = (templ_spl.dot(coeffs[self.NFILT:])+1) * zp_ref
+        if use_bspline & (not run_iterative):
+            templ_corr[(templ_wave < wlim[0]) | (templ_wave > wlim[1])] = 1.
+
+        # residuals with zeropoints
+        _y = (fnu_i/self.fmodel)[clip][so]
+
+        ####### Figure
+        fig = plt.figure(figsize=[16,4])
+        gs = gridspec.GridSpec(1, 4)
+
+        # Spectrum
+        ax = fig.add_subplot(gs[:,:3])
+        ax.plot(templ_wave, templ_corr, color='k', linewidth=2, alpha=0.5, 
+                zorder=10)
+
+        ax.text(0.9, -0.05, f'N={len(idx)}', ha='left', va='top', 
+                fontsize=8, transform=ax.transAxes)
+
+        if full_label is not None:
+            ax.text(0.95, 0.05, full_label, ha='right', va='bottom', 
+                fontsize=8, transform=ax.transAxes)
+
+        cmap = cm.rainbow
+        cnorm = mpl.colors.Normalize(vmin=0, vmax=self.NFILT-1)
+
+        self.zp_delta = zp_i
+        if correct_zp:
+            image_corrections = self.zp*0.+1
+        else:
+            image_corrections = 1/self.zp
+
+        # Filters  
+        for i, ifilt in enumerate(np.argsort(self.lc)):
+            ix = xpc == ifilt
+            if ix.sum() == 0:
+                self.zp_delta[ifilt] = 1.
+                continue
+
+            color = cmap(cnorm(i))
+
+            if correct_zp:
+                delta_i = self.zp_delta[ifilt]
+            else:
+                delta_i = 1.
+
+            #fname = os.path.basename(self.filters[ifilt].name.split()[0])
+            #if fname.count('.') > 1:
+            #    fname = '.'.join(fname.split('.')[:-1])
+            fname = self.flux_columns[ifilt]
+
+            label = '{0:30s} {1:.3f}'
+            label = label.format(fname, delta_i/image_corrections[ifilt])
+
+            _ = utils.running_median(lczso[ix], _y[ix], 
+                                          **runmed_kwargs)
+            xm, ym, ys, yn = _
+
+            ax.plot(xm, ym/delta_i*image_corrections[ifilt], color=color, 
+                    alpha=0.8, label=label, linewidth=2)
+
+            yy = ym/delta_i*image_corrections[ifilt]        
+            ax.fill_between(xm, yy-ys/np.sqrt(yn), yy+ys/np.sqrt(yn), 
+                            color=color, alpha=0.1) 
+
+        try:
+            ax.plot(self.TEF.te_x, self.TEF.te_y*self.TEF.scale+1, 
+                    color='pink', zorder=1001, label='TEF')
+        except:
+            pass
+
+        ax.semilogx()
+        ax.set_ylim(0.8,1.2)
+        ax.set_xlim(800,8.e4)
+        l = ax.legend(fontsize=6, ncol=5, loc='upper right', handlelength=0.4)
+        l.set_zorder(-20)
+        ax.grid()
+        ax.vlines([2175, 3727, 5007, 6563.], 0.8, 1.0, linestyle='--', 
+                  color='k', zorder=-18)
+        ax.set_xlabel(r'$\lambda_\mathrm{rest}$')
+        ax.set_ylabel('data / template')
+
+        ## zphot-zspec
+        dz = (self.zbest-self.cat['z_spec'])/(1+self.cat['z_spec'])
+        clip = (izbest > 0) & (self.cat['z_spec'] > 0)
+
+        ax = fig.add_subplot(gs[:,-1])
+        utils.zphot_zspec(self.zbest, self.cat['z_spec'], axes=[ax], 
+                          selection=valid, **zpanel_kwargs)
+
+        fig.tight_layout(pad=0.1)
+
+        # update zeropoints in self.zp
+        if update_zeropoints:
+            ref_ix = self.f_numbers == ref_filter
+            self.zp /= self.zp_delta/self.zp_delta[ref_ix]
+            self.zp[self.zp_delta == 1] = 1.
+
+        # corrected templates
+        if update_templates:
+            print('Reprocess corrected templates')
+            #w_best, locs, widths, xmin, xmax = self.tnorm
+            for templ in self.templates:
+                #templ = self.templates[itemp]
+
+                templ_wave = templ.wave
+                if use_bspline:
+                    templ_spl = bspline_templates(wfunc(templ_wave), 
+                                              df=n_knots, 
+                                              log=False, get_matrix=True, 
+                                              minmax=wfunc(wlim))
+                else:
+                    templ_spl = utils.gaussian_templates(templ_wave, 
+                                                       centers=wi, widths=dw)
+
+                #templ_spl = np.hstack([np.ones_like(templ_wave), templ_spl])
+                templ_corr = (templ_spl.dot(coeffs[self.NFILT:]) + 1) * zp_ref
+                templ_corr[templ.wave < wlim[0]] = 1.
+                templ_corr[templ.wave > wlim[1]] = 1.
+
+                #templ_tweak[(templ.wave < xmin) | (templ.wave > xmax)] = 1
+                templ.flux *= templ_corr
+                #templ.flux_fnu /= templ_tweak
+
+            # Recompute filter fluxes from tweaked templates    
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
+
+        return fig
+
+
+    def _residuals(self, selection=None, update_zeropoints=True, update_templates=True, ref_filter=205, Ng=40, correct_zp=True, min_width=500, NBIN=None, minsn=3, NBINFILT=20, minsn_filt=3):
         """
         Show residuals and compute zeropoint offsets
         
@@ -1149,19 +1496,26 @@ class PhotoZ(object):
         import scipy.interpolate
         
         #import threedhst
-        from astroML.sum_of_norms import sum_of_norms, norm
+        #from astroML.sum_of_norms import sum_of_norms, norm
                
-        izbest = np.argmin(self.fit_chi2, axis=1)
+        #izbest = np.argmin(self.chi2_fit, axis=1)
+        izbest = self.izbest*1
         zbest = self.zgrid[izbest]
-                
+        
+        valid = (zbest > self.zgrid[0]) & (zbest < self.zgrid[-1])
         if selection is not None:
-            idx = self.idx[(izbest > self.zgrid[0]) & selection]
-        else:
-            idx = self.idx[izbest > 0]
+            valid &= selection
+        
+        idx = self.idx[valid]
             
         resid = (self.fmodel - self.fnu*self.ext_redden*self.zp)/self.fmodel+1
-        eresid = (self.efnu_orig*self.ext_redden*self.zp)/self.fmodel
+        #eresid = (self.efnu_orig*self.ext_redden*self.zp)/self.fmodel
 
+        teff_err = self.TEF(np.maximum(self.zbest[:,None], self.zgrid[1]))         
+        vresid = (self.efnu_orig*self.ext_redden*self.zp/self.fmodel)**2
+        vresid += self.param.params['SYS_ERR']**2 + teff_err**2
+    
+        ###
         sn = self.fnu/self.efnu
                 
         fig = plt.figure(figsize=[16,4])
@@ -1176,53 +1530,44 @@ class PhotoZ(object):
         
         so = np.argsort(self.lc)
         
+        ######## Full average
         lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]), self.lc[np.newaxis,:])
-        clip = (sn > 3) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0) & np.isfinite(self.fnu) & np.isfinite(self.efnu) & (self.fmodel != 0)
-        #xmf, ymf, ysf, Nf = utils.running_median(lcz[clip], resid[clip], NBIN=20*(self.NFILT // 2), use_median=True, use_nmad=True)
-        
+        clip = (sn > minsn) & (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & (resid > 0) & np.isfinite(self.fnu) & np.isfinite(self.efnu) & (self.fmodel != 0)
+        clip[~valid,:] = False
+                
         if NBIN is None:
-            NBIN = (self.zbest > self.zgrid[0]).sum() // (100) #*self.NFILT)
-        #NBIN = 20*(self.NFILT // 2)
+            NBIN = len(idx) // 100
         
-        xmf, ymf, ysf, Nf = utils.running_median(lcz[clip], resid[clip], NBIN=NBIN, use_median=True, use_nmad=True)
+        xmf, ymf, ysf, Nf = utils.running_median(lcz[clip], resid[clip],
+                                                 NBIN=NBIN, use_median=True,
+                                                 use_nmad=True)
         
-        clip = (xmf > 950) & (xmf < 7.9e4)
-        xmf = xmf[clip]
-        ymf = ymf[clip]
+        xclip = (xmf > 950) & (xmf < 7.9e4)
+        xmf = xmf[xclip]
+        ymf = ymf[xclip]
+        ysf = ysf[xclip]
         
+        xmf = np.hstack((100, 600, 700, 800, 900, xmf, 8.e4, 9.e4, 1.e5, 1.1e5))
+        ymf = np.hstack((1, 1, 1, 1, 1, ymf, 1., 1., 1., 1))
+                
+        xsm = np.logspace(2.5,5,500)
+        AvgSpline = scipy.interpolate.CubicSpline(xmf, ymf)
+        ax.plot(xsm, AvgSpline(xsm), color='k', linewidth=2, alpha=0.5, 
+                zorder=10)
+        
+        self.zp_delta = self.zp*0
         if correct_zp:
             image_corrections = self.zp*0.+1
         else:
             image_corrections = 1/self.zp
-            
-        xmf = np.hstack((100, 600, 700, 800, 900, xmf, 8.e4, 9.e4, 1.e5, 1.1e5))
-        ymf = np.hstack((1, 1, 1, 1, 1, ymf, 1., 1., 1., 1))
-        
-        #Ng = 40
-        #w_best, rms, locs, widths = sum_of_norms(xmf, ymf, Ng, spacing='log', full_output=True)
-        #w_best, rms, locs, widths = sum_of_norms(xmf, ymf, full_output=True, locs=xmf)#, widths=min_width) #, widths=np.maximum(2*np.gradient(xmf), min_width))
-        
-        #w_best, rms, locs, widths = sum_of_norms([0.8*xmf.min(), xmf.max()/0.8], [1, 1], Ng, spacing='log', full_output=True)
-        #print(xmf.min(), xmf.max(), locs, widths)
-        
-        xsm = np.logspace(2.5,5,500)
-        #norms = (w_best * norm(xsm[:, None], locs, widths)).sum(1)
-        #ax.plot(xsm, norms, color='k', linewidth=2, alpha=0.5, zorder=10)
-        
-        #self.tnorm = (w_best, locs, widths, xmf.min(), xmf.max())
-        
-        AvgSpline = scipy.interpolate.CubicSpline(xmf, ymf)
-        #ax.plot(xsm, spl(xsm), color='r')
-        ax.plot(xsm, AvgSpline(xsm), color='k', linewidth=2, alpha=0.5, zorder=10)
-        
-        self.zp_delta = self.zp*0
-        
+                
         for i in range(self.NFILT):
             ifilt = so[i]
-            clip = (izbest > 0) & (sn[:,ifilt] > 3) & (self.efnu[:,ifilt] > 0)
+            clip = (self.ok_data[:,ifilt]) & (self.efnu[:,ifilt] > 0)
+            clip &= (sn[:,ifilt] > minsn_filt)
             clip &= (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD']) 
             clip &= (resid[:,ifilt] > 0)
-            clip &= selection
+            clip &= valid
             
             color = cmap(cnorm(i))
             
@@ -1232,14 +1577,19 @@ class PhotoZ(object):
                 
             xi = self.lc[ifilt]/(1+self.zgrid[izbest][clip])
             xm, ym, ys, N = utils.running_median(xi, resid[clip, ifilt], 
-                                                 NBIN=20, use_median=True, 
+                                                 NBIN=NBINFILT,
+                                                 use_median=True, 
                                                  use_nmad=True)
             
             # Normalize to overall median
             #xgi = (w_best * norm(xi[:, None], locs, widths)).sum(1)
             xgi = AvgSpline(xi)
-            delta = np.median(resid[clip, ifilt]-xgi+1)
-            self.zp_delta[ifilt]  = delta
+            #delta = np.median(resid[clip, ifilt]-xgi+1)
+            _wht = 1/vresid[clip,ifilt]
+            idelta = ((2-resid[clip,ifilt])/(2-xgi)*_wht).sum()/_wht.sum()
+            delta = 1./idelta
+            
+            self.zp_delta[ifilt] = delta
             if correct_zp:
                 delta_i = delta
             else:
@@ -1249,8 +1599,12 @@ class PhotoZ(object):
             if fname.count('.') > 1:
                 fname = '.'.join(fname.split('.')[:-1])
             
+            label = '{0:30s} {1:.3f}'
+            label = label.format(fname, delta_i/image_corrections[i])
+            
             ax.plot(xm, ym/delta_i*image_corrections[i], color=color, 
-                    alpha=0.8, label='{0:30s} {1:.3f}'.format(fname, delta_i/image_corrections[i]), linewidth=2)
+                    alpha=0.8, label=label, linewidth=2)
+                    
             ax.fill_between(xm, ym/delta_i*image_corrections[i]-ys/np.sqrt(N), 
                             ym/delta_i*image_corrections[i]+ys/np.sqrt(N), 
                             color=color, alpha=0.1) 
@@ -1315,7 +1669,7 @@ class PhotoZ(object):
                 #templ.flux_fnu /= templ_tweak
             
             # Recompute filter fluxes from tweaked templates    
-            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0, cosmology=self.cosmology)
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
         
         return fig
         
@@ -1328,12 +1682,14 @@ class PhotoZ(object):
     
     def full_sed(self, z, coeffs_i):
         import astropy.units as u
+        global IGM_OBJECT
         
         templ = self.templates[0]
-        tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]))
+        tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]),
+                            dtype=self.ARRAY_DTYPE)
         for i in range(self.NTEMP):
             iz = self.templates[i].zindex(z=z, redshift_type='nearest')
-            tempflux[i, :] = self.templates[i].flux_fnu[iz,:]
+            tempflux[i, :] = self.templates[i].flux_fnu(iz)
             
         templz = templ.wave*(1+z)
         
@@ -1402,9 +1758,12 @@ class PhotoZ(object):
         """
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
+        from scipy.integrate import cumtrapz
         
         import astropy.units as u
         from cycler import cycler
+        
+        global IGM_OBJECT
         
         if False:
             ids = self.cat['id'][(self.cat['z_spec'] > 1.9) & (self.zbest > 0.8)]
@@ -1460,13 +1819,14 @@ class PhotoZ(object):
         #templz, templf = self.full_sed(self.zbest[ix][0], coeffs_i)
         if True:
             templ = self.templates[0]
-            tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]))
+            tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]),
+                                dtype=self.ARRAY_DTYPE)
             for i in range(self.NTEMP):
                 iz = self.templates[i].zindex(z=z, redshift_type='nearest')
                 try:
-                    tempflux[i, :] = self.templates[i].flux_fnu[iz,:]
+                    tempflux[i, :] = self.templates[i].flux_fnu(iz)#[iz,:]
                 except:
-                    tempflux[i, :] = np.interp(templ.wave, self.templates[i].wave, self.templates[i].flux_fnu[iz,:])
+                    tempflux[i, :] = np.interp(templ.wave, self.templates[i].wave, self.templates[i].flux_fnu(iz)) #[iz,:])
                     
             templz = templ.wave*(1+z)
 
@@ -1597,10 +1957,8 @@ class PhotoZ(object):
                             
         elif show_redshift_draws:
             # Draw random values from p(z)
-            pz = self.pz[ix,:].flatten()
-            pzcum = pz*0.
-            for j in range(1, self.NZ):
-                pzcum[j] = np.trapz(pz[:j], self.zgrid[:j])
+            pz = np.exp(self.lnp[ix,:]).flatten()
+            pzcum = cumtrapz(pz, x=self.zgrid)
             
             if show_redshift_draws == 1:
                 nzdraw = 100
@@ -1608,7 +1966,7 @@ class PhotoZ(object):
                 nzdraw = show_redshift_draws*1
             
             rvs = np.random.rand(nzdraw)
-            zdraws = np.interp(rvs, pzcum, self.zgrid)
+            zdraws = np.interp(rvs, pzcum, self.zgrid[1:])
             
             for zi in zdraws:
                 Az = np.squeeze(self.tempfilt(zi))
@@ -1621,8 +1979,7 @@ class PhotoZ(object):
                 if self.tempfilt.add_igm:
                     igmz = templ.wave*0.+1
                     lyman = templ.wave < 1300
-                    igmz[lyman] = IGM_OBJECT.full_IGM(zi, 
-                                                              templzi[lyman])
+                    igmz[lyman] = IGM_OBJECT.full_IGM(zi, templzi[lyman])
                 else:
                     igmz = 1.
 
@@ -1741,11 +2098,11 @@ class PhotoZ(object):
         else:
             ax = fig.add_subplot(fig_axes[1])
         
-        chi2 = np.squeeze(self.fit_chi2[ix,:])
-        prior = self.full_prior[ix,:].flatten()
+        chi2 = np.squeeze(self.chi2_fit[ix,:])
+        prior = np.exp(self.full_logprior[ix,:].flatten())
         #pz = np.exp(-(chi2-chi2.min())/2.)*prior
         #pz /= np.trapz(pz, self.zgrid)
-        pz = self.pz[ix,:].flatten()
+        pz = np.exp(self.lnp[ix,:]).flatten()
         
         ax.plot(self.zgrid, pz, color='orange', label=None)
         if show_prior:
@@ -1788,7 +2145,7 @@ class PhotoZ(object):
         else:
             return fig, data
     
-    def observed_frame_fluxes(self, f_numbers=[], get_table=True):
+    def observed_frame_fluxes(self, f_numbers=[325], verbose=True, n_proc=-1, percentiles=[2.5,16,50,84,97.5]):
         """
         Observed-frame fluxes in additional (e.g., unobserved) filters
         """        
@@ -1799,60 +2156,94 @@ class PhotoZ(object):
         _tempfilt = TemplateGrid(self.zgrid, self.templates, 
                                    RES=self.param['FILTERS_RES'], 
                                    f_numbers=np.array(f_numbers), 
-                                   add_igm=True,
+                                   add_igm=self.param['IGM_SCALE_TAU'],
                                    galactic_ebv=self.param['MW_EBV'], 
                                    Eb=self.param['SCALE_2175_BUMP'], 
-                                   n_proc=-1, verbose=verbose, 
-                                   cosmology=self.cosmology)
+                                   n_proc=n_proc, verbose=verbose, 
+                                   cosmology=self.cosmology,
+                                   array_dtype=self.ARRAY_DTYPE)
         
         NOBS = len(f_numbers)
-        izbest = np.argmax(self.pz, axis=1)
+        #izbest = np.argmax(self.pz, axis=1)
+        izbest = self.izbest*1
+                       
         templ_fluxes = _tempfilt.tempfilt[izbest, :, :]
-        if get_table:
-            tab = Table()
-            for i in range(NOBS):
-                flux_i = (self.coeffs_best*templ_fluxes[:,:,i]).sum(axis=1) 
-                tab['obs{0}'.format(f_numbers[i])] = flux_i
-                key = 'name{0}'.format(f_numbers[i])
-                tab.meta[key] = _tempfilt.filter_names[i]
-                key = 'pivw{0}'.format(f_numbers[i])
-                tab.meta[key] = _tempfilt.lc[i]
-            
-            return tab
-        else:
-            obs_fluxes = [(self.coeffs_best*templ_fluxes[:,:,i]).sum(axis=1) 
-                          for i in range(NOBS)]
-            
-            return np.array(obs_fluxes).T
         
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], verbose=1, fitter='nnls'):
+        if percentiles is not None:
+            draws_resh = np.transpose(self.coeffs_draws, axes=(1,0,2))
+                                 
+        tab = Table()
+        for i in range(NOBS):
+            flux_i = (self.coeffs_best*templ_fluxes[:,:,i]).sum(axis=1) 
+            
+            tab['obs{0}'.format(f_numbers[i])] = flux_i
+
+            if percentiles is not None:
+                draws_i = (draws_resh*templ_fluxes[:,:,i]).sum(axis=2) 
+                perc = np.percentile(draws_i, percentiles, axis=0)
+                tab['obs{0}_p'.format(f_numbers[i])] = perc.T
+                
+            key = 'name{0}'.format(f_numbers[i])
+            tab.meta[key] = _tempfilt.filter_names[i]
+            key = 'pivw{0}'.format(f_numbers[i])
+            tab.meta[key] = _tempfilt.lc[i]
+        
+        return tab
+        
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls'):
         """
-        Rest-frame colors
+        Rest-frame fluxes, refit by down-weighting bands far away from 
+        the desired RF band.
         """
-        print('Rest-frame filters: {0}'.format(f_numbers))
-        rf_tempfilt = TemplateGrid(np.arange(0, 0.1, 0.01), self.templates, 
-                                   RES=self.param['FILTERS_RES'], 
-                                   f_numbers=np.array(f_numbers), 
-                                   add_igm=False, galactic_ebv=0, 
-                                   Eb=self.param['SCALE_2175_BUMP'], 
-                                   n_proc=-1, verbose=verbose, 
-                                   cosmology=self.cosmology)
-                                   
-        #rf_tempfilt.tempfilt = np.squeeze(rf_tempfilt.tempfilt[0,:,:])
-        rf_tempfilt.tempfilt = rf_tempfilt.tempfilt[0,:,:]*1
+        if verbose:
+            print('Rest-frame filters: {0}'.format(f_numbers))
         
         NREST = len(f_numbers)
         
+        rf_tempfilt = np.zeros((self.NZ, self.NTEMP, NREST), 
+                       dtype=self.ARRAY_DTYPE)
+        
+        rf_lc = np.array([self.RES[fn].pivot for fn in f_numbers])
+        
+        for i_t, templ in enumerate(self.templates):
+           iz = np.maximum(templ.zindex(self.zgrid), 0)
+           for i_f, fn in enumerate(f_numbers):
+               _rf = [templ.integrate_filter(self.RES[fn], z=0, iz=i) 
+                         for i in range(templ.NZ)]
+        
+               rf_tempfilt[:, i_t, i_f] = np.array(_rf)[iz]
+        
+        # Grid index of best redshfit
+        izbest = self.izbest*1
+
+        f_rest = np.zeros((self.NOBJ, NREST, len(percentiles)),
+                          dtype=self.ARRAY_DTYPE)
+        f_rest += self.param['NOT_OBS_THRESHOLD'] - 9.
+        
+        if simple:
+            # Don't refit reweighting filters and get straight 
+            # template fluxes
+            if verbose:
+                print(' ... (simple=True) no filter reweighting')
+                
+            coeffsT = np.transpose(self.coeffs_draws, axes=(1,0,2))
+
+            rf_iz = rf_tempfilt[izbest,:,:]
+
+            for i in range(NREST):
+                f_vals = (coeffsT*rf_iz[:,:,i]).sum(axis=2)
+                f_rest[:,i,:] = np.percentile(f_vals, percentiles, axis=0).T
+            
+            return rf_tempfilt, rf_lc, f_rest  
+                        
         fnu_corr = self.fnu*self.ext_redden*self.zp
         efnu_corr = self.efnu*self.ext_redden*self.zp
         efnu_corr[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
-        f_rest = np.zeros((self.NOBJ, NREST, len(percentiles)))
-        f_rest += self.param['NOT_OBS_THRESHOLD'] - 9.
-        
         fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         
         indices = self.idx[self.zbest > self.zgrid[0]]
+                
         for ix in indices:
 
             fnu_i = fnu_corr[ix,:]*1
@@ -1862,11 +2253,12 @@ class PhotoZ(object):
                 continue
             
             A = self.tempfilt(z)   
-        
+            iz = izbest[ix]
+            
             for i in range(NREST):
                 ## Grow uncertainties away from RF band
-                lc_i = rf_tempfilt.lc[i]
-                #grow = np.exp(-(lc_i-self.lc/(1+z))**2/2/(pad_width*lc_i)**2)
+                #lc_i = rf_tempfilt.lc[i]
+                lc_i = rf_lc[i]
                 
                 # Normal in log wavelength
                 x = np.log(lc_i/(self.lc/(1+z)))
@@ -1874,16 +2266,21 @@ class PhotoZ(object):
 
                 TEFz = (2/(1+grow/grow.max())-1)*max_err
             
-                chi2_i, coeffs_i, fmodel_i, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
+                _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
+                chi2_i, coeffs_i, fmodel_i, draws = _
+                
                 if draws is None:
-                    f_rest[ix,i,:] = np.zeros(len(percentiles))-1
+                    f_rest[ix,i,:] = np.zeros(len(percentiles),
+                                              dtype=self.ARRAY_DTYPE) - 1
                 else:
-                    f_rest[ix,i,:] = np.percentile(np.dot(draws, rf_tempfilt.tempfilt), percentiles, axis=0)[:,i]
+                    dval = np.dot(draws, rf_tempfilt[iz,:,i])
+                    f_rest[ix,i,:] = np.percentile(dval, percentiles, axis=0)
+                    del(dval)
+                    
+        return rf_tempfilt, rf_lc, f_rest  
         
-        return rf_tempfilt, f_rest    
-        
-        flam_sed = utils.CLIGHT*1.e10/(rf_tempfilt.lc*(1+z))**2/1.e-19
-        fig.axes[0].errorbar(rf_tempfilt.lc*(1+z)/1.e4, f_rest_pad*fnu_factor*flam_sed, f_rest_err*fnu_factor*flam_sed, color='g', marker='s', linestyle='None')
+        #flam_sed = utils.CLIGHT*1.e10/(rf_tempfilt.lc*(1+z))**2/1.e-19
+        #fig.axes[0].errorbar(rf_tempfilt.lc*(1+z)/1.e4, f_rest_pad*fnu_factor*flam_sed, f_rest_err*fnu_factor*flam_sed, color='g', marker='s', linestyle='None')
         
         # covar_rms = np.zeros(NREST)
         # covar_med = np.zeros(NREST)
@@ -1947,8 +2344,68 @@ class PhotoZ(object):
         #     chain_rms[i] = np.std(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
         #     chain_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
     
-    def compute_pz(self, prior=False, beta_prior=False, clip_wavelength=1100):
+    def compute_tef_lnp(self, in_place=True):
         """
+        Uncertainty + TEF component of the log likelihood
+        """
+        try:
+            import tqdm
+            iters = tqdm.tqdm(enumerate(self.zgrid))
+        except:
+            iters = enumerate(self.zgrid)
+            
+        tef_lnp = np.zeros((self.NOBJ, self.NZ), dtype=self.ARRAY_DTYPE)
+        for i, z in iters:
+            TEFz = self.TEF(z)
+            var = self.efnu**2 + (TEFz*self.fnu)**2
+            tef_lnp[:,i] = -1/2.*(np.log(var)*self.ok_data).sum(axis=1)
+        
+        if in_place:
+            self.tef_lnp = tef_lnp
+            
+        return tef_lnp
+
+
+    def get_maxlnp_redshift(self, prior=True, beta_prior=True, clip_wavelength=1100):
+        """Fit parabola to ``lnp`` to get best maximum
+        
+        """
+        #from scipy import polyfit, polyval
+        from numpy import polyfit, polyval
+        
+        self.compute_lnp(prior=prior, beta_prior=beta_prior, 
+                         clip_wavelength=clip_wavelength)
+                         
+        # Objects that have been fit
+        has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
+                                   
+        #izbest0 = np.argmin(self.chi2_fit, axis=1)
+        izmax = np.argmax(self.lnp, axis=1)*has_chi2
+        
+        zbest = self.zgrid[izmax]
+        lnpmax = np.zeros_like(zbest)
+        
+        zbest[izmax == 0] = -1
+        
+        mask = (izmax > 0) & (izmax < self.NZ-1) & has_chi2
+        for iobj in self.idx[mask]:
+            iz = izmax[iobj]
+            
+            c = polyfit(self.zgrid[iz-1:iz+2], self.lnp[iobj, iz-1:iz+2], 2)
+            
+            zbest[iobj] = -c[1]/(2*c[0])
+            lnpmax[iobj] = polyval(c, zbest[iobj])
+        
+        return zbest, lnpmax
+            
+    def compute_lnp(self, prior=False, beta_prior=False, 
+                    clip_wavelength=1100, in_place=True):
+        """
+        Compute log-likelihood from chi2, prior, and TEF terms
+        
+        Parameters
+        ==========
+        
         prior : bool
             Apply apparent magnitude prior
         
@@ -1959,51 +2416,119 @@ class PhotoZ(object):
             If specified, set pz = 0 at redshifts beyond where 
             `clip_wavelength*(1+z)` is greater than the reddest valid filter
             for a given object.
+         
+        Returns
+        =======
+        Updates ``lnp``, ``lnpmax`` attributes.
             
         """
-        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
-        min_chi2 = self.fit_chi2[has_chi2,:].min(axis=1)
-        pz = np.exp(-(self.fit_chi2[has_chi2,:].T-min_chi2)/2.).T
+        import time
         
+        has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
+        #min_chi2 = self.chi2_fit[has_chi2,:].min(axis=1)
+        
+        loglike = -self.chi2_fit[has_chi2,:]/2.
+        #pz = np.exp(-(self.chi2_fit[has_chi2,:].T-min_chi2)/2.).T
+        
+        if self.param['VERBOSITY'] >= 2:
+            print('compute_lnp ({0})'.format(time.ctime()))
+            
+        if hasattr(self, 'tef_lnp'):
+            if self.param['VERBOSITY'] >= 2:
+                print(' ... tef_lnp')
+            
+            loglike += self.tef_lnp[has_chi2,:]
+            
         if prior:
-            pz *= self.full_prior[has_chi2,:]
+            if self.param['VERBOSITY'] >= 2:
+                print(' ... full_logprior')
+            
+            loglike += self.full_logprior[has_chi2,:]
         
         if clip_wavelength is not None:
             # Set pz=0 at redshifts where clip_wavelength beyond reddest 
             # filter
-            red_mask = ((clip_wavelength*(1+self.zgrid))[:,None] > self.lc_reddest[None, has_chi2]).T
-            pz[red_mask] *= 0
+            clip_wz = clip_wavelength*(1+self.zgrid)
+            red_mask = (clip_wz[:,None] > self.lc_reddest[None, has_chi2]).T
+            
+            loglike[red_mask] = -np.inf
             self.lc_zmax = self.lc_reddest/clip_wavelength - 1
             self.clip_wavelength = clip_wavelength
             
         if beta_prior:
-            self.p_beta[has_chi2,:] = self.prior_beta(w1=1350, w2=1800, sample=has_chi2)
-            self.p_beta[~np.isfinite(self.p_beta)] = 1.e-10
-            pz *= self.p_beta[has_chi2,:]
+            if self.param['VERBOSITY'] >= 2:
+                print(' ... beta lnp_beta')
+                
+            p_beta = self.prior_beta(w1=1350, w2=1800, sample=has_chi2)
+            self.lnp_beta[has_chi2,:] = np.log(p_beta)
+            self.lnp_beta[~np.isfinite(self.lnp_beta)] = -np.inf
+            loglike += self.lnp_beta[has_chi2,:]
         
-        dz = np.gradient(self.zgrid)
-        norm = (pz*dz).sum(axis=1)
-        self.pz[has_chi2,:] = (pz.T/norm).T
-        self.pz_with_prior = prior
-        self.pz_with_beta_prior = beta_prior
+        # Optional extra prior
+        if hasattr(self, 'extra_lnp'):
+            loglike += self.extra_lnp[has_chi2,:]
+            
+        lnpmax = loglike.max(axis=1)
+        pz = np.exp(loglike.T - lnpmax).T
+        log_norm = np.log(pz.dot(self.trdz))
+        
+        lnp = (loglike.T - lnpmax - log_norm).T
+        #lnpmax = -log_norm
+        
+        if in_place:
+            self.lnp[has_chi2,:] = lnp
+            self.lnpmax[has_chi2] = -log_norm
+        
+            self.lnp_with_prior = prior
+            self.lnp_with_beta_prior = beta_prior
+        else:
+            return has_chi2, lnp, -log_norm
+            
+        del(lnpmax)
+        del(pz)
+        del(log_norm)
+        del(loglike)
+        del(lnp)
+        
+    @property
+    def izbest(self):
+        """
+        index of nearest ``zgrid`` value to ``zbest``.
+        """   
+        iz = np.argmin(np.abs(self.zgrid[:,None]-self.zbest[None,:]), axis=0)
+        return iz
+    
+    @property
+    def izchi2(self):
+        return np.argmin(self.chi2_fit, axis=1)
+    
+    @property 
+    def zchi2(self):
+        return self.zgrid[self.izchi2]
+        
+    @property 
+    def izml(self):
+        """
+        ``zgrid`` index where ``lnp`` maximized
+        """    
+        return np.argmax(self.lnp)
         
     def compute_full_risk(self):
-        
-        dz = np.gradient(self.zgrid)
-        
+        """
+        Full "risk" profile
+        """
         zsq = np.dot(self.zgrid[:,None], np.ones_like(self.zgrid)[None,:])
         L = self._loss((zsq-self.zgrid)/(1+self.zgrid))
         
-        pzi = self.pz[0,:]
-        Rz = self.pz*0.
+        Rz = self.lnp*0.
         
-        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
+        has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
         hasz = self.zbest > self.zgrid[0]
         idx = self.idx[hasz & (has_chi2)]
         
         for i in idx:
-            Rz[i,:] = np.dot(self.pz[i,:]*L, dz)
-        
+            Rz[i,:] = np.dot(np.exp(self.lnp[i,:])*L, self.trdz)
+            
         return Rz
         
         #self.full_risk = Rz
@@ -2013,15 +2538,16 @@ class PhotoZ(object):
         """
         "Risk" function from Tanaka et al. 2017
         """
-        has_chi2 = (self.fit_chi2 != 0).sum(axis=1) > 0 
+        has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
         mask = (has_chi2) & (self.zbest > self.zgrid[0])
         
-        zbest_grid = np.dot(self.zbest[mask, None], np.ones_like(self.zgrid)[None,:])
+        zbest_grid = np.dot(self.zbest[mask, None],
+                            np.ones_like(self.zgrid)[None,:])
         L = self._loss((zbest_grid-self.zgrid)/(1+self.zgrid))
-        dz = np.gradient(self.zgrid)
+        #dz = np.gradient(self.zgrid)
         
-        zbest_risk = np.zeros(self.NOBJ)-1
-        zbest_risk[mask] = np.dot(self.pz[mask,:]*L, dz)
+        zbest_risk = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)-1
+        zbest_risk[mask] = np.dot(np.exp(self.lnp[mask,:])*L, self.trdz)
         return zbest_risk
         
     @staticmethod    
@@ -2035,34 +2561,46 @@ class PhotoZ(object):
         """
         zspec_grid = np.dot(zspec[:,None], np.ones_like(self.zgrid)[None,:])
         zlim = zspec_grid >= self.zgrid
-        dz = np.gradient(self.zgrid)
-        PIT = np.dot(self.pz*zlim, dz)
+        #dz = np.gradient(self.zgrid)
+        PIT = np.dot(np.exp(self.lnp)*zlim, self.trdz)
 
         return PIT
         
         
-    def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=10,
+    def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=5,
                        selection=None):
-        
+        """
+        Compute percentiles of the final PDF(z)
+        """
         import scipy.interpolate 
+        from scipy.integrate import cumtrapz
         
+        interpolator = scipy.interpolate.Akima1DInterpolator
+            
         zr = [self.param['Z_MIN'], self.param['Z_MAX']]
         zgrid_zoom = utils.log_zgrid(zr=zr,dz=self.param['Z_STEP']/oversample)
-         
-        self.pz[~np.isfinite(self.pz)] = 0.
-        
+                
         ok = self.zbest > self.zgrid[0]      
         if selection is not None:
             ok &= selection
             
-        spl = scipy.interpolate.Akima1DInterpolator(self.zgrid, self.pz[ok,:], axis=1)
-        dz_zoom = np.gradient(zgrid_zoom)
-        pzcum = np.cumsum(spl(zgrid_zoom)*dz_zoom, axis=1)
+        spl = interpolator(self.zgrid, self.lnp[ok,:], axis=1)
+
+        pzcum = cumtrapz(np.exp(spl(zgrid_zoom)), x=zgrid_zoom, axis=1)
+        pzcum = (pzcum.T / pzcum[:,-3]).T
+        pzcum[:,-2:] = 1.
         
-        zlimits = np.zeros((self.NOBJ, len(percentiles)))
-        Np = len(percentiles)
+        #pzcum /= pzcum[-1]
+        #pzcum = cumtrapz(self.pz[ok,:], x=self.zgrid, axis=1)
+        
+        p100 = np.array(percentiles)/100.
+        zlimits = np.zeros((self.NOBJ, p100.size), dtype=self.ARRAY_DTYPE)
         for j, i in enumerate(self.idx[ok]):
-            zlimits[i,:] = np.interp(np.array(percentiles)/100., pzcum[j, :], zgrid_zoom)
+            zlimits[i,:] = np.interp(p100, pzcum[j, :], zgrid_zoom[1:])
+        
+        del(pzcum)
+        del(p100)
+        del(spl)
         
         return zlimits
     
@@ -2075,13 +2613,14 @@ class PhotoZ(object):
         numpeaks = np.zeros(self.NOBJ, dtype=int)
 
         for j, i in enumerate(self.idx[ok]):
-            indices = peakutils.indexes(self.pz[i,:], thres=0.8, min_dist=int(0.1/self.param['Z_STEP']))
+            indices = peakutils.indexes(np.exp(self.lnp[i,:]), thres=0.8,
+                                       min_dist=int(0.1/self.param['Z_STEP']))
             peaks[i] = indices
             numpeaks[i] = len(indices)
         
         return peaks, numpeaks
     
-    def abs_mag(self, f_numbers=[271, 272, 274], cosmology=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5], 'pad_width':0.5, 'max_err':0.5}):
+    def abs_mag(self, f_numbers=[271, 272, 274], cosmology=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5], 'pad_width':0.5, 'max_err':0.5, 'verbose':False, 'simple':False}):
         """
         Get absolute mags (e.g., UV).
         
@@ -2108,7 +2647,7 @@ class PhotoZ(object):
             cosmology = self.cosmology
             
         _rf = self.rest_frame_fluxes(f_numbers=f_numbers, **rest_kwargs) 
-        rf_tf, rf = _rf
+        rf_tf, rf_lc, rf = _rf
         
         zdm = self.zgrid #utils.log_zgrid([0.01, 13], 0.01)
         dm = cosmology.distmod(zdm).value - 2.5*np.log10(1+zdm)
@@ -2120,22 +2659,21 @@ class PhotoZ(object):
         tab = Table()
         tab['DISTMOD'] = DM
         
-        for i in range(rf_tf.NFILT):
-            key_i = f_numbers[i]
-            tab.meta['MNAME{0}'.format(key_i)] = (rf_tf.filters[i].name, 
+        for i, fn in enumerate(f_numbers):
+            tab.meta['MNAME{0}'.format(fn)] = (self.RES[fn].name, 
                                                      'Filter name')
 
-            tab.meta['MWAVE{0}'.format(key_i)] = (rf_tf.filters[i].pivot, 
+            tab.meta['MWAVE{0}'.format(fn)] = (self.RES[fn].pivot, 
                                                  'Pivot wavelength, Angstrom')
                                                         
             obsm = self.param.params['PRIOR_ABZP'] - 2.5*np.log10(rf[:,i,:])
-            tab['ABSM_{0}'.format(key_i)] = (obsm.T - DM).T
+            tab['ABSM_{0}'.format(fn)] = (obsm.T - DM).T
         
         return tab
                       
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz)):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), simple=False):
         """
-        Rest-frame colors, for tweak_fsps_temp_kc13_12_001 templates.
+        Rest-frame colors and population parameters
         
         template_fnu_units: Units of templates when converted to ``flux_fnu``, 
                             e.g., L_sun / Hz for fsps templates.
@@ -2145,7 +2683,9 @@ class PhotoZ(object):
             #from astropy.cosmology import WMAP9 as cosmology
             cosmology = self.cosmology
             
-        self.ubvj_tempfilt, self.ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[2.5,16,50,84,97.5]) 
+        _ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[2.5,16,50,84,97.5], verbose=False, simple=simple) 
+        self.ubvj_tempfilt, self.ubvj_lc, self.ubvj = _ubvj
+        self.ubvj_f_numbers = UBVJ
         
         restU = self.ubvj[:,0,2]
         restB = self.ubvj[:,1,2]
@@ -2192,143 +2732,282 @@ class PhotoZ(object):
                 tab_temp[c] = np.ones(self.NTEMP)*np.nan
                 
         # Normalize fit coefficients to template V-band
-        coeffs_norm = self.coeffs_best*self.ubvj_tempfilt.tempfilt[:,2]
-                
+        #coeffs_norm = self.coeffs_best*self.ubvj_tempfilt.tempfilt[:,2]        
+        iz = np.argmin(np.abs(self.zgrid[:,None] - self.zbest[None,:]), 
+                       axis=0)
+        
+        coeffs_norm = self.coeffs_best*self.ubvj_tempfilt[iz,:,2]        
+        
         # Normalize fit coefficients to unity sum
         coeffs_norm = (coeffs_norm.T/coeffs_norm.sum(axis=1)).T
-        
-        coeffs_orig = (self.coeffs_best.T/self.coeffs_best.sum(axis=1)).T
-        
-        # Av, compute based on linearized extinction corrections
-        # NB: dust1 is tau, not Av, which differ by a factor of log(10)/2.5
-        Av_tau = 0.4*np.log(10)
-        if 'dust1' in tab_temp.colnames:
-            tau_corr = np.exp(tab_temp['dust1'])
-        elif 'dust2' in tab_temp.colnames:
-            tau_corr = np.exp(tab_temp['dust2'])
-        else:
-            tau_corr = 1.
-        
-        # Force use Av if available
-        if 'Av' in tab_temp.colnames:
-            tau_corr = np.exp(tab_temp['Av']*Av_tau)
-            
-        tau_num = np.dot(coeffs_norm, tau_corr)
-        tau_den = np.dot(coeffs_norm, tau_corr*0+1)
-        tau_dust = np.log(tau_num/tau_den)
-        Av = tau_dust / Av_tau
-        
-        # Mass & SFR, normalize to V band and then scale by V luminosity
-        #MLv = (coeffs_norm*temp_MLv).sum(axis=1)*u.solMass/u.solLum
-        mass_norm = (coeffs_norm*tab_temp['mass']).sum(axis=1)*u.solMass
-        Lv_norm = (coeffs_norm*tab_temp['Lv']).sum(axis=1)*u.solLum
-        MLv = mass_norm / Lv_norm
-        
-        LIR_norm = (coeffs_norm*tab_temp['LIR']).sum(axis=1)*u.solLum
-        LIRv = LIR_norm / Lv_norm
-        
-        # Absorbed energy 
-        if 'energy_abs' in tab_temp.colnames:
-            energy_abs_norm = (coeffs_norm*tab_temp['energy_abs']).sum(axis=1)*u.solLum
-            energy_abs_v = energy_abs_norm / Lv_norm
-        else:
-            energy_abs_v = LIRv*0.
-            
-        # Comute LIR directly from templates as tab_temp['LIR'] was 8-100 um
-        templ_LIR = np.zeros(self.NTEMP)
-        for j in range(self.NTEMP):
-            templ = self.templates[j]
-            clip = (templ.wave > LIR_wave[0]*1e4) & (templ.wave < LIR_wave[1]*1e4)
-            templ_LIR[j] = np.trapz(templ.flux[0,clip], templ.wave[clip])
-        
-        LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
-        LIRv = LIR_norm / Lv_norm
-         
-        SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr
-        SFRv = SFR_norm / Lv_norm
-               
+
         # Convert observed maggies to fnu
         fnu_units = u.erg/u.s/u.cm**2/u.Hz
         uJy_to_cgs = u.microJansky.to(u.erg/u.s/u.cm**2/u.Hz)
         fnu_scl = 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))*uJy_to_cgs
         
-        fnu = restV*fnu_scl*(fnu_units)
-        dL = np.zeros(self.NOBJ)*u.cm
+        dL = np.zeros(self.NOBJ, dtype=np.float64)*u.cm
         mask = self.zbest > 0
         dL[mask] = cosmology.luminosity_distance(self.zbest[mask]).to(u.cm)
         
-        Lnu = fnu*4*np.pi*dL**2
-        pivotV = self.ubvj_tempfilt.filters[2].pivot*u.Angstrom*(1+self.zbest)
-        nuV = (const.c/pivotV).to(u.Hz) 
-        Lv = (nuV*Lnu).to(u.L_sun)
-                
-        mass = MLv*Lv
-        SFR = SFRv*Lv
-        LIR = LIRv*Lv
-        energy_abs = energy_abs_v*Lv
+        par_table = {}        
         
-        ##### Use physical units
         if template_fnu_units is not None:
-            
-            print(f'... Physical quantities directly from coeffs and templates ({template_fnu_units})')
-            
             to_physical = fnu_scl*fnu_units*4*np.pi*dL**2/(1+self.zbest)
             to_physical /= (1*template_fnu_units).to(u.erg/u.second/u.Hz)
+        else:
+            to_physical = None
+            
+        if self.get_err:
+            par_draws_table = {}
+        
+            coeffs_draws = np.maximum(self.coeffs_draws, 0)
+            if to_physical is not None:
+                rest_draws = np.transpose((coeffs_draws.T*to_physical).T, 
+                                          axes=(1,0,2))
+                                     
+                # Remove unit (which should be null)
+                rest_draws = np.array(rest_draws)
+                draws_norm = None
+                
+            else:
+                #  Renorm in rest V band
+                _draws = np.transpose(coeffs_draws, axes=(1,0,2)) 
+                coeffs_draws = np.transpose(_draws*self.ubvj_tempfilt[iz,:,2],
+                                            axes=(0,1,2))
+                draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
+        else:
+            draws_norm = None
+            coeffs_draws = None
+                              
+        ##### Use physical units
+        if to_physical is not None:
+            
+            if self.param['VERBOSITY'] >= 2:
+                print(f'... Physical quantities directly from coeffs and templates ({template_fnu_units})')
+            
             coeffs_rest = (self.coeffs_best.T*to_physical).T
             
             # Remove unit (which should be null)
             coeffs_rest = np.array(coeffs_rest)
 
-            mass = coeffs_rest.dot(tab_temp['mass'])*u.solMass
-            SFR = coeffs_rest.dot(tab_temp['sfr'])*u.solMass/u.yr
-            Lv = coeffs_rest.dot(tab_temp['Lv'])*u.solLum
-            LIR = coeffs_rest.dot(tab_temp['LIR'])*u.solLum
-            energy_abs = coeffs_rest.dot(tab_temp['energy_abs'])*u.solLum
+            # mass = coeffs_rest.dot(tab_temp['mass'])*u.solMass
+            # SFR = coeffs_rest.dot(tab_temp['sfr'])*u.solMass/u.yr
+            # Lv = coeffs_rest.dot(tab_temp['Lv'])*u.solLum
+            # LIR = coeffs_rest.dot(tab_temp['LIR'])*u.solLum
+            # energy_abs = coeffs_rest.dot(tab_temp['energy_abs'])*u.solLum
             
-            MLv = mass/Lv
-        
+            iz0 = np.zeros(mask.sum(), dtype=int)
+            
+            #par_table = {}
+            
+            table_units = {'mass':u.solMass, 'sfr':u.solMass/u.yr,
+                           'Lv':u.solLum, 'LIR':u.solLum, 
+                           'energy_abs':u.solLum, 
+                           'Lu':u.solLum, 'Lj':u.solLum, 
+                           'L1400':u.solLum, 'L2800':u.solLum, 
+                           'lwAgeV':u.Gyr, 'lw_age_V':u.Gyr,
+                           'LHa':u.solLum, 'LOIII':u.solLum, 
+                           'LHb':u.solLum, 'LOII':u.solLum}
+                        
+            for par in ['mass', 'sfr', 'Lv', 'LIR', 'energy_abs', 
+                        'Lu', 'Lj', 'L1400', 'L2800', 
+                        'LHa', 'LOIII', 'LHb', 'LOII']:
+                
+                if par not in tab_temp.colnames:
+                    #par_table[par] = np.zeros(self.NOBJ) - 99.
+                    continue
+                    
+                temp_par = tab_temp[par]
+                                
+                if temp_par.ndim == 1:
+                    par_value = coeffs_rest.dot(temp_par)
+                    
+                    if self.get_err:
+                        par_draws = rest_draws.dot(temp_par)
+                        
+                else:
+                    # Redshift-dependent parameters
+                    temp_matrix = np.zeros_like(coeffs_rest)
+                    zb = self.zbest*1
+                    zb[~np.isfinite(zb)] = -1.
+                    
+                    for _i, templ in enumerate(self.templates):
+                        if templ.NZ == 0:
+                            iz = iz0
+                        else:
+                            iz = templ.zindex(zb)
+                            
+                        temp_matrix[:, _i] = temp_par[_i, iz]
+                    
+                    par_value = (coeffs_rest*temp_matrix).sum(axis=1)
+                    if self.get_err:
+                        par_draws = (rest_draws*temp_matrix).sum(axis=2)
+                                
+                par_table[par] = par_value
+                if par in table_units:
+                    par_table[par] *= table_units[par]
+                elif hasattr(tab_temp[par], 'unit'):
+                    if tab_temp[par].unit is not None:
+                        par_table[par] *= tab_temp[par].unit
+                
+                if self.get_err:
+                    par_draws_table[par] = par_draws
+                    
+            par_table['MLv'] = par_table['mass']/par_table['Lv']
+            
+            # Light-weighted (V) parameters
+            for par in ['Av', 'dust1', 'dust2', 'lwAgeV', 'lw_Age_V']:
+                
+                if par not in tab_temp.colnames:
+                    continue
+                
+                if par in ['Av', 'dust1', 'dust2']:
+                    if par == 'Av':
+                        Av_tau = 0.4*np.log(10)
+                    else:
+                        Av_tau = 1.
+                        
+                    temp_par = np.exp(tab_temp[par]*Av_tau)
+                    is_dust = True
+                else:
+                    is_dust = False
+                    temp_par = tab_temp[par]
+                                
+                if temp_par.ndim == 1:
+                    par_value = coeffs_norm.dot(temp_par) 
+                    if is_dust:
+                        par_denom = coeffs_norm.dot(temp_par*0+1) 
+                        par_value = np.log(par_value/par_denom) / Av_tau
+                        
+                else:
+                    # Redshift-dependent parameters
+                    temp_matrix = np.zeros_like(coeffs_rest)
+                
+                    for _i, templ in enumerate(self.templates):
+                        if templ.NZ == 0:
+                            iz = iz0
+                        else:
+                            iz = templ.zindex(self.zbest)
+                            #pass
+                            
+                        temp_matrix[:, _i] = temp_par[_i, iz]
+                    
+                    par_value = (coeffs_norm*temp_matrix).sum(axis=1)
+                    if is_dust:
+                        temp_ones = np.ones_like(temp_matrix)
+                        par_denom = (coeffs_norm*temp_ones).sum(axis=1)
+                        par_value = np.log(par_value/par_denom) / Av_tau
+                        
+                par_table[par] = par_value
+                if par in table_units:
+                    par_table[par] *= table_units[par]
+            
+            if self.get_err:
+                del(rest_draws)
         else:
-            to_physical = None
-                
-        if 'ageV' in tab_temp.colnames:
-            age_norm = (coeffs_norm*tab_temp['ageV']).sum(axis=1)*u.Gyr
-            lw_age_V = age_norm
-        else:
-            lw_age_V = -99*u.Gyr
             
-        # Emission line fluxes
-        line_flux = {}
-        line_EW = {}
-        emission_lines = ['Ha', 'O3', 'Hb', 'O2', 'Lya']
-        
-        fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
-        
-        for line in emission_lines:
-            if 'line_flux_'+line not in tab_temp.colnames:
-                line_EW[line] = -99*u.AA
-                line_flux[line] = -99*u.erg/u.second/u.cm**2
-                
-            line_flux_norm = (self.coeffs_best*tab_temp['line_flux_{0}'.format(line)]).sum(axis=1)
-            line_cont_norm = (self.coeffs_best*tab_temp['line_C_{0}'.format(line)]).sum(axis=1)
-            line_EW[line] = line_flux_norm/line_cont_norm*u.AA
-            line_flux[line] = line_flux_norm*fnu_factor/(1+self.zbest)*u.erg/u.second/u.cm**2
+            # Mass & SFR, normalize to V band and then scale by V luminosity
+            #MLv = (coeffs_norm*temp_MLv).sum(axis=1)*u.solMass/u.solLum
+            mass_norm = (coeffs_norm*tab_temp['mass']).sum(axis=1)*u.solMass
+            Lv_norm = (coeffs_norm*tab_temp['Lv']).sum(axis=1)*u.solLum
+            MLv = mass_norm / Lv_norm
+
+            LIR_norm = (coeffs_norm*tab_temp['LIR']).sum(axis=1)*u.solLum
+            LIRv = LIR_norm / Lv_norm
+
+            # Absorbed energy 
+            if 'energy_abs' in tab_temp.colnames:
+                energy_abs_norm = (coeffs_norm*tab_temp['energy_abs']).sum(axis=1)*u.solLum
+                energy_abs_v = energy_abs_norm / Lv_norm
+            else:
+                energy_abs_v = LIRv*0.
+
+            # Comute LIR directly from templates as tab_temp['LIR'] was 8-100 um
+            templ_LIR = np.zeros(self.NTEMP)
+            for j in range(self.NTEMP):
+                templ = self.templates[j]
+                clip = (templ.wave > LIR_wave[0]*1e4) & (templ.wave < LIR_wave[1]*1e4)
+                templ_LIR[j] = np.trapz(templ.flux[0,clip], templ.wave[clip])
+
+            LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
+            LIRv = LIR_norm / Lv_norm
+
+            SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr
+            SFRv = SFR_norm / Lv_norm
             
-            if 'tage' in tab_temp.colnames:
-                print('xx line fluxes')
-                line_flux_norm = (coeffs_norm*tab_temp['line_flux_{0}'.format(line)]).sum(axis=1)
-                line_cont_norm = (coeffs_norm*tab_temp['line_C_{0}'.format(line)]).sum(axis=1)
-                line_v = line_flux_norm / Lv_norm
-                linec_v = line_cont_norm / Lv_norm
-                
-                line_EW[line+'x'] = line_v/linec_v*u.AA
-                line_flux[line+'x'] = line_v*Lv*u.erg/u.second
-                
-        if False:
-            BVx = -2.5*np.log10(restB/restV)
-            plt.scatter(BVx[sample], np.log10(MLv.data)[sample], alpha=0.02, color='k', marker='s')
-            # Taylor parameterization
-            x = np.arange(-0.5,2,0.1)
-            plt.plot(x, -0.734 + 1.404*(x+0.084), color='r')
+            fnu = restV*fnu_scl*(fnu_units)
+            Lnu = fnu*4*np.pi*dL**2
+            pivotV = self.ubvj_lc[2]*u.Angstrom*(1+self.zbest)
+            nuV = (const.c/pivotV).to(u.Hz) 
+            Lv = (nuV*Lnu).to(u.L_sun)
+
+            # Av, compute based on linearized extinction corrections
+            # NB: dust1 is tau, not Av, which differ by a factor of log(10)/2.5
+            Av_tau = 0.4*np.log(10)
+            if 'dust1' in tab_temp.colnames:
+                tau_corr = np.exp(tab_temp['dust1'])
+            elif 'dust2' in tab_temp.colnames:
+                tau_corr = np.exp(tab_temp['dust2'])
+            else:
+                tau_corr = 1.
+
+            # Force use Av if available
+            if 'Av' in tab_temp.colnames:
+                tau_corr = np.exp(tab_temp['Av']*Av_tau)
+
+            tau_num = np.dot(coeffs_norm, tau_corr)
+            tau_den = np.dot(coeffs_norm, tau_corr*0+1)
+            tau_dust = np.log(tau_num/tau_den)
+            Av = tau_dust / Av_tau
+
+            if 'ageV' in tab_temp.colnames:
+                age_norm = (coeffs_norm*tab_temp['ageV']).sum(axis=1)*u.Gyr
+                lw_age_V = age_norm
+            else:
+                lw_age_V = -99*u.Gyr
+
+            par_table['mass'] = MLv*Lv
+            par_table['SFR'] = SFRv*Lv
+            par_table['LIR'] = LIRv*Lv
+            par_table['energy_abs'] = energy_abs_v*Lv
+            par_table['Av'] = Av
+            par_table['lw_age_V'] = lw_age_V
+            par_table['MLv'] = MLv
+            
+        # # Emission line fluxes
+        # line_flux = {}
+        # line_EW = {}
+        # emission_lines = ['Ha', 'O3', 'Hb', 'O2', 'Lya']
+        # 
+        # fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
+        # 
+        # for line in emission_lines:
+        #     if 'line_flux_'+line not in tab_temp.colnames:
+        #         line_EW[line] = -99*u.AA
+        #         line_flux[line] = -99*u.erg/u.second/u.cm**2
+        #         
+        #     line_flux_norm = (self.coeffs_best*tab_temp['line_flux_{0}'.format(line)]).sum(axis=1)
+        #     line_cont_norm = (self.coeffs_best*tab_temp['line_C_{0}'.format(line)]).sum(axis=1)
+        #     line_EW[line] = line_flux_norm/line_cont_norm*u.AA
+        #     line_flux[line] = line_flux_norm*fnu_factor/(1+self.zbest)*u.erg/u.second/u.cm**2
+        #     
+        #     if 'tage' in tab_temp.colnames:
+        #         print('xx line fluxes')
+        #         line_flux_norm = (coeffs_norm*tab_temp['line_flux_{0}'.format(line)]).sum(axis=1)
+        #         line_cont_norm = (coeffs_norm*tab_temp['line_C_{0}'.format(line)]).sum(axis=1)
+        #         line_v = line_flux_norm / Lv_norm
+        #         linec_v = line_cont_norm / Lv_norm
+        #         
+        #         line_EW[line+'x'] = line_v/linec_v*u.AA
+        #         line_flux[line+'x'] = line_v*Lv*u.erg/u.second
+        #         
+        # if False:
+        #     BVx = -2.5*np.log10(restB/restV)
+        #     plt.scatter(BVx[sample], np.log10(MLv.data)[sample], alpha=0.02, color='k', marker='s')
+        #     # Taylor parameterization
+        #     x = np.arange(-0.5,2,0.1)
+        #     plt.plot(x, -0.734 + 1.404*(x+0.084), color='r')
             
         #sSFR = SFR/mass
         
@@ -2345,99 +3024,114 @@ class PhotoZ(object):
 
         tab['dL'] = dL.to(u.Mpc)
 
-        tab['Lv'] = Lv
-        tab['MLv'] = MLv
-        tab['Av'] = Av
+        column_formats = {'dL':'.1e',
+                         'mass':'.2e',
+                         'sfr': '.3f',
+                         'Lv':  '.2e',
+                         'LIR': '.2e',
+                         'energy_abs':  '.2e',
+                         'Lu': '.2e',
+                         'Lj': '.2e',
+                         'L1400': '.2e',
+                         'L2800': '.2e',
+                         'lw_age_V':'.2f',
+                         'lwAgeV':'.2f',
+                         'MLv':'.2f',
+                         'Av':'.2f',
+                         'ssfr':'.2e',
+                         'LHa':'.2e',
+                         'LOIII':'.2e',
+                         'LHb':'.2e',
+                         'LOII':'.2e'}
+
+        # tab['Lv'] = Lv
+        # tab['MLv'] = MLv
+        # tab['Av'] = Av
+        
+        for col in par_table:
+            #print('xxx', col, par_table[col].shape)
+            tab[col] = par_table[col]
         
         for col in tab.colnames:
-            tab[col].format = '.3f'
-            
-        tab['Lv'].format = '.3e'
-        tab['dL'].format = '.1f'
-        
-        tab['mass'] = mass
-        tab['mass'].format = '.3e'
-
-        tab['SFR'] = SFR
-        tab['SFR'].format = '.3e'
-        
-        tab['LIR'] = LIR
-        tab['LIR'].format = '.3e'
-        
-        tab['energy_abs'] = energy_abs
-        tab['energy_abs'].format = '.3e'
-
-        tab['lw_age_V'] = lw_age_V
-        tab['lw_age_V'].format = '.2f'
+            if col in column_formats:
+                tab[col].format = column_formats[col]
+            else:
+                tab[col].format = '.3f'
         
         if self.get_err:
             # Propagate coeff covariance to parameters
-            print('... Get uncertainties')
-            coeffs_draws = np.maximum(self.coeffs_draws, 0)
+            if self.param['VERBOSITY'] >= 2:
+                print('... Get uncertainties')
+            
             if to_physical is None:
-                coeffs_draws *= self.ubvj_tempfilt.tempfilt[:,2]
-                draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
         
                 massv_draws = (draws_norm*tab_temp['mass']).sum(axis=2)*u.solMass
                 Lv_draws= (draws_norm*tab_temp['Lv']).sum(axis=2)*u.solLum
                 LIR_draws = (draws_norm*templ_LIR).sum(axis=2)*u.solLum
                 SFR_draws = (draws_norm*tab_temp['sfr']).sum(axis=2)*u.solMass/u.yr
+                
+                par_draws_table['Lv'] = Lv_draws
+                par_draws_table['mass'] = ((massv_draws / Lv_draws).T*Lv).T
+                par_draws_table['LIR'] = ((LIR_draws / Lv_draws).T*Lv).T
+                par_draws_table['sfr'] = ((massv_draws / Lv_draws).T*Lv).T
             
-                mass_err  = np.percentile(((massv_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
-                LIR_err = np.percentile(((LIR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
-                SFR_err = np.percentile(((SFR_draws / Lv_draws).T*Lv).T, percentile_limits, axis=1).T
             else:
-                rest_draws = (coeffs_draws.T*to_physical).T
-                
-                coeffs_draws *= self.ubvj_tempfilt.tempfilt[:,2]
-                draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
-                
-                # Remove unit (which should be null)
-                rest_draws = np.array(rest_draws)
-
-                massv_draws = rest_draws.dot(tab_temp['mass'])*u.solMass
-                SFR_draws = rest_draws.dot(tab_temp['sfr'])*u.solMass/u.yr
-                LIR_draws = rest_draws.dot(tab_temp['LIR'])*u.solLum
-
-                mass_err  = np.percentile(massv_draws, percentile_limits, axis=1).T
-                SFR_err  = np.percentile(SFR_draws, percentile_limits, axis=1).T
-                LIR_err  = np.percentile(LIR_draws, percentile_limits, axis=1).T
-                
-            #sSFR_err = np.percentile(((massv_draws / Lv_draws).T*Lv).T/((SFR_draws / Lv_draws).T*Lv).T, [16,50,84], axis=1).T
-            sSFR_err = np.percentile(SFR_draws / massv_draws, percentile_limits, axis=1).T
+                pass
+                # Computed earlier
+                    
+            par_draws_table['ssfr'] = (par_draws_table['sfr'] / 
+                                       par_draws_table['mass'])
+                                       
             
             # Av 
-            tau_num = np.dot(draws_norm, tau_corr)
-            tau_den = np.dot(draws_norm, tau_corr*0+1)
-            tau_dust = np.log(tau_num/tau_den)
-            Av = tau_dust / Av_tau
-            Avp = np.percentile(Av, percentile_limits, axis=1).T
-            tab['Avp'] = Avp
-            tab['Avp'].format = '.2f'
+            # tau_num = np.dot(draws_norm, tau_corr)
+            # tau_den = np.dot(draws_norm, tau_corr*0+1)
+            # tau_dust = np.log(tau_num/tau_den)
+            # Av_draws = tau_dust / Av_tau
+            # #Avp = np.percentile(Av_draws, percentile_limits, axis=1).T
+            # par_draws_table['Av'] = Av
             
-            tab['massp'] = mass_err
-            tab['massp'].format = '.2e'
+            for col in par_draws_table:
+                pcol = col+'_p'
+                #print('xxx', col, par_draws_table[col].shape)
+                tab[pcol] = np.percentile(par_draws_table[col],
+                                          percentile_limits, axis=0).T
+                
+                if col in column_formats:
+                    tab[pcol].format = column_formats[col]
+                else:
+                    tab[pcol].format = '.3f'
+        
+        if 'sfr' in tab.colnames:
+            tab['sfr'].description = 'SFR over last 100 Myr'
+        
+        if 'LIR' in tab.colnames:
+            tab['LIR'].description = 'IR luminosity = energy_abs'
 
-            tab['SFRp'] = SFR_err
-            tab['SFRp'].format = '.2e'
-
-            tab['sSFRp'] = sSFR_err
-            tab['sSFRp'].format = '.2e'
+        for c in ['lw_Age_V', 'lwAgeV']:
+            if c in tab.colnames:
+                tab[c].description = 'Light-weighted age (V band)'
             
-            tab['LIRp'] = LIR_err
-            tab['LIRp'].format = '.2e'
-            
-        for line in line_flux:
-            tab['line_flux_{0}'.format(line)] = line_flux[line]
-            tab['line_EW_{0}'.format(line)] = line_EW[line]
+        # for line in line_flux:
+        #     tab['line_flux_{0}'.format(line)] = line_flux[line]
+        #     tab['line_EW_{0}'.format(line)] = line_EW[line]
         
         for col in tab.colnames:
             bad = ~np.isfinite(tab[col])
             tab[col][bad] = -9e29
         
-        for k in ['TEMPLATES_FILE', 'SYS_ERR', 'TEMP_ERR_FILE', 
-                  'TEMP_ERR_A2', 'PRIOR_ABZP']:
+        for k in ['SYS_ERR', 'TEMP_ERR_FILE', 'TEMP_ERR_A2', 
+                  'PRIOR_FILTER', 'PRIOR_ABZP', 
+                  'IGM_SCALE_TAU', 'APPLY_IGM', 'TEMPLATES_FILE']:
             tab.meta[k] = self.param[k]
+        
+        for i, templ in enumerate(self.templates):
+            tab.meta[f'TEMPL{i:03d}'] = templ.name
+            
+        tab.meta['ZBEST_AT_ZSPEC'] = self.ZBEST_AT_ZSPEC
+        tab.meta['ZBEST_WITH_PRIOR'] = self.ZBEST_WITH_PRIOR
+        tab.meta['ZBEST_WITH_BETA_PRIOR'] = self.ZBEST_WITH_BETA_PRIOR
+        tab.meta['RFSIMPLE'] = simple, 'RF fluxes without reweighting'
         
         for i in range(self.NFILT):
             f_i = self.f_numbers[i]
@@ -2457,38 +3151,51 @@ class PhotoZ(object):
         
         # Additional Rest-frame filters
         if len(extra_rf_filters) > 0:
-            extra_tempfilt, extra_rest = self.rest_frame_fluxes(f_numbers=extra_rf_filters, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[16,50,84]) 
+            extra_tempfilt, extra_lc, extra_rest = self.rest_frame_fluxes(f_numbers=extra_rf_filters, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[16,50,84], verbose=False, simple=simple) 
             for ir, f_n in enumerate(extra_rf_filters):
                 tab['rest{0}'.format(f_n)] = extra_rest[:,ir,1]
                 tab['rest{0}_err'.format(f_n)] = (extra_rest[:,ir,2]-extra_rest[:,ir,0])/2.
                 tab['rest{0}'.format(f_n)].format = '.3f'
                 tab['rest{0}_err'.format(f_n)].format = '.3f'
                 
-                tab.meta['name{0}'.format(f_n)] = (extra_tempfilt.filter_names[ir].split(' lambda_c')[0], 'Filter name')
-                tab.meta['pivot{0}'.format(f_n)] = (extra_tempfilt.filters[ir].pivot, 'Pivot wavelength, Angstrom')
-                
+                tab.meta['name{0}'.format(f_n)] = (self.RES[f_n].name.split(' lambda_c')[0], 'Filter name')
+                tab.meta['pivot{0}'.format(f_n)] = (self.RES[f_n].pivot, 'Pivot wavelength, Angstrom')
+            
+            del(extra_tempfilt)
+            del(extra_rest)
+            
+        del(coeffs_norm)
+        del(coeffs_draws)
+        del(draws_norm)
+        
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], verbose=True, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', clip_wavelength=1100, MUV_filters=[271, 272, 274]):#
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, simple=False):#
         """
         SPS output, stellar masses, etc.
         """
         import astropy.io.fits as pyfits
         from .version import __version__
         
-        if verbose:
+        if self.param['VERBOSITY'] >= 1:
             print('Get best fit coeffs & best redshifts')
         
-        self.compute_pz(prior=prior, beta_prior=beta_prior, clip_wavelength=clip_wavelength)    
-        self.best_fit(zbest=zbest, prior=prior, beta_prior=beta_prior, get_err=get_err, fitter=fitter, clip_wavelength=clip_wavelength)
+        # Full lnp
+        if zbest is not None:
+            self.compute_lnp(prior=prior, beta_prior=beta_prior, 
+                         clip_wavelength=clip_wavelength) 
         
-        peaks, numpeaks = self.find_peaks()
+        # Fit at max-lnp          
+        self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
+                      get_err=get_err, fitter=fitter, 
+                      clip_wavelength=clip_wavelength)
+                    
         try:
             zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5],
-                                          oversample=10)
+                                          oversample=5)
         except:
             print('Couldn\'t compute pz_percentiles')
-            zlimits = np.zeros((self.NOBJ, 5))-1
+            zlimits = np.zeros((self.NOBJ, 5), dtype=self.ARRAY_DTYPE) - 1
                         
         tab = Table()
         tab['id'] = self.cat['id']
@@ -2505,17 +3212,20 @@ class PhotoZ(object):
         tab['lc_max'] = (lc_full*self.ok_data).max(axis=1)
         tab['lc_max'].format = tab['lc_min'].format = '.1f'
         
-        tab['numpeaks'] = numpeaks
+        if run_find_peaks:
+            peaks, numpeaks = self.find_peaks()
+            tab['numpeaks'] = numpeaks
+            
         tab['z_phot'] = self.zbest
-        tab['z_phot_chi2'] = self.chi_best #fit_chi2.min(axis=1)
+        tab['z_phot_chi2'] = self.chi2_best #chi2_fit.min(axis=1)
         tab['z_phot_risk'] = self.zbest_risk
         
         self.Rz = self.compute_full_risk()
         tab['z_min_risk'] = self.zgrid[np.argmin(self.Rz, axis=1)]
         tab['min_risk'] = self.Rz.min(axis=1)
                 
-        tab['z_chi2_noprior'] = self.zchi2
-        tab['chi2_noprior'] = self.chi2_noprior
+        tab['z_raw_chi2'] = self.zchi2
+        tab['raw_chi2'] = self.chi2_fit.min(axis=1)
         
         tab['z025'] = zlimits[:,0]
         tab['z160'] = zlimits[:,1]
@@ -2530,14 +3240,15 @@ class PhotoZ(object):
         tab.meta['prior'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         tab.meta['betprior'] = (beta_prior, 'Beta prior applied')
         
-        if verbose:
+        if self.param['VERBOSITY'] >= 1:
             print('Get parameters (UBVJ={0}, LIR={1})'.format(UBVJ, LIR_wave))
             
         sps_tab = self.sps_parameters(UBVJ=UBVJ, 
                           extra_rf_filters=extra_rf_filters, 
                           cosmology=cosmology, LIR_wave=LIR_wave, 
                           rf_pad_width=rf_pad_width, rf_max_err=rf_max_err, 
-                          percentile_limits=percentile_limits)
+                          percentile_limits=percentile_limits, 
+                          simple=simple)
                           
         for col in sps_tab.colnames:
             tab[col] = sps_tab[col]
@@ -2545,18 +3256,19 @@ class PhotoZ(object):
         for key in sps_tab.meta:
             tab.meta[key] = sps_tab.meta[key]
         
-        if MUV_filters is not None:
-            print('... UV ABs Mag')
-            MUV = self.abs_mag(f_numbers=MUV_filters, cosmology=cosmology, 
+        if len(absmag_filters) > 0:
+            print('Abs Mag filters', absmag_filters)
+            absm = self.abs_mag(f_numbers=absmag_filters, cosmology=cosmology, 
                                rest_kwargs={'percentiles':percentile_limits, 
                                             'pad_width':rf_pad_width, 
-                                            'max_err':rf_max_err})
+                                            'max_err':rf_max_err,
+                                            'simple':simple})
             
-            for c in MUV.colnames:
-                tab[c] = MUV[c]
+            for c in absm.colnames:
+                tab[c] = absm[c]
             
-            for key in MUV.meta:
-                tab.meta[key] = MUV.meta[key]
+            for key in absm.meta:
+                tab.meta[key] = absm.meta[key]
                 
         if not save_fits:
             return tab, None
@@ -2575,7 +3287,7 @@ class PhotoZ(object):
         #hdu.append(pyfits.ImageHDU(self.cat['id'].astype(np.uint32), name='ID'))
         hdu.append(pyfits.ImageHDU(self.zbest.astype(np.float32), name='ZBEST'))
         hdu.append(pyfits.ImageHDU(self.zgrid.astype(np.float32), name='ZGRID'))
-        hdu.append(pyfits.ImageHDU(self.fit_chi2.astype(np.float32), name='CHI2'))
+        hdu.append(pyfits.ImageHDU(self.chi2_fit.astype(np.float32), name='CHI2'))
         hdu[-1].header['PRIOR'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         
         # Template coefficients 
@@ -2666,7 +3378,7 @@ class PhotoZ(object):
         if grizli_templates is not None:
             template_list = [templates_module.Template(arrays=(grizli_templates[k].wave, grizli_templates[k].flux), name=k) for k in grizli_templates]
             
-            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], cosmology=self.cosmology)
+            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
         else:
             tempfilt = None
         
@@ -2692,7 +3404,7 @@ class PhotoZ(object):
         photom['eflam'] = sed['efobs']*1.e-19
         photom['filters'] = self.filters
         photom['tempfilt'] = tempfilt
-        photom['pz'] = self.zgrid, self.pz[idx,:]
+        photom['pz'] = self.zgrid, np.exp(self.lnp[idx,:])
         
         return photom, self.cat['id'][idx], dr
         
@@ -2749,15 +3461,15 @@ class PhotoZ(object):
         if isinstance(norm_band, int):
             init_sed_data = True
             if hasattr(self, 'rf_sed_data'):
-                rf_tempfilt, f_rest = self.rf_sed_data
+                rf_tempfilt, rf_lc, f_rest = self.rf_sed_data
                 if rf_tempfilt.f_numbers[0] == norm_band:
                     init_sed_data = False
                     
             if init_sed_data:
-                rf_tempfilt, f_rest = self.rest_frame_fluxes(f_numbers=[norm_band], pad_width=0.5, percentiles=[2.5,16,50,84,97.5]) 
-                self.rf_sed_data = (rf_tempfilt, f_rest)
+                rf_tempfilt, rf_lc, f_rest = self.rest_frame_fluxes(f_numbers=[norm_band], pad_width=0.5, percentiles=[2.5,16,50,84,97.5], simple=True) 
+                self.rf_sed_data = (rf_tempfilt, rf_lc, f_rest)
         else:
-            rf_tempfilt, f_rest = norm_band
+            rf_tempfilt, rf_lc, f_rest = norm_band
             
         norm_flux = f_rest[:,0,2]
         fnu_norm = (self.fnu[idx,:].T/norm_flux[idx]).T
@@ -2771,8 +3483,8 @@ class PhotoZ(object):
         clip *= self.fnu[idx,:]/self.efnu[idx,:] > min_sn
         
         wave = lcz[clip]
-        flam = fnu_norm[clip]/(wave/rf_tempfilt.filters[0].pivot)**2
-        flam_obs = fmodel_norm[clip]/(wave/rf_tempfilt.filters[0].pivot)**2
+        flam = fnu_norm[clip]/(wave/rf_lc[0])**2
+        flam_obs = fmodel_norm[clip]/(wave/rf_lc[0])**2
         
         output_data['phot_wave'] = wave
         output_data['phot_flam'] = flam
@@ -2864,7 +3576,7 @@ class PhotoZ(object):
             # MIPS flux in this catalog zeropoint
             # mips_scaled = kate_sfr['f24tot']*10**(0.4*(self.param.params['PRIOR_ABZP']-23.9))
             
-            mips_obs = self.mips_scaled/norm_flux/(24.e4/(1+self.zbest)/rf_tempfilt.filters[0].pivot)**2#/2
+            mips_obs = self.mips_scaled/norm_flux/(24.e4/(1+self.zbest)/rf_lc[0])**2#/2
             ok_mips = (mips_obs > 0)
         
             xm, ym, ys, N = utils.running_median(24.e4/(1+self.zbest[idx & ok_mips]), np.log10(mips_obs[idx & ok_mips]), NBIN=10, use_median=True, use_nmad=True, reverse=False)
@@ -2874,7 +3586,7 @@ class PhotoZ(object):
 
             ax.set_xlim(2000,120.e5)
         
-        ax.scatter(rf_tempfilt.lc[0], 1, marker='x', color=c, zorder=1000)
+        ax.scatter(rf_lc[0], 1, marker='x', color=c, zorder=1000)
                 
         if 'xlim' in kwargs:
             ax.set_xlim(kwargs['xlim'])
@@ -3017,9 +3729,9 @@ class PhotoZ(object):
         corr = bin2d.statistic[ix, iy]
         corr[~np.isfinite(corr)] = 1
         
-        try:
+        if self.spatial_offset is not None:
             self.spatial_offset[:,f_ix] *= corr
-        except:
+        else:
             self.spatial_offset = np.ones_like(self.fnu)
             self.spatial_offset[:,f_ix] *= corr
             
@@ -3078,14 +3790,19 @@ class PhotoZ(object):
             _m = self.star_tnorm[:,i:i+1]*self.star_flux[:,i]
             self.star_chi2[:,i] = ((self.fnu - _m)**2*_wht).sum(axis=1)
         
-        self.star_min_chi2 = self.star_chi2.min(axis=1)
+        self.star_min_ix = np.argmin(self.star_chi2, axis=1)
         
-        if False:
-            # Galaxy template fit, chi2 on same filters
-            izbest = np.argmin(self.fit_chi2, axis=1)
-            tempfilt_best = self.tempfilt.tempfilt[izbest[sample],:,:]
-            gal_model = (self.coeffs_best[sample,:].T * tempfilt_best.T).sum(axis=1).T
-            gal_chi2 = ((self.fnu[sample,:] - gal_model)**2*_wht[sample,:]).sum(axis=1)
+        self.star_min_chi2 = self.star_chi2.min(axis=1)
+        self.star_min_chinu = self.star_min_chi2 / (self.nusefilt - 1)
+        
+        # if False:
+        #     # Galaxy template fit, chi2 on same filters
+        #     #izbest = np.argmin(self.chi2_fit, axis=1)
+        #     izbest = self.izbest
+        #     
+        #     tempfilt_best = self.tempfilt.tempfilt[izbest[sample],:,:]
+        #     gal_model = (self.coeffs_best[sample,:].T * tempfilt_best.T).sum(axis=1).T
+        #     gal_chi2 = ((self.fnu[sample,:] - gal_model)**2*_wht[sample,:]).sum(axis=1)
             
         if False:
             chi2i = self.star_chi2[idx[i],:]
@@ -3121,7 +3838,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
              
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2, cosmology=None):
+    def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32):
         """
         Integrate filters through filters on a redshift grid
         """
@@ -3135,6 +3852,7 @@ class TemplateGrid(object):
         self.add_igm = add_igm
         self.galactic_ebv = galactic_ebv
         self.Eb = Eb
+        self.ARRAY_DTYPE = array_dtype
         
         if cosmology is None:
             cosmology = WMAP9
@@ -3145,19 +3863,22 @@ class TemplateGrid(object):
         #self.NZ = len(zgrid)
         
         self.zgrid = zgrid
+        self.trdz = utils.trapz_dx(self.zgrid)
+        
         self.dz = np.diff(zgrid)
         self.idx = np.arange(self.NZ, dtype=int)
                 
         if filters is None:
             all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
-            filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
+            filters = [all_filters[fnum] for fnum in f_numbers]
         
         #self.lc = np.array([f.pivot for f in filters])
         self.filter_names = np.array([f.name for f in filters])
         self.filters = filters
         #self.NFILT = len(self.filters)
         
-        self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT))
+        self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT), 
+                                 self.ARRAY_DTYPE)
         
         if n_proc >= 0:
             # Parallel            
@@ -3306,22 +4027,23 @@ class TemplateGrid(object):
         """
         
         return self.spline(z)
-                        
+    
+    
 def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters):
     """
     For multiprocessing filter integration
     """
     import astropy.units as u
-            
+    global IGM_OBJECT
     if filters is None:
         all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
-        filters = [all_filters.filters[fnum-1] for fnum in f_numbers]
+        filters = [all_filters[fnum] for fnum in f_numbers]
     
     NZ = len(zgrid)
     NFILT = len(filters)
         
     if add_igm:
-        igm = igm_module.Inoue14(scale_tau=add_igm)
+        igm = IGM_OBJECT #igm_module.Inoue14(scale_tau=add_igm)
     else:
         igm = 1.
 
@@ -3389,7 +4111,8 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose, fitter):
 
 def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     from scipy.optimize import nnls
-
+    global MIN_VALID_FILTERS
+    
     sh = A.shape
 
     # Valid fluxes
