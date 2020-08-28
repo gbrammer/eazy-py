@@ -4,8 +4,8 @@ VERBOSITY            2                  # Print information
 
 ## Filters
 FILTERS_RES          FILTER.RES.latest  # Filter transmission data
-FILTER_FORMAT        1                  # Format of FILTERS_RES file -- 0: energy-  1: photon-counting detector
-SMOOTH_FILTERS       n                  # Smooth filter curves with Gaussian
+FILTER_FORMAT        1                  # Format of FILTERS_RES file -- 0: energy-  1: photon-counting detector (deprecated in eazypy)
+SMOOTH_FILTERS       n                  # Smooth filter curves with Gaussian (deprecated in eazypy)
 SMOOTH_SIGMA         100.               # Gaussian sigma (in Angstroms) to smooth filters
 
 ## Templates
@@ -15,7 +15,7 @@ TEMPLATE_COMBOS      a                  # Template combination options:
                                         #         2 : two templates, read allowed combinations from TEMPLATES_FILE
                                         #        -2 : two templates, all permutations
                                         # a <or> 99 : all templates simultaneously
-NMF_TOLERANCE        1.e-4              # Tolerance for non-negative combinations (TEMPLATE_COMBOS=a)
+NMF_TOLERANCE        1.e-4              # Tolerance for non-negative combinations (TEMPLATE_COMBOS=a) (deprecated in eazypy)
 WAVELENGTH_FILE      templates/uvista_nmf/lambda.def # Wavelength grid definition file
 TEMP_ERR_FILE        templates/uvista_nmf/template_error_10.def # Template error definition file
 TEMP_ERR_A2          0.20               # Template error amplitude
@@ -30,26 +30,27 @@ RESAMPLE_WAVE        None
 MW_EBV               0.00               # Galactic reddening (http://irsa.ipac.caltech.edu/applications/DUST/)
 CAT_HAS_EXTCORR      y                  # Catalog already corrected for reddening
 
-DUMP_TEMPLATE_CACHE  n                  # Write binary template cache
-USE_TEMPLATE_CACHE   n                  # Load in template cache
-CACHE_FILE           photz.tempfilt     # Template cache file (in OUTPUT_DIRECTORY)
+DUMP_TEMPLATE_CACHE  n                  # Write binary template cache (deprecated in eazypy)
+USE_TEMPLATE_CACHE   n                  # Load in template cache (deprecated in eazypy)
+CACHE_FILE           photz.tempfilt     # Template cache file (in OUTPUT_DIRECTORY) (deprecated in eazypy)
 
 ## Input Files
 CATALOG_FILE         hdfn_fs99_eazy.cat # Catalog data file
 MAGNITUDES           n                  # Catalog photometry in magnitudes rather than f_nu fluxes
 NOT_OBS_THRESHOLD    -90                # Ignore flux point if <NOT_OBS_THRESH
 N_MIN_COLORS         5                  # Require N_MIN_COLORS to fit
+ARRAY_NBITS          32                 # Bit depth of internally-created arrays
 
 ## Output Files
 OUTPUT_DIRECTORY     OUTPUT             # Directory to put output files in
 MAIN_OUTPUT_FILE     photz              # Main output file, .zout
-PRINT_ERRORS         y                  # Print 68, 95 and 99% confidence intervals
+PRINT_ERRORS         y                  # Print 68, 95 and 99% confidence intervals (deprecated in eazypy)
 CHI2_SCALE           1.0                # Scale ML Chi-squared values to improve confidence intervals
-VERBOSE_LOG          y                  # Dump information from the run into [MAIN_OUTPUT_FILE].param
-OBS_SED_FILE         n                  # Write out observed SED/object, .obs_sed
-TEMP_SED_FILE        n                  # Write out best template fit/object, .temp_sed
-POFZ_FILE            n                  # Write out Pofz/object, .pz
-BINARY_OUTPUT        y                  # Save OBS_SED, TEMP_SED, PZ in binary format to read with e.g IDL
+VERBOSE_LOG          y                  # Dump information from the run into [MAIN_OUTPUT_FILE].param (deprecated in eazypy)
+OBS_SED_FILE         n                  # Write out observed SED/object, .obs_sed (deprecated in eazypy)
+TEMP_SED_FILE        n                  # Write out best template fit/object, .temp_sed (deprecated in eazypy)
+POFZ_FILE            n                  # Write out Pofz/object, .pz (deprecated in eazypy)
+BINARY_OUTPUT        y                  # Save OBS_SED, TEMP_SED, PZ in binary format to read with e.g IDL (deprecated in eazypy)
 
 ## Redshift / Mag prior
 APPLY_PRIOR          y                  # Apply apparent magnitude prior
@@ -63,11 +64,11 @@ FIX_ZSPEC            n                  # Fix redshift to catalog zspec
 Z_MIN                0.01               # Minimum redshift
 Z_MAX                12.0                # Maximum redshift
 Z_STEP               0.01               # Redshift step size
-Z_STEP_TYPE          1                  #  0 = ZSTEP, 1 = Z_STEP*(1+z)
+Z_STEP_TYPE          1                  #  0 = ZSTEP, 1 = Z_STEP*(1+z) (deprecated in eazypy; only type=1)
 
 ## Zeropoint Offsets
-GET_ZP_OFFSETS       n                  # Look for zphot.zeropoint file and compute zeropoint offsets
-ZP_OFFSET_TOL        1.e-4              # Tolerance for iterative fit for zeropoint offsets [not implemented]
+GET_ZP_OFFSETS       n                  # Look for zphot.zeropoint file and compute zeropoint offsets (deprecated in eazypy)
+ZP_OFFSET_TOL        1.e-4              # Tolerance for iterative fit for zeropoint offsets [not implemented] (deprecated in eazypy)
 
 ## Rest-frame colors
 REST_FILTERS         ---                # Comma-separated list of rest frame filters to compute
@@ -75,7 +76,7 @@ RF_PADDING           1000.              # Padding (Ang) for choosing observed fi
 RF_ERRORS            n                  # Compute RF color errors from p(z)
 Z_COLUMN             z_peak             # Redshift to use for rest-frame color calculation (z_a, z_p, z_m1, z_m2, z_peak)
 USE_ZSPEC_FOR_REST   y                  # Use z_spec when available for rest-frame colors
-READ_ZBIN            n                  # Get redshifts from OUTPUT_DIRECTORY/MAIN_OUTPUT_FILE.zbin rather than fitting them.
+READ_ZBIN            n                  # Get redshifts from OUTPUT_DIRECTORY/MAIN_OUTPUT_FILE.zbin rather than fitting them. (deprecated in eazypy)
 
 ## Cosmology
 H0                   70.0               # Hubble constant (km/s/Mpc)
