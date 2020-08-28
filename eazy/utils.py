@@ -116,6 +116,27 @@ def log_zgrid(zr=[0.7,3.4], dz=0.01):
     """
     zgrid = np.exp(np.arange(np.log(1+zr[0]), np.log(1+zr[1]), dz))-1
     return zgrid
+
+def trapz_dx(x):
+    """
+    Return trapezoid rule coefficients, useful for numerical integration 
+    using a dot product
+    
+    Parameters
+    ----------
+    x : array-like
+        Independent variable
+    
+    Returns
+    -------
+    dx : array_like
+        Coefficients for trapezoidal rule integration.
+    """
+    dx = np.zeros_like(x)
+    diff = np.diff(x)/2.
+    dx[:-1] += diff
+    dx[1:] += diff
+    return dx
     
 def clipLog(im, lexp=1000, cmap=[-1.4914, 0.6273], scale=[-0.1,10]):
     """
@@ -225,6 +246,14 @@ def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
         ax = plt.gca()
     
     ax.fill_between(xfull[so], yfull[so], zfull[so], *args, **kwargs)
+
+
+def gaussian_templates(wave, centers=[], widths=[], norm=False):
+    """Make Gaussian "templates" for the template correction
+    """
+    _x = np.array([1/np.sqrt(2*np.pi*w**2)**norm*np.exp(-(wave-c)**2/2/w**2) for c, w in zip(centers, widths)])
+    return _x.T
+
 
 class GalacticExtinction(object):
     def __init__(self, EBV=0, Rv=3.1, force=None, radec=None, ebv_type='SandF'):
@@ -355,7 +384,7 @@ def abs_mag_to_luminosity(absmag, pivot=None, output_unit=u.L_sun):
     f10 = fjy * 4 * np.pi * d10**2 * nu
     return f10.to(output_unit)
     
-def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2, selection=None, catastrophic_limit=0.15, title=None, min_zphot=0.02, alpha=0.2, extra_xlabel='', extra_ylabel='', xlabel=r'$z_\mathrm{spec}$', ylabel=r'$z_\mathrm{phot}$', **kwargs):
+def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2, selection=None, catastrophic_limit=0.15, title=None, min_zphot=0.02, alpha=0.2, extra_xlabel='', extra_ylabel='', xlabel=r'$z_\mathrm{spec}$', ylabel=r'$z_\mathrm{phot}$', label_pos=(0.05, 0.95), label_kwargs=dict(ha='left', va='top', fontsize=10), label_prefix='', format_axes=True, **kwargs):
     """
     Make zphot_zspec plot scaled by log(1+z) and show uncertainties
     """
@@ -376,7 +405,8 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
     NOUT = (clip & ~clip_cat).sum()
     
     gs = GridSpec(2,1, height_ratios=[6,1])
-    if axes is None:
+    NEW_AXES = axes is None
+    if NEW_AXES:
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(gs[0,0])
     else:
@@ -405,33 +435,52 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
                    np.log10(1+zphot[clip & clip_cat]), 
                    marker='.', alpha=alpha, color='k')
         
-    xt = np.arange(zmin, zmax+0.1, minor)
-    xl = np.log10(1+xt)
-    ax.plot(xl, xl, color='r', alpha=0.5)
-    ax.set_xlim(xl[0], xl[-1]); ax.set_ylim(xl[0],xl[-1])
-    xtl = list(xt)
+    if NEW_AXES | format_axes:
+        xt = np.arange(zmin, zmax+0.1, minor)
+        xl = np.log10(1+xt)
+        ax.plot(xl, xl, color='r', alpha=0.5)
+        ax.set_xlim(xl[0], xl[-1])
+        ax.set_ylim(xl[0],xl[-1])
+        xtl = list(xt)
 
-    if skip > 0:
-        for i in range(1, len(xt), skip):
-            xtl[i] = ''
+        if skip > 0:
+            for i in range(1, len(xt), skip):
+                xtl[i] = ''
 
-    ax.set_xticks(xl); ax.set_xticklabels([]);
-    ax.set_yticks(xl); ax.set_yticklabels(xtl);
-    ax.grid()
-    ax.set_ylabel(ylabel + extra_ylabel)
+        ax.set_xticks(xl)
+        if axes is None:
+            ax.set_xticklabels([])
+        else:
+            if len(axes) == 1:
+                ax.set_xticks(xl)
+                ax.set_xticklabels(xtl);
+                ax.set_xlabel(xlabel + extra_xlabel)
+            
+        ax.set_yticks(xl); ax.set_yticklabels(xtl);
+        ax.grid()
+        ax.set_ylabel(ylabel + extra_ylabel)
 
     sample_nmad = nmad(dz[clip])
     sample_cat_nmad = nmad(dz[clip & clip_cat])
 
-    ax.text(0.05, 0.925, r'N={0} ({4}, {1:4.1f}%), $\sigma$={2:.4f} ({3:.4f})'.format(clip.sum(), frac_cat*100, sample_nmad, sample_cat_nmad, NOUT),
-            ha='left', va='top', fontsize=10, transform=ax.transAxes)
+    if label_pos is not None:
+        msg = r'{label_prefix} N={N} ({NOUT}, {err_frac:4.1f}%), $\sigma$={sample_nmad:.4f} ({sample_cat_nmad:.4f})'
+        msg = msg.format(label_prefix=label_prefix, 
+                         N=clip.sum(), err_frac=frac_cat*100, 
+                         sample_nmad=sample_nmad, 
+                         sample_cat_nmad=sample_cat_nmad, NOUT=NOUT)
+                         
+        ax.text(label_pos[0], label_pos[1], msg, transform=ax.transAxes)
     
 
     if axes is None:
         ax = fig.add_subplot(gs[1,0])
     else:
-        ax = axes[1]
-    
+        if len(axes) == 2:
+            ax = axes[1]
+        else:
+            return True
+            
     if zlimits is not None:
         yerr = np.abs(zlimits.T-zphot)#/(1+self.cat['z_spec'])
         ax.errorbar(np.log10(1+zspec[clip & ~clip_cat]), dz[clip & ~clip_cat], 
