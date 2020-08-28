@@ -54,6 +54,7 @@ version = p.communicate()[0].decode("utf-8").strip()
 
 #version = '0.2.0'
 #version = '0.3.0' #  Fixes to SPS params, z-dependent templates
+version = '0.4.0' #  change loglike calculations, improve residuals function
 
 version_str = """# git describe --tags
 __version__ = "{0}"\n""".format(version)
