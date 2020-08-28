@@ -572,6 +572,103 @@ def fit_dust_wg00():
         ax.grid()
         coeffs[_fit.param_names[i]] = c
 
+class Reddy15(BaseAttAvModel):
+    """
+    Attenuation curve from Reddy et al. (2015)
+    
+    With optional UV bump
+    
+    https://ui.adsabs.harvard.edu/abs/2015ApJ...806..259R/abstract
+    """
+    name = 'Reddy+15'
+    #bump_ampl = 1.
+    
+    bump_ampl = Parameter(description="Amplitude of UV bump",
+                      default=2., min=0., max=10.)
+    
+    bump_gamma = 0.04
+    bump_x0 = 0.2175
+    
+    Rv = 2.505
+    
+    @staticmethod
+    def _left(mu):
+        """
+        klam, mu < 0.6 micron
+        """
+        return -5.726 + 4.004/mu - 0.525/mu**2 + 0.029/mu**3 + 2.505
+    
+    
+    @staticmethod
+    def _right(mu):
+        """
+        klam, mu > 0.6 micron
+        """
+        return -2.672 - 0.010/mu + 1.532/mu**2 - 0.412/mu**3 + 2.505
+    
+    @property
+    def koffset(self):
+        """
+        Force smooth transition at 0.6 micron
+        """
+        return self._left(0.6) - self._right(0.6)
+        
+    def evaluate(self, x, Av, bump_ampl):
+       
+        if not hasattr(x, 'unit'):
+            xin = np.atleast_1d(x)*u.micron
+        else:
+            xin = np.atleast_1d(x)
+        
+        mu = xin.to(u.micron).value
+        left =  mu < 0.6
+        klam = mu*0.
+        # Reddy Eq. 8
+        kleft = self._left(mu)
+        kright = self._right(mu)
+        
+        klam[left] = self._left(mu[left])
+        klam[~left] = self._right(mu[~left]) + self.koffset
+
+        # Rv = Av/EBV
+        # EBV=Av/Rv
+        # klam = Alam/EBV
+        # Alam = klam*EBV = klam*Av/Rv
+        return np.maximum((klam + self.uv_bump(mu, bump_ampl))*Av/self.Rv, 0.)
+    
+    def uv_bump(self, mu, bump_ampl):
+        """
+        Drude profile for computing the UV bump.
+
+        Parameters
+        ----------
+        x: np array (float)
+           expects wavelengths in [micron]
+
+        x0: float
+           Central wavelength of the UV bump (in microns).
+
+        gamma: float
+           Width (FWHM) of the UV bump (in microns).
+
+        ampl: float
+           Amplitude of the UV bump.
+
+        Returns
+        -------
+        np array (float)
+           lorentzian-like Drude profile
+
+        Raises
+        ------
+        ValueError
+           Input x values outside of defined range
+
+        """
+        return bump_ampl * (mu**2 * self.bump_gamma**2 /
+                       ((mu**2 - self.bump_x0**2)**2 + 
+                         mu**2 * self.bump_gamma**2))
+
 class KC13(BaseAttAvModel):
     """
     Kriek & Conroy (2013) attenuation model, extends Noll 2009 with UV bump 
@@ -586,7 +683,8 @@ class KC13(BaseAttAvModel):
     delta = Parameter(description="delta: slope of the power law",
                       default=0., min=-3., max=3.)
     
-    extra_bump = 1.
+    #extra_bump = 1.
+    extra_params = {'extra_bump':1.}
     
     def _init_N09(self):
         from dust_attenuation import averages, shapes, radiative_transfer
@@ -607,7 +705,7 @@ class KC13(BaseAttAvModel):
         #Av = np.polyval(self.coeffs['Av'], tau_V)
         x0 = 0.2175
         gamma = 0.0350
-        ampl = (0.85 - 1.9*delta)*self.extra_bump
+        ampl = (0.85 - 1.9*delta)*self.extra_params['extra_bump']
         
         if not hasattr(x, 'unit'):
             xin = np.atleast_1d(x)*u.Angstrom
@@ -632,7 +730,7 @@ class ParameterizedWG00(BaseAttAvModel):
                                  3.670e-02, -7.325e-02, 5.891e-02])}
     
     # Turn off bump
-    include_bump = False
+    include_bump = 0.25
     
     wg00_coeffs = {'geometry': 'shell', 
                    'dust_type': 'mw',
@@ -699,7 +797,8 @@ class ParameterizedWG00(BaseAttAvModel):
             return self.N09.evaluate(xin, x0, gamma, ampl, slope, Av)
         else:
             return self.N09.evaluate(xin, Av, x0, gamma, ampl, slope)
-        
+
+
 def fsps_line_info(wlimits=None):
     """
     Read FSPS line list
@@ -731,6 +830,12 @@ BOUNDS['gas_logu'] = [-4, 0, 0.05]
 BOUNDS['gas_logz'] = [-2, 0.3, 0.05]
 BOUNDS['sigma_smooth'] = [0, 500, 0.05]
 
+def wuyts_line_Av(Acont):
+    """
+    Wuyts prescription for extra extinction towards nebular emission
+    """
+    return Acont + 0.9*Acont - 0.15*Acont**2
+    
 class ExtendedFsps(StellarPopulation):
     """
     Extended functionality for the `~fsps.StellarPopulation` object
@@ -744,6 +849,8 @@ class ExtendedFsps(StellarPopulation):
     cosmology = WMAP9
     scale_lyman_series = 0.1
     scale_lines = OrderedDict()
+    
+    line_av_func = None
     
     #_meta_bands = ['v']
     
@@ -1065,6 +1172,7 @@ class ExtendedFsps(StellarPopulation):
             'C00'   = `~dust_attenuation.averages.C00`
             'WG00x' = `ParameterizedWG00`
             'KC13'  = Kriek & Conroy (2013) with dust_index parameter
+            'R15'  = Reddy et al. (2015) with dust bump parameter
             
         ir_template: (wave, flux)
             Template to use for re-emitted IR light
@@ -1092,6 +1200,8 @@ class ExtendedFsps(StellarPopulation):
                 self.dust_obj = ParameterizedWG00(Av=Av)             
             elif dust_obj_type == 'C00':
                 self.dust_obj = averages.C00(Av=Av)
+            elif dust_obj_type == 'R15':
+                self.dust_obj = Reddy15(Av=Av, bump_ampl=2.)
             else:
                 self.dust_obj = KC13(Av=Av)
                 
@@ -1164,7 +1274,8 @@ class ExtendedFsps(StellarPopulation):
         wave = _['wave_full']
         flux = _['flux_full']
         lines = _['line_full']
-
+        contin = flux - lines
+        
         #self.sfr100 = self.sfr_avg(dt=np.minimum(tage, 0.1))
         
         # Apply dust
@@ -1184,9 +1295,25 @@ class ExtendedFsps(StellarPopulation):
             
         else:
             red = 10**(-0.4*self.dust_obj(wave*u.Angstrom))
-            Alam = self.dust_obj(self.emline_wavelengths*u.Angstrom)
-            red_lines = 10**(-0.4*Alam)
-        
+            
+            if self.line_av_func is None:
+                self.Av_line = self.Av*1.
+                red_lines_full = red
+                Alam = self.dust_obj(self.emline_wavelengths*u.Angstrom)
+                red_lines = 10**(-0.4*Alam)
+            else:
+                # Differential reddening towards nebular lines
+                self.Av_line = self.line_av_func(Av)
+                self.set_dust(Av=self.Av_line,
+                              dust_obj_type=self.dust_obj_type)
+                
+                red_lines_full = 10**(-0.4*self.dust_obj(wave*u.Angstrom))
+                Alam = self.dust_obj(self.emline_wavelengths*u.Angstrom)
+                red_lines = 10**(-0.4*Alam)
+                
+                # Reset for continuum
+                self.set_dust(Av=Av, dust_obj_type=self.dust_obj_type)
+                
         # Apply dust to line luminosities
         lred = [llum*lr for llum, lr in 
                         zip(self.emline_luminosity, red_lines)]
@@ -1196,7 +1323,8 @@ class ExtendedFsps(StellarPopulation):
         e0 = np.trapz(flux, wave)
         # Energy of reddened template
         
-        e1 = np.trapz(flux*red, wave)
+        reddened = contin*red+lines*red_lines_full
+        e1 = np.trapz(reddened, wave)
         self.energy_absorbed = (e0 - e1)
                 
         # Add dust emission
@@ -1207,7 +1335,7 @@ class ExtendedFsps(StellarPopulation):
             dust_em = 0.
         
         meta0 = self.meta
-        self.templ = self.as_template(wave, flux*red+dust_em, meta=meta0)
+        self.templ = self.as_template(wave, reddened+dust_em, meta=meta0)
         
         # Set template attributes
         if set_all_templates:
@@ -1223,7 +1351,7 @@ class ExtendedFsps(StellarPopulation):
             # No lines
             meta = meta0.copy()
             meta['add_neb_emission'] = False
-            fl_cont = (flux - lines)*red+dust_em
+            fl_cont = contin*red + dust_em
             ocont = _['flux_clean']*self.wg00red + ofir
             self.templ_cont = self.as_template(wave, fl_cont, meta=meta)
             self.templ_cont_orig = self.as_template(owave, ocont, meta=meta)
@@ -1278,7 +1406,7 @@ class ExtendedFsps(StellarPopulation):
                 
             elif hasattr(self, '_sfh_tab'):
                 age_lb = self.params['tage'] - self._sfh_tab[0]
-                age100 = (age_lb < 0.1) & (age_lb >= 0)
+                age100 = (age_lb <= 0.1) & (age_lb >= 0)
                 if age100.sum() < 2:
                     sfr_avg = 0.
                 else:
@@ -1676,7 +1804,9 @@ class ExtendedFsps(StellarPopulation):
                 
             label = 'logm={log_mass:.2f}\n lw_age={age:.1f} Myr\n Av={Av:.1f} \n logzsol={logzsol:.1f} gas_logz={gas_logz:.1f} gas_logu={gas_logu:.1f}'.format(**_phot)
             templ = _phot['templ']
-            ax.plot(templ.wave*(1+_phot['z'])/1.e4, templ.flux_fnu*_phot['scale'], label=label, color='r', alpha=0.5)
+            iz = templ.zindex(_phot['z'])
+            
+            ax.plot(templ.wave*(1+_phot['z'])/1.e4, templ.flux_fnu(iz)*_phot['scale'], label=label, color='r', alpha=0.5)
             ax.legend()
             # ax.set_xlim(0.3, 3000)
             # ax.set_ylim(0.05, 5000)
@@ -1775,11 +1905,12 @@ class ExtendedFsps(StellarPopulation):
             ax.scatter(pivot[so]/1.e4, _fit['fmodel'][so], color='r', 
                       alpha=0.8, zorder=101)
             
+            iz = templ.zindex(z)
             if is_flam:
-                ax.plot(templ.wave*(1+z)/1.e4, templ.flux*Anorm, 
+                ax.plot(templ.wave*(1+z)/1.e4, templ.flux[iz,:]*Anorm, 
                     color='r', alpha=0.3, zorder=10000)
             else:
-                ax.plot(templ.wave*(1+z)/1.e4, templ.flux_fnu*Anorm, 
+                ax.plot(templ.wave*(1+z)/1.e4, templ.flux_fnu(iz)*Anorm, 
                     color='r', alpha=0.3, zorder=10000)
         
         return _fit
