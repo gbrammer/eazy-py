@@ -42,6 +42,8 @@ MIN_VALID_FILTERS = 1
 
 NUVRK_FILTERS = [121, 158, 163]
 
+CDF_SIGMAS = np.linspace(-5, 5, 51)
+
 class PhotoZ(object):
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None):
         """
@@ -1676,7 +1678,7 @@ class PhotoZ(object):
     def write_zeropoint_file(self, file='zphot.zeropoint.x'):
         fp = open(file,'w')
         for i in range(self.NFILT):
-            fp.write('F{0:<3d}  {1:.4f}\n'.format(self.f_numbers[i], self.zp[i]))
+            fp.write('F{0:<3d}  {1:.6f}  # {2}\n'.format(self.f_numbers[i], self.zp[i], self.flux_columns[i]))
         
         fp.close()
     
@@ -2468,12 +2470,16 @@ class PhotoZ(object):
         if hasattr(self, 'extra_lnp'):
             loglike += self.extra_lnp[has_chi2,:]
             
+        loglike[~np.isfinite(loglike)] = -1e20
+        
         lnpmax = loglike.max(axis=1)
         pz = np.exp(loglike.T - lnpmax).T
         log_norm = np.log(pz.dot(self.trdz))
         
         lnp = (loglike.T - lnpmax - log_norm).T
         #lnpmax = -log_norm
+        
+        lnp[~np.isfinite(lnp)] = -1e20
         
         if in_place:
             self.lnp[has_chi2,:] = lnp
@@ -2528,7 +2534,12 @@ class PhotoZ(object):
         
         for i in idx:
             Rz[i,:] = np.dot(np.exp(self.lnp[i,:])*L, self.trdz)
-            
+        
+        del(zsq)
+        del(L)
+        del(has_chi2)
+        del(hasz)
+        del(idx)    
         return Rz
         
         #self.full_risk = Rz
@@ -2548,6 +2559,12 @@ class PhotoZ(object):
         
         zbest_risk = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)-1
         zbest_risk[mask] = np.dot(np.exp(self.lnp[mask,:])*L, self.trdz)
+        
+        del(has_chi2)
+        del(mask)
+        del(zbest_grid)
+        del(L)
+        
         return zbest_risk
         
     @staticmethod    
@@ -2563,9 +2580,18 @@ class PhotoZ(object):
         zlim = zspec_grid >= self.zgrid
         #dz = np.gradient(self.zgrid)
         PIT = np.dot(np.exp(self.lnp)*zlim, self.trdz)
-
+        del(zspec_grid)
+        
         return PIT
         
+    def cdf_percentiles(self, cdf_sigmas=CDF_SIGMAS, **kwargs):
+        """
+        Percentiles in terms of ``\sigma`` for a normal distribution
+        """
+        import scipy.stats
+        cdf_percentiles = scipy.stats.norm.cdf(cdf_sigmas)*100
+        zlimits = self.pz_percentiles(percentiles=cdf_percentiles, **kwargs)
+        return zlimits
         
     def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=5,
                        selection=None):
@@ -2576,6 +2602,9 @@ class PhotoZ(object):
         from scipy.integrate import cumtrapz
         
         interpolator = scipy.interpolate.Akima1DInterpolator
+        
+        p100 = np.array(percentiles)/100.
+        zlimits = np.zeros((self.NOBJ, p100.size), dtype=self.ARRAY_DTYPE)
             
         zr = [self.param['Z_MIN'], self.param['Z_MAX']]
         zgrid_zoom = utils.log_zgrid(zr=zr,dz=self.param['Z_STEP']/oversample)
@@ -2583,24 +2612,33 @@ class PhotoZ(object):
         ok = self.zbest > self.zgrid[0]      
         if selection is not None:
             ok &= selection
+        
+        if ok.sum() == 0:
+            print('pz_percentiles: No objects in selection')
+            return zlimits
             
         spl = interpolator(self.zgrid, self.lnp[ok,:], axis=1)
-
         pzcum = cumtrapz(np.exp(spl(zgrid_zoom)), x=zgrid_zoom, axis=1)
-        pzcum = (pzcum.T / pzcum[:,-3]).T
-        pzcum[:,-2:] = 1.
+
+        # Akima1DInterpolator can get some NaNs at the end?
+        valid = np.isfinite(pzcum)
+        pzcum[~valid] = 0.
+        pzcmax = pzcum.max(axis=1)
+        pzcum = (pzcum.T / pzcmax).T
+        pzcum[~valid] = 1.
         
         #pzcum /= pzcum[-1]
         #pzcum = cumtrapz(self.pz[ok,:], x=self.zgrid, axis=1)
         
-        p100 = np.array(percentiles)/100.
-        zlimits = np.zeros((self.NOBJ, p100.size), dtype=self.ARRAY_DTYPE)
         for j, i in enumerate(self.idx[ok]):
             zlimits[i,:] = np.interp(p100, pzcum[j, :], zgrid_zoom[1:])
         
         del(pzcum)
         del(p100)
         del(spl)
+        del(zgrid_zoom)
+        del(valid)
+        del(pzcmax)
         
         return zlimits
     
@@ -2784,7 +2822,7 @@ class PhotoZ(object):
         if to_physical is not None:
             
             if self.param['VERBOSITY'] >= 2:
-                print(f'... Physical quantities directly from coeffs and templates ({template_fnu_units})')
+                print(f' ... Physical quantities directly from coeffs and templates ({template_fnu_units})')
             
             coeffs_rest = (self.coeffs_best.T*to_physical).T
             
@@ -2883,12 +2921,14 @@ class PhotoZ(object):
                 else:
                     # Redshift-dependent parameters
                     temp_matrix = np.zeros_like(coeffs_rest)
+                    zb = self.zbest*1
+                    zb[~np.isfinite(zb)] = -1.
                 
                     for _i, templ in enumerate(self.templates):
                         if templ.NZ == 0:
                             iz = iz0
                         else:
-                            iz = templ.zindex(self.zbest)
+                            iz = templ.zindex(zb)
                             #pass
                             
                         temp_matrix[:, _i] = temp_par[_i, iz]
@@ -3061,7 +3101,7 @@ class PhotoZ(object):
         if self.get_err:
             # Propagate coeff covariance to parameters
             if self.param['VERBOSITY'] >= 2:
-                print('... Get uncertainties')
+                print(' ... Get uncertainties')
             
             if to_physical is None:
         
@@ -3462,7 +3502,7 @@ class PhotoZ(object):
             init_sed_data = True
             if hasattr(self, 'rf_sed_data'):
                 rf_tempfilt, rf_lc, f_rest = self.rf_sed_data
-                if rf_tempfilt.f_numbers[0] == norm_band:
+                if rf_lc == self.RES[norm_band].pivot:
                     init_sed_data = False
                     
             if init_sed_data:
@@ -3831,7 +3871,7 @@ class PhotoZ(object):
                            color=pl[0].get_color(), alpha=alpha, zorder=3)
             
             ax.legend(loc='upper left')
-            
+    
 def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     fmodel = np.dot(coeffs, A)
     return -0.5*np.sum((fmodel-fnu_i)**2/efnu_i**2)
