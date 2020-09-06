@@ -508,7 +508,75 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
     fig.tight_layout(pad=0.1)
     
     return fig
+
+
+def cds_query(ra, dec, radius=1.):
+    """
+    Open browswer with CDS catalog query around central position
+    """
+    #rd = self.get('pan fk5').strip()
+    rd = f'{ra} {dec}'
+    rdst = rd.replace('+', '%2B').replace('-', '%2D').replace(' ', '+')
+    url = (f'"http://vizier.u-strasbg.fr/viz-bin/VizieR?'
+           f'-c={rdst}&-c.rs={radius:.1f}"')
+           
+    os.system(f'open {url}')
+
+
+def eso_query(ra, dec, radius=1., dp_types=['CUBE','IMAGE'], extra=''):
+    """
+    Open browser with ESO archive query around central position.
+    
+    ``radius`` in arcmin.
+    """
+    #ra, dec = self.get('pan fk5').strip().split()
+    
+    dp_type = ','.join(dp_types)
+    
+    url = (f'"https://archive.eso.org/scienceportal/home?'
+            f'pos={ra},{dec}&r={radius/60.}&dp_type={dp_type}{extra}"')
+                    
+    os.system(f'open {url}')
+
+
+def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], max=1000):
+    """
+    Open browser with MAST archive query around central position
+    """
+    #ra, dec = self.get('pan fk5').strip().split()
+    if len(instruments) > 0:
+        instr='&sci_instrume='+','.join(instruments)
+    else:
+        instr = ''
         
+    url = (f'"https://archive.stsci.edu/hst/search.php?RA={ra}&DEC={dec}'
+           f'&sci_aec=S{instr}&max_records={max}&outputformat=HTML_Table'
+            '&action=Search"')
+            
+    os.system(f'open {url}')
+
+
+def alma_query(ra, dec, mirror="almascience.eso.org", extra=''):
+    """
+    Open browser with ALMA archive query around central position
+    """
+    #ra, dec = self.get('pan fk5').strip().split()
+
+    url = (f"https://{mirror}/asax/?result_view=observation"
+           f"&raDec={ra}%20{dec}{extra}")
+    os.system(f'open "{url}"')
+
+
+def show_legacysurvey(ra, dec, layer='dr8', zoom=14):
+    """
+    Open browser with legacysurvey.org panner around central position
+    """
+    #ra, dec = self.get('pan fk5').strip().split()
+    url = (f'"http://legacysurvey.org/viewer?ra={ra}&dec={dec}'
+           f'&layer={layer}&zoom={zoom}"')
+            
+    os.system(f'open {url}')
+    
 def interp_conserve(x, xp, fp, left=0., right=0.):
     """
     Interpolation analogous to `~numpy.interp` but conserving "flux".
