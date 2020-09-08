@@ -45,7 +45,7 @@ NUVRK_FILTERS = [121, 158, 163]
 CDF_SIGMAS = np.linspace(-5, 5, 51)
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None):
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True):
         """
         Main object for fitting templates / photometric redshifts
         """
@@ -120,7 +120,7 @@ class PhotoZ(object):
         self.idx = np.arange(self.NOBJ, dtype=int)
         
         ### Read prior file
-        self.full_logprior = np.ones((self.NOBJ, self.NZ), 
+        self.full_logprior = np.zeros((self.NOBJ, self.NZ), 
                                   dtype=self.ARRAY_DTYPE)
         if load_prior:
             self.read_prior()
@@ -137,12 +137,13 @@ class PhotoZ(object):
             
         self.lnpmax = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)
         self.zbest = np.zeros_like(self.lnpmax)
+                
+        self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP), 
+                                    dtype=self.ARRAY_DTYPE)
         
         self.fit_coeffs = np.zeros((self.NOBJ, self.NZ, self.NTEMP),
                                    dtype=self.ARRAY_DTYPE)
         
-        self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP), 
-                                    dtype=self.ARRAY_DTYPE)
         self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP), 
                                      dtype=self.ARRAY_DTYPE)
         self.get_err = False
@@ -158,13 +159,13 @@ class PhotoZ(object):
         print('Process templates: {0:.3f} s'.format(t1-t0))
         
         ### Template Error
-        self.set_template_error()
+        self.set_template_error(compute_tef_lnp=compute_tef_lnp)
         
         self.ubvj = None
         
         ### Load previous products?
         if load_products:
-            self.load_products()
+            self.load_products(**kwargs)
         
                     
     @property 
@@ -240,7 +241,7 @@ class PhotoZ(object):
             return 0
     
     
-    def load_products(self, compute_error_residuals=True, fitter='nnls'):
+    def load_products(self, compute_error_residuals=False, fitter='nnls', **kwargs):
         """
         Load results from ``zout`` and ``data`` FITS files.
         """
@@ -251,18 +252,23 @@ class PhotoZ(object):
             data_file = '{0}.data.fits'.format(self.param['MAIN_OUTPUT_FILE'])
             data = pyfits.open(data_file)
             self.chi2_fit = data['CHI2'].data*1
-            self.compute_pz()
-            self.ubvj = data['REST_UBVJ'].data*1
+            #self.compute_pz()
+            self.compute_lnp()
+            if 'REST_UBVJ' in data:
+                self.ubvj = data['REST_UBVJ'].data*1
             
             self.zout = Table.read(zout_file)
+            
+            print(' ... Fit templates at zout[z_phot] ')
+            
             if compute_error_residuals:
                 for iter in range(2):
                     self.fit_at_zbest(zbest=self.zout['z_phot'].data, 
                                       prior=False, fitter=fitter)
                     self.error_residuals()
             else:
-                self.fit_at_zbest(zbest=self.zout['z_phot'].data, prior=False,
-                              fitter=fitter)
+                self.fit_at_zbest(zbest=self.zout['z_phot'].data,
+                              fitter=fitter, **kwargs)
                
     def read_catalog(self, verbose=True):
         """
@@ -391,7 +397,7 @@ class PhotoZ(object):
                 ix = self.f_numbers == fnum
                 self.zp[ix] = float(line.split()[1])
                 
-    def set_template_error(self, TEF=None):
+    def set_template_error(self, TEF=None, compute_tef_lnp=True):
         """
         Set the Template Error Function 
         """
@@ -407,7 +413,8 @@ class PhotoZ(object):
             self.TEFgrid[i,:] = self.TEF(self.zgrid[i])
         
         # lnP term for TEF
-        self.compute_tef_lnp(in_place=True)
+        if compute_tef_lnp:
+            self.compute_tef_lnp(in_place=True)
         
     def get_zgrid(self):
         """
@@ -536,8 +543,8 @@ class PhotoZ(object):
             for i in range(self.NOBJ):
                 if self.prior_mag_cat[i] > 0:
                     #print(i)
-                    lnp = self._get_prior(self.prior_mag_cat[i])
-                    self.full_logprior[i,:] = lnp
+                    pz = self._get_prior(self.prior_mag_cat[i])
+                    self.full_logprior[i,:] = np.log(pz)
 
         if verbose:
             print('Read PRIOR_FILE: ', self.param['PRIOR_FILE'])
@@ -835,7 +842,7 @@ class PhotoZ(object):
         
         return iobj, chi2, coeffs
     
-    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls'):
+    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', **kwargs):
         """
         Recompute the fit coefficients at the "best" redshift
         """
@@ -1153,7 +1160,7 @@ class PhotoZ(object):
         return te_wave, te_y
 
 
-    def residuals(self, selection=None, minsn=3, resid_sig_clip=5, update_zeropoints=False, update_templates=False, ref_filter=None, correct_zp=True, n_knots=-1, use_bspline=False, logspline=True, wlimits=[1000, 3.e4], runmed_kwargs={'NBIN':16}, zpanel_kwargs={'zmin':0, 'zmax':4, 'catastrophic_limit':0.15}, full_label=None, ignore_zeropoint=False, ignore_spline=False, run_iterative=True, iterative_nsteps=3, **kwargs):
+    def residuals(self, selection=None, minsn=3, resid_sig_clip=5, update_zeropoints=False, update_templates=False, ref_filter=None, correct_zp=True, n_knots=-1, use_bspline=False, logspline=True, wlimits=[1000, 3.e4], runmed_kwargs={'NBIN':16}, zpanel_kwargs={'zmin':0, 'zmax':4, 'catastrophic_limit':0.15}, full_label=None, ignore_zeropoint=False, ignore_spline=False, run_iterative=True, skip_filters=[], iterative_nsteps=3, **kwargs):
         """
         Show residuals and compute zeropoint offsets
 
@@ -1255,7 +1262,8 @@ class PhotoZ(object):
         _A = np.hstack([np.zeros((sh[0], self.NFILT)), bspl])
 
         for i in range(self.NFILT):
-            _A[xpc == i, i] = 1
+            if self.flux_columns[i] not in skip_filters:
+                _A[xpc == i, i] = 1
 
         # Iterative
         if run_iterative:
@@ -3346,12 +3354,12 @@ class PhotoZ(object):
         # hdu.append(pyfits.ImageHDU(temp_flux, name='TEMPF'))
         
         # Rest-frame fluxes
-        hdu.append(pyfits.ImageHDU(self.ubvj.astype(np.float32), name='REST_UBVJ'))
-        hdu[-1].header['RESFILE'] = (self.param['FILTERS_RES'], 'Filter file')
-        hdu[-1].header['UFILT'] = (UBVJ[0], 'U-band filter ID')
-        hdu[-1].header['BFILT'] = (UBVJ[1], 'B-band filter ID')
-        hdu[-1].header['VFILT'] = (UBVJ[2], 'V-band filter ID')
-        hdu[-1].header['JFILT'] = (UBVJ[3], 'J-band filter ID')
+        # hdu.append(pyfits.ImageHDU(self.ubvj.astype(np.float32), name='REST_UBVJ'))
+        # hdu[-1].header['RESFILE'] = (self.param['FILTERS_RES'], 'Filter file')
+        # hdu[-1].header['UFILT'] = (UBVJ[0], 'U-band filter ID')
+        # hdu[-1].header['BFILT'] = (UBVJ[1], 'B-band filter ID')
+        # hdu[-1].header['VFILT'] = (UBVJ[2], 'V-band filter ID')
+        # hdu[-1].header['JFILT'] = (UBVJ[3], 'J-band filter ID')
         
         if save_fits == 1:
             hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
@@ -3871,7 +3879,27 @@ class PhotoZ(object):
                            color=pl[0].get_color(), alpha=alpha, zorder=3)
             
             ax.legend(loc='upper left')
-    
+
+
+    def _redshift_pairs(self, rix=None):
+        """
+        Redshift differences of pairs
+        
+        TBD
+        """
+        import itertools
+        
+        if rix is None:
+            rix = self.zbest > 0
+            
+        r0, d0 = np.mean(self.cat['ra'][rix]), np.mean(self.cat['dec'][rix])
+        cosd = np.cos(d0/180*np.pi)
+        r0 = (self.cat['ra'][rix]-r0)*cosd*3600
+        d0 = (self.cat['dec'][rix]-d0)*3600
+        zix = self.zbest[rix]
+
+        pair_inds = np.array(list(itertools.combinations(range(rix.sum()),2)))
+        
 def _obj_nnls(coeffs, A, fnu_i, efnu_i):
     fmodel = np.dot(coeffs, A)
     return -0.5*np.sum((fmodel-fnu_i)**2/efnu_i**2)
