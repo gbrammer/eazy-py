@@ -137,6 +137,7 @@ class PhotoZ(object):
             
         self.lnpmax = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)
         self.zbest = np.zeros_like(self.lnpmax)
+        self.chi2_best = np.zeros_like(self.zbest)-1
                 
         self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP), 
                                     dtype=self.ARRAY_DTYPE)
@@ -751,8 +752,10 @@ class PhotoZ(object):
         else:
             if idx.dtype == bool:
                 idx_fit = self.idx[idx]
+                selection = idx
             else:
                 idx_fit = idx
+                selection = None
                 
         # Setup
         # if False:
@@ -793,7 +796,8 @@ class PhotoZ(object):
                 print('Compute best fits')
             
             self.fit_at_zbest(prior=prior, beta_prior=beta_prior, 
-                              fitter=fitter, zbest=None)
+                              fitter=fitter, zbest=None, 
+                              selection=selection)
         else:
             self.compute_lnp(prior=prior, beta_prior=beta_prior)
             
@@ -842,7 +846,7 @@ class PhotoZ(object):
         
         return iobj, chi2, coeffs
     
-    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', **kwargs):
+    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None, **kwargs):
         """
         Recompute the fit coefficients at the "best" redshift
         """
@@ -872,9 +876,7 @@ class PhotoZ(object):
             #self.zchi2 = np.zeros_like(self.zbest)-1
             self.ZBEST_WITH_PRIOR = False
             self.ZBEST_WITH_BETA_PRIOR = False
-            
-        self.chi2_best = np.zeros_like(self.zbest)-1
-        
+                    
         if ((self.param['FIX_ZSPEC'] in TRUE_VALUES) & 
             ('z_spec' in self.cat.colnames)):
             has_zsp = self.cat['z_spec'] > self.zgrid[0]
@@ -890,8 +892,11 @@ class PhotoZ(object):
         efnu_corr = self.efnu*self.ext_redden*self.zp
         efnu_corr[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
-        idx = self.idx[(self.zbest > self.zgrid[0]) & 
-                       (self.zbest < self.zgrid[-1])]
+        subset = (self.zbest > self.zgrid[0]) (self.zbest < self.zgrid[-1])
+        if selection is not None:
+            subset &= selection
+            
+        idx = self.idx[subset]
         
         # Set seed
         np.random.seed(self.random_seed)
@@ -2148,7 +2153,7 @@ class PhotoZ(object):
             
             fig_axes.tight_layout(fig, pad=0.5)
             
-            if add_label:
+            if add_label & (self.cat['z_spec'][ix] > 0):
                 ax.legend(fontsize=7, loc='upper left')
                 
             return fig, data
