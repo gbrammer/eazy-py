@@ -892,7 +892,7 @@ class PhotoZ(object):
         efnu_corr = self.efnu*self.ext_redden*self.zp
         efnu_corr[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
-        subset = (self.zbest > self.zgrid[0]) (self.zbest < self.zgrid[-1])
+        subset = (self.zbest > self.zgrid[0]) & (self.zbest < self.zgrid[-1])
         if selection is not None:
             subset &= selection
             
