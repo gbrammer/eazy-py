@@ -265,7 +265,7 @@ class PhotoZ(object):
             if compute_error_residuals:
                 for iter in range(2):
                     self.fit_at_zbest(zbest=self.zout['z_phot'].data, 
-                                      prior=False, fitter=fitter)
+                                      prior=False, fitter=fitter, **kwargs)
                     self.error_residuals()
             else:
                 self.fit_at_zbest(zbest=self.zout['z_phot'].data,
@@ -346,6 +346,9 @@ class PhotoZ(object):
         self.fnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
         self.efnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
         self.spatial_offset = None
+        
+        self.fmodel = self.fnu*0.
+        self.efmodel = self.fnu*0.
         
         # MW extinction correction: dered = fnu/self.ext_corr
         ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) 
@@ -796,7 +799,7 @@ class PhotoZ(object):
                 print('Compute best fits')
             
             self.fit_at_zbest(prior=prior, beta_prior=beta_prior, 
-                              fitter=fitter, zbest=None, 
+                              fitter=fitter, zbest=None, n_proc=n_proc, 
                               selection=selection)
         else:
             self.compute_lnp(prior=prior, beta_prior=beta_prior)
@@ -846,13 +849,12 @@ class PhotoZ(object):
         
         return iobj, chi2, coeffs
     
-    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None, **kwargs):
+    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=8000, **kwargs):
         """
         Recompute the fit coefficients at the "best" redshift
         """
-        self.fmodel = self.fnu*0.
-        self.efmodel = self.fnu*0.
-        
+        import multiprocessing as mp
+                
         #izbest = np.argmin(self.chi2_fit, axis=1)
         izbest = self.izbest*1
         has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
@@ -901,31 +903,69 @@ class PhotoZ(object):
         # Set seed
         np.random.seed(self.random_seed)
         
-        for iobj in idx:
-            
-            # Evaluate templates at continuous `zbest`
-            zi = self.zbest[iobj]
-            A = self.tempfilt(zi)
-            TEFz = self.TEF(zi)
-            
-            fnu_i = fnu_corr[iobj, :]
-            efnu_i = efnu_corr[iobj,:]
-            if get_err:
-                _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
-                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _
-                if draws is None:
-                    self.efmodel[iobj,:] = -1
-                else:
-                    #tf = self.tempfilt(zi)
-                    efm = np.diff(np.percentile(np.dot(draws, A), [16,84], 
-                                                axis=0), axis=0)/2.
-                    self.efmodel[iobj,:] = efm
-                    self.coeffs_draws[iobj, :, :] = draws
-            else:
-                _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False, fitter)
-                chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _
-            
-            self.chi2_best[iobj] = chi2
+        if n_proc <= 0:
+            n_proc = mp.cpu_count() - 2
+        
+        # Fit in parallel mode
+        #np.save(par_savefile, [self.TEF, self.tempfilt])
+        
+        t0 = time.time()
+        
+        skip = np.maximum(len(idx)//par_skip, 1)
+        n_proc = np.minimum(n_proc, skip)
+        
+        pool = mp.Pool(processes=n_proc)
+        results = [pool.apply_async(_fit_at_zbest_group, 
+                                      (idx[i::skip], 
+                                       fnu_corr[idx[i::skip],:], 
+                                       efnu_corr[idx[i::skip],:], 
+                                       self.zbest[idx[i::skip]], 
+                                       self.zp*1, get_err, 
+                                       fitter, self.tempfilt, self.TEF,
+                                       self.ARRAY_DTYPE, None)) 
+                    for i in range(skip)]
+
+        pool.close()
+        pool.join()
+
+        for res in results:
+            _ = res.get(timeout=1)
+            _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _coeffs_draws = _
+            self.coeffs_best[_ix,:] = _coeffs_best
+            self.fmodel[_ix,:] = _fmodel
+            self.efmodel[_ix,:] = _efmodel
+            self.chi2_best[_ix] = _chi2_best
+            self.coeffs_draws[_ix,:,:] = _coeffs_draws
+        
+        t1 = time.time()
+        print(f'fit_best: {t1-t0:.1f} s (n_proc={n_proc}, '
+              f' NOBJ={subset.sum()})')
+        
+        # for iobj in idx:
+        #     
+        #     # Evaluate templates at continuous `zbest`
+        #     zi = self.zbest[iobj]
+        #     A = self.tempfilt(zi)
+        #     TEFz = self.TEF(zi)
+        #     
+        #     fnu_i = fnu_corr[iobj, :]
+        #     efnu_i = efnu_corr[iobj,:]
+        #     if get_err:
+        #         _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
+        #         chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _
+        #         if draws is None:
+        #             self.efmodel[iobj,:] = -1
+        #         else:
+        #             #tf = self.tempfilt(zi)
+        #             efm = np.diff(np.percentile(np.dot(draws, A), [16,84], 
+        #                                         axis=0), axis=0)/2.
+        #             self.efmodel[iobj,:] = efm
+        #             self.coeffs_draws[iobj, :, :] = draws
+        #     else:
+        #         _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, False, fitter)
+        #         chi2, self.coeffs_best[iobj,:], self.fmodel[iobj,:], draws = _
+        #     
+        #     self.chi2_best[iobj] = chi2
     
     def error_residuals(self, level=1, verbose=True):
         """
@@ -2205,11 +2245,14 @@ class PhotoZ(object):
         
         return tab
         
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls'):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=8000):
         """
         Rest-frame fluxes, refit by down-weighting bands far away from 
         the desired RF band.
         """
+        import multiprocessing as mp
+        import time
+        
         if verbose:
             print('Rest-frame filters: {0}'.format(f_numbers))
         
@@ -2254,111 +2297,88 @@ class PhotoZ(object):
         fnu_corr = self.fnu*self.ext_redden*self.zp
         efnu_corr = self.efnu*self.ext_redden*self.zp
         efnu_corr[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9.
+                
+        idx = self.idx[self.zbest > self.zgrid[0]]
         
-        fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
+        # Set seed
+        np.random.seed(self.random_seed)
         
-        indices = self.idx[self.zbest > self.zgrid[0]]
-                
-        for ix in indices:
+        if (n_proc >= 0) & (len(idx) > par_skip):
+            # ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter, tempfilt, ARRAY_DTYPE, rf_tempfilt, percentiles, pad_width, max_err
+            
+            if n_proc == 0:
+                n_proc = mp.cpu_count() - 2
+            
+            skip = np.maximum(len(idx)//par_skip, 1)
+            
+            n_proc = np.minimum(n_proc, skip)
+            
+            t0 = time.time()
 
-            fnu_i = fnu_corr[ix,:]*1
-            efnu_i = efnu_corr[ix,:]*1
-            z = self.zbest[ix]
-            if (z < 0) | (~np.isfinite(z)):
-                continue
-            
-            A = self.tempfilt(z)   
-            iz = izbest[ix]
-            
-            for i in range(NREST):
-                ## Grow uncertainties away from RF band
-                #lc_i = rf_tempfilt.lc[i]
-                lc_i = rf_lc[i]
-                
-                # Normal in log wavelength
-                x = np.log(lc_i/(self.lc/(1+z)))
-                grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
+            pool = mp.Pool(processes=n_proc)
+            results = [pool.apply_async(_fit_rest_group, 
+                                          (idx[i::skip], 
+                                           fnu_corr[idx[i::skip],:], 
+                                           efnu_corr[idx[i::skip],:], 
+                                           izbest[idx[i::skip]], 
+                                           self.zbest[idx[i::skip]], 
+                                           self.zp*1, True, 
+                                           fitter, self.tempfilt,
+                                           self.ARRAY_DTYPE, 
+                                           rf_tempfilt, percentiles, 
+                                           rf_lc, pad_width, max_err))
+                        for i in range(skip)]
 
-                TEFz = (2/(1+grow/grow.max())-1)*max_err
+            pool.close()
+            pool.join()
+
+            for res in results:
+                _ = res.get(timeout=1)
+                _ix, _frest = _                
+                f_rest[_ix,:,:] = _frest
+            #
+            t1 = time.time()
+            print(f' ... rest-frame flux: {t1-t0:.1f} s (n_proc={n_proc}, '
+                  f' NOBJ={len(idx)})')
             
-                _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
-                chi2_i, coeffs_i, fmodel_i, draws = _
+        else:            
+            for ix in idx:
+
+                fnu_i = fnu_corr[ix,:]*1
+                efnu_i = efnu_corr[ix,:]*1
+                z = self.zbest[ix]
+                if (z < 0) | (~np.isfinite(z)):
+                    continue
+            
+                A = self.tempfilt(z)   
+                iz = izbest[ix]
+            
+                for i in range(NREST):
+                    ## Grow uncertainties away from RF band
+                    #lc_i = rf_tempfilt.lc[i]
+                    lc_i = rf_lc[i]
                 
-                if draws is None:
-                    f_rest[ix,i,:] = np.zeros(len(percentiles),
-                                              dtype=self.ARRAY_DTYPE) - 1
-                else:
-                    dval = np.dot(draws, rf_tempfilt[iz,:,i])
-                    f_rest[ix,i,:] = np.percentile(dval, percentiles, axis=0)
-                    del(dval)
+                    # Normal in log wavelength
+                    x = np.log(lc_i/(self.lc/(1+z)))
+                    grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
+
+                    TEFz = (2/(1+grow/grow.max())-1)*max_err
+            
+                    _ = _fit_obj(fnu_i, efnu_i, A, TEFz, self.zp, 100, fitter)
+                    chi2_i, coeffs_i, fmodel_i, draws = _
+                
+                    if draws is None:
+                        f_rest[ix,i,:] = np.zeros(len(percentiles),
+                                                  dtype=self.ARRAY_DTYPE) - 1
+                    else:
+                        dval = np.dot(draws, rf_tempfilt[iz,:,i])
+                        f_rest[ix,i,:] = np.percentile(dval, percentiles,
+                                                       axis=0)
+                        del(dval)
                     
         return rf_tempfilt, rf_lc, f_rest  
-        
-        #flam_sed = utils.CLIGHT*1.e10/(rf_tempfilt.lc*(1+z))**2/1.e-19
-        #fig.axes[0].errorbar(rf_tempfilt.lc*(1+z)/1.e4, f_rest_pad*fnu_factor*flam_sed, f_rest_err*fnu_factor*flam_sed, color='g', marker='s', linestyle='None')
-        
-        # covar_rms = np.zeros(NREST)
-        # covar_med = np.zeros(NREST)
-        # 
-        # chain_rms = np.zeros(NREST)
-        # chain_med = np.zeros(NREST)
-        # 
-        # if False:
-        #     ### Redo here
-        #     ok_band = (fnu_i > -90) & (efnu_i > 0)
-        #     var = efnu_i**2 + (TEFz*fnu_i)**2
-        #     rms = np.sqrt(var)
-        #     
-        #     #ok_band &= fnu_i > 2*rms
-        #     
-        #     coeffs_i, rnorm = nnls((A/rms).T[ok_band,:], (fnu_i/rms)[ok_band])
-        #     fmodel = np.dot(coeffs_i, A)
-        #     chi2_i = np.sum((fnu_i-fmodel)**2/var*ok_band)
-        #     
-        #     ok_temp = (np.sum(A, axis=1) > 0) & (coeffs_i != 0)
-        #     ok_temp = np.isfinite(coeffs_i)
-        #     Ax = A[:, ok_band][ok_temp,:].T
-        #     Ax *= 1/rms[ok_band][:, np.newaxis]
-        # 
-        #     try:
-        #         covar = np.matrix(np.dot(Ax.T, Ax)).I
-        #         covard = np.array(np.sqrt(covar.diagonal())).flatten()
-        #     except:
-        #         covard = np.zeros(ok_temp.sum())#-1.
-        #     
-        #     coeffs_err = coeffs_i*0.
-        #     coeffs_err[ok_temp] += covard
-        #     
-        #     draws = np.random.multivariate_normal(coeffs_i, covar, size=100)
-        #     covar_rms[i] = np.std(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
-        #     covar_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
-        #     
-        #     f_rest_err[i] = np.sqrt(np.dot(coeffs_err**2, rf_tempfilt.tempfilt**2))[i]
-        #     
-        #     fmodel_err = np.sqrt(np.dot(coeffs_err**2, A**2))
-        #     
-        #     NWALKERS = ok_temp.sum()*4
-        #     NSTEP = 1000
-        #     p0 = [coeffs_i+np.random.normal(size=ok_temp.sum())*covard for w in range(NWALKERS)]
-        #     
-        #     obj_fun = _obj_nnls
-        #     obj_args = [A[:,ok_band], fnu_i[ok_band], rms[ok_band]]
-        # 
-        #     ndim = len(coeffs_i)
-        # 
-        #     NTHREADS, NSTEP = 1, 1000
-        #     sampler = emcee.EnsembleSampler(NWALKERS, ndim, obj_fun, args = obj_args, threads=NTHREADS)
-        # 
-        #     t0 = time.time()
-        #     result = sampler.run_mcmc(p0, NSTEP)
-        #     t1 = time.time()
-        #     print 'Sampler: %.1f s' %(t1-t0)
-        # 
-        #     chain = unicorn.interlace_fit.emceeChain(chain=sampler.chain)
-        #     draws = chain.draw_random(100)
-        #     chain_rms[i] = np.std(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
-        #     chain_med[i] = np.median(np.dot(draws, rf_tempfilt.tempfilt), axis=0)[i]
-    
+
+
     def compute_tef_lnp(self, in_place=True):
         """
         Uncertainty + TEF component of the log likelihood
@@ -2403,13 +2423,44 @@ class PhotoZ(object):
         zbest[izmax == 0] = -1
         
         mask = (izmax > 0) & (izmax < self.NZ-1) & has_chi2
-        for iobj in self.idx[mask]:
-            iz = izmax[iobj]
-            
-            c = polyfit(self.zgrid[iz-1:iz+2], self.lnp[iobj, iz-1:iz+2], 2)
-            
-            zbest[iobj] = -c[1]/(2*c[0])
-            lnpmax[iobj] = polyval(c, zbest[iobj])
+        # for iobj in self.idx[mask]:
+        #     iz = izmax[iobj]
+        #     
+        #     c = polyfit(self.zgrid[iz-1:iz+2], self.lnp[iobj, iz-1:iz+2], 2)
+        #     
+        #     zbest[iobj] = -c[1]/(2*c[0])
+        #     lnpmax[iobj] = polyval(c, zbest[iobj])
+        
+        #####
+        # Analytic parabola fit
+        iz_ = izmax[self.idx[mask]]
+        
+        _x = np.array([self.zgrid[iz-1:iz+2] for iz in iz_])
+        _y = np.array([self.lnp[iobj, iz-1:iz+2] 
+                       for iz, iobj in zip(iz_, self.idx[mask])])
+
+        dx = np.diff(_x, axis=1).T
+        dx2 = np.diff(_x**2, axis=1).T
+        dy = np.diff(_y, axis=1).T
+
+        c2 = (dy[1]/dx[1] - dy[0]/dx[0]) / (dx2[1]/dx[1] - dx2[0]/dx[0])
+        c1 = (dy[0] - c2 * dx2[0])/dx[0]
+        c0 = _y.T[0] - c1*_x.T[0] - c2*_x.T[0]**2
+        
+        _m = self.idx[mask]
+        zbest[_m] = -c1/2/c2
+        lnpmax[_m] = c2*zbest[_m]**2+c1*zbest[_m]+c0
+        
+        del(_x)
+        del(_y)
+        del(iz_)
+        del(dx)
+        del(dx2)
+        del(dy)
+        del(c2)
+        del(c1)
+        del(c0)
+        del(_m)
         
         return zbest, lnpmax
             
@@ -3223,7 +3274,7 @@ class PhotoZ(object):
         
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, simple=False):#
+    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, simple=False):#
         """
         SPS output, stellar masses, etc.
         """
@@ -3240,7 +3291,7 @@ class PhotoZ(object):
         
         # Fit at max-lnp          
         self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
-                      get_err=get_err, fitter=fitter, 
+                      get_err=get_err, fitter=fitter, n_proc=0, 
                       clip_wavelength=clip_wavelength)
                     
         try:
@@ -4181,6 +4232,113 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose, fitter):
         chi2[iobj], coeffs[iobj], fmodel, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, False, fitter)
             
     return iz, chi2, coeffs
+
+def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, tempfilt, TEF, ARRAY_DTYPE, _self):
+    """
+    Standalone function for fitting individual objects and getting 
+    coefficients and random draws
+    """
+    #TEF, tempfilt = np.load(savefile, allow_pickle=True)
+    NOBJ = len(ix)
+    
+    NTEMP = tempfilt.NTEMP
+    if _self is None:
+        coeffs_best = np.zeros((NOBJ, tempfilt.NTEMP), dtype=ARRAY_DTYPE)
+        fmodel = np.zeros((NOBJ, tempfilt.NFILT), dtype=ARRAY_DTYPE)
+        efmodel = np.zeros((NOBJ, tempfilt.NFILT), dtype=ARRAY_DTYPE)
+        chi2_best = np.zeros(NOBJ, dtype=ARRAY_DTYPE)
+        coeffs_draws = np.zeros((NOBJ, 100, tempfilt.NTEMP),
+                                dtype=ARRAY_DTYPE)
+    else:
+        # In place, avoid making copies
+        coeffs_best = _self.coeffs_best
+        fmodel = _self.fmodel
+        efmodel = _self.efmodel
+        chi2_best = _self.chi2_best
+        coeffs_draws = _self.coeffs_draws
+        
+    idx = np.where((zbest > tempfilt.zgrid[0]) & 
+                   (zbest < tempfilt.zgrid[-1]))[0]
+    
+    for iobj in idx:
+        
+        zi = zbest[iobj]
+        A = tempfilt(zi)
+        TEFz = TEF(zi)
+
+        fnu_i = fnu_corr[iobj, :]
+        efnu_i = efnu_corr[iobj,:]
+        if get_err:
+            _ = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, 100, fitter)
+            chi2, coeffs_best[iobj,:], fmodel[iobj,:], draws = _
+            if draws is None:
+                efmodel[iobj,:] = -1
+            else:
+                #tf = self.tempfilt(zi)
+                efm = np.diff(np.percentile(np.dot(draws, A), [16,84], 
+                                            axis=0), axis=0)/2.
+                efmodel[iobj,:] = efm
+                coeffs_draws[iobj, :, :] = draws
+        else:
+            _ = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, False, fitter)
+            chi2, coeffs_best[iobj,:], fmodel[iobj,:], draws = _
+
+        chi2_best[iobj] = chi2
+    
+    if _self is None:
+        return ix, coeffs_best, fmodel, efmodel, chi2_best, coeffs_draws
+    else:
+        return True
+
+
+def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter, tempfilt, ARRAY_DTYPE, rf_tempfilt, percentiles, rf_lc, pad_width, max_err):
+    """
+    Standalone function for fitting rest-frame fluxes for individual objects
+    """
+    #TEF, tempfilt = np.load(savefile, allow_pickle=True)
+    NOBJ = len(ix)
+    NTEMP = tempfilt.NTEMP    
+    NREST = rf_tempfilt.shape[2]
+    f_rest = np.zeros((NOBJ, NREST, len(percentiles)),
+                      dtype=ARRAY_DTYPE)
+    
+    idx = np.where((zbest > tempfilt.zgrid[0]) & 
+                   (zbest < tempfilt.zgrid[-1]))[0]
+                
+    for iobj in idx:
+
+        fnu_i = fnu_corr[iobj,:]*1
+        efnu_i = efnu_corr[iobj,:]*1
+        z = zbest[iobj]
+        if (z < 0) | (~np.isfinite(z)):
+            continue
+        
+        A = tempfilt(z)   
+        iz = izbest[iobj]
+        
+        for i in range(NREST):
+            ## Grow uncertainties away from RF band
+            #lc_i = rf_tempfilt.lc[i]
+            lc_i = rf_lc[i]
+            
+            # Normal in log wavelength
+            x = np.log(lc_i/(tempfilt.lc/(1+z)))
+            grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
+
+            TEFz = (2/(1+grow/grow.max())-1)*max_err
+        
+            _ = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, 100, fitter)
+            chi2_i, coeffs_i, fmodel_i, draws = _
+            
+            if draws is None:
+                f_rest[iobj,i,:] = -1.
+            else:
+                dval = np.dot(draws, rf_tempfilt[iz,:,i])
+                f_rest[iobj,i,:] = np.percentile(dval, percentiles, axis=0)
+                del(dval)
+    
+    return ix, f_rest
+
 
 def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     from scipy.optimize import nnls
