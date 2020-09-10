@@ -849,7 +849,7 @@ class PhotoZ(object):
         
         return iobj, chi2, coeffs
     
-    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=8000, **kwargs):
+    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=10000, **kwargs):
         """
         Recompute the fit coefficients at the "best" redshift
         """
@@ -2245,7 +2245,7 @@ class PhotoZ(object):
         
         return tab
         
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=8000):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000):
         """
         Rest-frame fluxes, refit by down-weighting bands far away from 
         the desired RF band.
@@ -2568,13 +2568,27 @@ class PhotoZ(object):
         iz = np.argmin(np.abs(self.zgrid[:,None]-self.zbest[None,:]), axis=0)
         return iz
     
+     
+    def lcz(self, zbest=None):
+        """
+        Redshifted filter wavelengths using ``zbest``.
+        """
+        if zbest is None:
+            zbest = self.zbest
+            
+        _lcz = np.dot(1/(1+zbest[:, np.newaxis]), self.lc[np.newaxis,:])
+        return _lcz
+    
+        
     @property
     def izchi2(self):
         return np.argmin(self.chi2_fit, axis=1)
     
+    
     @property 
     def zchi2(self):
         return self.zgrid[self.izchi2]
+    
         
     @property 
     def izml(self):
@@ -2582,6 +2596,7 @@ class PhotoZ(object):
         ``zgrid`` index where ``lnp`` maximized
         """    
         return np.argmax(self.lnp)
+    
         
     def compute_full_risk(self):
         """
@@ -2608,6 +2623,7 @@ class PhotoZ(object):
         
         #self.full_risk = Rz
         #self.min_risk = self.zgrid[np.argmin(Rz, axis=1)]
+    
         
     def compute_best_risk(self):
         """
@@ -2630,10 +2646,12 @@ class PhotoZ(object):
         del(L)
         
         return zbest_risk
+    
         
     @staticmethod    
     def _loss(dz, gamma=0.15):
         return 1-1/(1+(dz/gamma)**2)
+    
     
     def PIT(self, zspec):
         """
@@ -2648,6 +2666,7 @@ class PhotoZ(object):
         
         return PIT
         
+    
     def cdf_percentiles(self, cdf_sigmas=CDF_SIGMAS, **kwargs):
         """
         Percentiles in terms of ``\sigma`` for a normal distribution
@@ -2657,6 +2676,7 @@ class PhotoZ(object):
         zlimits = self.pz_percentiles(percentiles=cdf_percentiles, **kwargs)
         return zlimits
         
+    
     def pz_percentiles(self, percentiles=[2.5,16,50,84,97.5], oversample=5,
                        selection=None):
         """
@@ -2706,6 +2726,7 @@ class PhotoZ(object):
         
         return zlimits
     
+    
     def find_peaks(self):
         import peakutils
         
@@ -2721,6 +2742,7 @@ class PhotoZ(object):
             numpeaks[i] = len(indices)
         
         return peaks, numpeaks
+    
     
     def abs_mag(self, f_numbers=[271, 272, 274], cosmology=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5], 'pad_width':0.5, 'max_err':0.5, 'verbose':False, 'simple':False}):
         """
@@ -2773,6 +2795,7 @@ class PhotoZ(object):
         
         return tab
                       
+    
     def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), simple=False):
         """
         Rest-frame colors and population parameters
