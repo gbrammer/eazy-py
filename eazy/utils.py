@@ -510,6 +510,17 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
     return fig
 
 
+def query_html(ra, dec):
+    """
+    Return HTML string of queries at a position
+    """
+    html = f"({ra:.6f}, {dec:.6f}) "
+    for func, name in zip([cds_query, eso_query, mast_query, alma_query, show_legacysurvey, hscmap_query], ['CDS','ESO','MAST','ALMA', 'LEG','HSC']):
+        url = func(ra, dec)
+        html += f' <a href="{url}">{name}</a>'
+    
+    return html
+    
 def cds_query(ra, dec, radius=1.):
     """
     Open browswer with CDS catalog query around central position
@@ -517,11 +528,11 @@ def cds_query(ra, dec, radius=1.):
     #rd = self.get('pan fk5').strip()
     rd = f'{ra} {dec}'
     rdst = rd.replace('+', '%2B').replace('-', '%2D').replace(' ', '+')
-    url = (f'"http://vizier.u-strasbg.fr/viz-bin/VizieR?'
-           f'-c={rdst}&-c.rs={radius:.1f}"')
+    url = (f'http://vizier.u-strasbg.fr/viz-bin/VizieR?'
+           f'-c={rdst}&-c.rs={radius:.1f}')
            
-    os.system(f'open {url}')
-
+    #os.system(f'open {url}')
+    return url
 
 def eso_query(ra, dec, radius=1., dp_types=['CUBE','IMAGE'], extra=''):
     """
@@ -533,11 +544,11 @@ def eso_query(ra, dec, radius=1., dp_types=['CUBE','IMAGE'], extra=''):
     
     dp_type = ','.join(dp_types)
     
-    url = (f'"https://archive.eso.org/scienceportal/home?'
-            f'pos={ra},{dec}&r={radius/60.}&dp_type={dp_type}{extra}"')
+    url = (f'https://archive.eso.org/scienceportal/home?'
+            f'pos={ra},{dec}&r={radius/60.}&dp_type={dp_type}{extra}')
                     
-    os.system(f'open {url}')
-
+    #os.system(f'open {url}')
+    return url
 
 def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], max=1000):
     """
@@ -549,22 +560,42 @@ def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], max=1000):
     else:
         instr = ''
         
-    url = (f'"https://archive.stsci.edu/hst/search.php?RA={ra}&DEC={dec}'
+    url = (f'https://archive.stsci.edu/hst/search.php?RA={ra}&DEC={dec}'
            f'&sci_aec=S{instr}&max_records={max}&outputformat=HTML_Table'
-            '&action=Search"')
+            '&action=Search')
             
-    os.system(f'open {url}')
+    #os.system(f'open {url}')
+    return url
 
-
-def alma_query(ra, dec, mirror="almascience.eso.org", extra=''):
+def alma_query(ra, dec, mirror="almascience.eso.org", radius=1, extra=''):
     """
     Open browser with ALMA archive query around central position
     """
     #ra, dec = self.get('pan fk5').strip().split()
 
     url = (f"https://{mirror}/asax/?result_view=observation"
-           f"&raDec={ra}%20{dec}{extra}")
-    os.system(f'open "{url}"')
+           f"&raDec={ra}%20{dec},{radius}{extra}")
+    #os.system(f'open "{url}"')
+    return url
+
+
+def hscmap_query(ra, dec, open=True):
+    """
+    Function to open HSC explorer in browser centered on target coordinates
+    """
+    
+    import os
+    rrad = ra/180*np.pi
+    drad = dec/180*np.pi
+    url = (f"https://hsc-release.mtk.nao.ac.jp/hscMap-pdr2/app/#/?_=%7B%22view%22%3A%7B%22a%22%3A{rrad},%22d%22%3A{drad}"
+           ",%22fovy%22%3A0.00009647627785850188,%22roll%22%3A0%7D,%22sspParams%22%3A%7B%22type%22%3A%22"
+           "SDSS_TRUE_COLOR%22,%22filter%22%3A%5B%22HSC-Y%22,%22HSC-Z%22,%22HSC-I%22%5D,%22simpleRgb"
+           "%22%3A%7B%22beta%22%3A22026.465794806718,%22a%22%3A1,%22bias%22%3A0.05,%22b0%22%3A0%7D,%22"
+           "sdssTrueColor%22%3A%7B%22beta%22%3A40106.59228119989,%22a%22%3A2.594451857120983,%22bias%22%3A0.05,"
+           "%22b0%22%3A0%7D%7D,%22externalTiles%22%3A%5B%5D,%22activeReruns%22%3A%5B%22pdr2_wide%22,%22pdr2_dud"
+           "%22%5D%7D")
+        
+    return url
 
 
 def show_legacysurvey(ra, dec, layer='dr8', zoom=14):
@@ -572,10 +603,11 @@ def show_legacysurvey(ra, dec, layer='dr8', zoom=14):
     Open browser with legacysurvey.org panner around central position
     """
     #ra, dec = self.get('pan fk5').strip().split()
-    url = (f'"http://legacysurvey.org/viewer?ra={ra}&dec={dec}'
-           f'&layer={layer}&zoom={zoom}"')
+    url = (f'http://legacysurvey.org/viewer?ra={ra}&dec={dec}'
+           f'&layer={layer}&zoom={zoom}')
             
-    os.system(f'open {url}')
+    #os.system(f'open {url}')
+    return url
     
 def interp_conserve(x, xp, fp, left=0., right=0.):
     """
