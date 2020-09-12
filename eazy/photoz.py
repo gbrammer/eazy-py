@@ -752,6 +752,7 @@ class PhotoZ(object):
         
         if idx is None:
             idx_fit = self.idx
+            selection = self.idx > -1
         else:
             if idx.dtype == bool:
                 idx_fit = self.idx[idx]
