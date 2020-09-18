@@ -25,6 +25,6 @@ Installation instructions
     # Environment variable to point to the repo containing filter/template files
     echo "export EAZYCODE=${PWD}/eazy-py/eazy-photoz" >> ~/.bashrc
     
-    # Build the python code
+    # Build the python code and install it in your python env
     cd eazy-py
-    python setup.py install
+    pip install .  
