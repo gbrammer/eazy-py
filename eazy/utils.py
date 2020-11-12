@@ -384,7 +384,7 @@ def abs_mag_to_luminosity(absmag, pivot=None, output_unit=u.L_sun):
     f10 = fjy * 4 * np.pi * d10**2 * nu
     return f10.to(output_unit)
     
-def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2, selection=None, catastrophic_limit=0.15, title=None, min_zphot=0.02, alpha=0.2, extra_xlabel='', extra_ylabel='', xlabel=r'$z_\mathrm{spec}$', ylabel=r'$z_\mathrm{phot}$', label_pos=(0.05, 0.95), label_kwargs=dict(ha='left', va='top', fontsize=10), label_prefix='', format_axes=True, **kwargs):
+def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2, selection=None, catastrophic_limit=0.15, title=None, min_zphot=0.02, alpha=0.2, extra_xlabel='', extra_ylabel='', xlabel=r'$z_\mathrm{spec}$', ylabel=r'$z_\mathrm{phot}$', label_pos=(0.05, 0.95), label_kwargs=dict(ha='left', va='top', fontsize=10), label_prefix='', format_axes=True, color='k', point_label=None, **kwargs):
     """
     Make zphot_zspec plot scaled by log(1+z) and show uncertainties
     """
@@ -411,7 +411,8 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
         ax = fig.add_subplot(gs[0,0])
     else:
         ax = axes[0]
-
+        fig = None
+        
     if title is not None:
         ax.set_title(title)
 
@@ -425,7 +426,7 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
         ax.errorbar(np.log10(1+zspec[clip & clip_cat]), 
                     np.log10(1+zphot[clip & clip_cat]), 
                     yerr=yerr[:,clip & clip_cat], marker='.', alpha=alpha, 
-                    color='k', linestyle='None')
+                    color=color, linestyle='None', label=point_label)
     else:
         ax.scatter(np.log10(1+zspec[clip & ~clip_cat]),
                    np.log10(1+zphot[clip & ~clip_cat]), 
@@ -433,7 +434,7 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
 
         ax.scatter(np.log10(1+zspec[clip & clip_cat]), 
                    np.log10(1+zphot[clip & clip_cat]), 
-                   marker='.', alpha=alpha, color='k')
+                   marker='.', alpha=alpha, color=color, label=point_label)
         
     if NEW_AXES | format_axes:
         xt = np.arange(zmin, zmax+0.1, minor)
@@ -457,7 +458,6 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
                 ax.set_xlabel(xlabel + extra_xlabel)
             
         ax.set_yticks(xl); ax.set_yticklabels(xtl);
-        ax.grid()
         ax.set_ylabel(ylabel + extra_ylabel)
 
     sample_nmad = nmad(dz[clip])
@@ -496,18 +496,21 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
         ax.scatter(np.log10(1+zspec[clip & clip_cat]), dz[clip & clip_cat],
                     marker='.', alpha=alpha, color='k')
         
-    ax.set_xticks(xl); ax.set_xticklabels(xtl);
-    ax.set_xlim(xl[0], xl[-1])
-    ax.set_ylim(-6*sample_nmad, 6*sample_nmad)
-    ax.set_yticks([-3*sample_nmad, 0, 3*sample_nmad])
-    ax.set_yticklabels([r'$-3\sigma$',r'$0$',r'$+3\sigma$'])
-    ax.set_xlabel(xlabel + extra_xlabel)
-    ax.set_ylabel(r'$\Delta z / 1+z$')
-    ax.grid()
+    if fig is not None:
+        ax.set_xticks(xl); ax.set_xticklabels(xtl);
+        ax.set_xlim(xl[0], xl[-1])
+        ax.set_ylim(-6*sample_nmad, 6*sample_nmad)
+        ax.set_yticks([-3*sample_nmad, 0, 3*sample_nmad])
+        ax.set_yticklabels([r'$-3\sigma$',r'$0$',r'$+3\sigma$'])
+        ax.set_xlabel(xlabel + extra_xlabel)
+        ax.set_ylabel(r'$\Delta z / 1+z$')
+        for a in fig.axes:
+            a.grid()
 
-    fig.tight_layout(pad=0.1)
-    
-    return fig
+        fig.tight_layout(pad=0.1)
+        return fig
+    else:
+        return True
 
 
 def query_html(ra, dec):
