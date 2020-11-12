@@ -1265,7 +1265,7 @@ class ExtendedFsps(StellarPopulation):
                 self.dust_obj = averages.C00(Av=Av)
             elif dust_obj_type == 'R15':
                 self.dust_obj = Reddy15(Av=Av, bump_ampl=2.)
-            elif hasaattr(dust_obj_type, 'extinguish'):
+            elif hasattr(dust_obj_type, 'extinguish'):
                 self.dust_obj = dust_obj_type
             else:
                 self.dust_obj = KC13(Av=Av)
