@@ -1292,7 +1292,7 @@ class ExtendedFsps(StellarPopulation):
         else:
             return 10**(-0.4*self.dust_obj(wave))
             
-    def get_full_spectrum(self, tage=1.0, Av=0., get_template=True, set_all_templates=False, z=None, **kwargs):
+    def get_full_spectrum(self, tage=1.0, Av=0., get_template=True, set_all_templates=False, z=None, tie_metallicity=True, **kwargs):
         """
         Get full spectrum with reprocessed emission lines and dust emission
         
@@ -1338,6 +1338,9 @@ class ExtendedFsps(StellarPopulation):
         
         if 'zmet' not in kwargs:
             self.params['zmet'] = self.izmet
+        
+        if ('gas_logz' not in kwargs) & tie_metallicity:
+            self.params['gas_logz'] = self.params['logzol']
             
         # Run the emission line function
         if tage is None:
