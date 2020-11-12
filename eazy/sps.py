@@ -1791,7 +1791,7 @@ class ExtendedFsps(StellarPopulation):
         to_cgs = (1*L_sun/(4*np.pi*dL**2)).to(unit)
         
         if target_stellar_mass is not None:
-            to_cgs *= target_mass / self.stellar_mass
+            to_cgs *= target_stellar_mass / self.stellar_mass
         elif target_sfr is not None:
             to_cgs *= target_sfr / self.sfr100
         elif target_lir is not None:
@@ -1839,7 +1839,7 @@ class ExtendedFsps(StellarPopulation):
             obs_unit = (1*L_sun/u.Hz/(4*np.pi*dL**2)).to(unit)*(1+zred)
         
         if target_stellar_mass is not None:
-            obs_unit *= target_mass / self.stellar_mass
+            obs_unit *= target_stellar_mass / self.stellar_mass
         elif target_sfr is not None:
             obs_unit *= target_sfr / self.sfr100
         elif target_lir is not None:
