@@ -1340,7 +1340,7 @@ class ExtendedFsps(StellarPopulation):
             self.params['zmet'] = self.izmet
         
         if ('gas_logz' not in kwargs) & tie_metallicity:
-            self.params['gas_logz'] = self.params['logzol']
+            self.params['gas_logz'] = self.params['logszol']
             
         # Run the emission line function
         if tage is None:
@@ -1551,12 +1551,21 @@ class ExtendedFsps(StellarPopulation):
             
             for i in range(len(self.emline_wavelengths)):
                 n = self.emline_names[i]
-                meta['line {0}'.format(n)] = self.emline_luminosity[i]
+                if n in self.scale_lines:
+                    kscl = self.scale_lines[n]
+                else:
+                    kscl = 1.0
+                
+                meta[f'scale {n}'] = kscl
+                meta[f'line {n}'] = self.emline_luminosity[i]*kscl
                 if has_red:
-                    meta['rline {0}'.format(n)] = self.emline_reddened[i]
+                    meta[f'rline {n}'] = self.emline_reddened[i]*kscl
                     
-                meta['eqw {0}'.format(n)] = self.emline_eqw[i]
-        
+                meta[f'eqw {n}'] = self.emline_eqw[i]
+                meta[f'sigma {n}'] = self.emline_sigma[i]
+
+                    
+                
         # Band information
         if hasattr(self, '_meta_bands'):
             light_ages = self.light_age_band(self._meta_bands, flat=False)
@@ -1568,8 +1577,8 @@ class ExtendedFsps(StellarPopulation):
             band_lum = [f*w for f, w in zip(band_flux, band_waves)]
             
             for i, b in enumerate(self._meta_bands):
-                meta['lwage_'+b] = light_ages[i]
-                meta['lum_'+b] = band_lum[i].value
+                meta[f'lwage_{b}'] = light_ages[i]
+                meta[f'lum_{b}'] = band_lum[i].value
         try:
             meta['libraries'] = ';'.join([s.decode() for s in self.libraries])  
         except:
