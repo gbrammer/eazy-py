@@ -1340,7 +1340,7 @@ class ExtendedFsps(StellarPopulation):
             self.params['zmet'] = self.izmet
         
         if ('gas_logz' not in kwargs) & tie_metallicity:
-            self.params['gas_logz'] = self.params['logszol']
+            self.params['gas_logz'] = self.params['logzsol']
             
         # Run the emission line function
         if tage is None:
