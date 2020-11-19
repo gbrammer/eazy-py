@@ -1763,7 +1763,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
                 
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, show_redshift_draws=False, zshow=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=0):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, show_redshift_draws=False, zshow=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=0, show_upperlimits=True, snr_thresh=2.):
         """
         Show SED and p(z) of a single object
         
@@ -1809,6 +1809,13 @@ class PhotoZ(object):
         axes : None or list
             If provided, draw the SED and p(z) panels into the provided axes.
             If just one axis is provided, then just plot the SED.
+
+        show_upper_limits: bool
+            If False, then the upper limit errorbar measurements will not be shown.
+
+        snr_thresh: float
+            Sets the threshold in SNR required for a detection.
+            Default is 2.
             
         Returns
         -------
@@ -1976,10 +1983,10 @@ class PhotoZ(object):
         missing = (fnu_i < self.param.params['NOT_OBS_THRESHOLD']) | (efnu_i < 0)
         
         # Detection
-        sn2_detection = (~missing) & (fnu_i/efnu_i > 2)
+        sn2_detection = (~missing) & (fnu_i/efnu_i > snr_thresh)
         
         # S/N < 2
-        sn2_not = (~missing) & (fnu_i/efnu_i <= 2)
+        sn2_not = (~missing) & (fnu_i/efnu_i <= snr_thresh)
         
         ax.errorbar(self.lc[sn2_detection]/1.e4, 
                     (fnu_i*fnu_factor*flam_sed)[sn2_detection], 
@@ -1987,10 +1994,11 @@ class PhotoZ(object):
                     color='k', marker='s', linestyle='None', label=None, 
                     zorder=10)
 
-        ax.errorbar(self.lc[sn2_not]/1.e4, 
-                    (fnu_i*fnu_factor*flam_sed)[sn2_not], 
-                    (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', 
-                    marker='s', alpha=0.4, linestyle='None', label=None)
+        if show_upperlimits:
+            ax.errorbar(self.lc[sn2_not]/1.e4, 
+                        (fnu_i*fnu_factor*flam_sed)[sn2_not], 
+                        (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', 
+                        marker='s', alpha=0.4, linestyle='None', label=None)
 
         if show_missing:
             ax.errorbar(self.lc[missing]/1.e4, 
