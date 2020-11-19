@@ -45,7 +45,7 @@ NUVRK_FILTERS = [121, 158, 163]
 CDF_SIGMAS = np.linspace(-5, 5, 51)
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True):
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None):
         """
         Main object for fitting templates / photometric redshifts
         """
@@ -152,13 +152,16 @@ class PhotoZ(object):
         ### Interpolate templates
         #self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.filters, add_igm=True, galactic_ebv=0.0354)
         
-        print('Template grid: {0} (this may take some time)'.format(self.param['TEMPLATES_FILE']))
+        if tempfilt is None:
+            print('Template grid: {0} (this may take some time)'.format(self.param['TEMPLATES_FILE']))
         
-        t0 = time.time()
-        self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
-        t1 = time.time()
-        print('Process templates: {0:.3f} s'.format(t1-t0))
-        
+            t0 = time.time()
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
+            t1 = time.time()
+            print('Process templates: {0:.3f} s'.format(t1-t0))
+        else:
+            self.tempfilt = tempfilt
+            
         ### Template Error
         self.set_template_error(compute_tef_lnp=compute_tef_lnp)
         
@@ -344,7 +347,7 @@ class PhotoZ(object):
                 
         #self.NFILT = len(self.filters)
         self.fnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
-        self.efnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
+        efnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
         self.spatial_offset = None
         
         self.fmodel = self.fnu*0.
@@ -368,14 +371,14 @@ class PhotoZ(object):
         
         for i in range(self.NFILT):
             self.fnu[:,i] = self.cat[self.flux_columns[i]]*1
-            self.efnu[:,i] = self.cat[self.err_columns[i]]*1
+            efnu[:,i] = self.cat[self.err_columns[i]]*1
             if self.err_columns[i] in self.translate.error:
-                self.efnu[:,i] *= self.translate.error[self.err_columns[i]]
+                efnu[:,i] *= self.translate.error[self.err_columns[i]]
                 
-        self.efnu_orig = self.efnu*1.
+        self.efnu_orig = efnu*1.
         #self.fnu_orig = self.fnu*1.
         
-        self.efnu = np.sqrt(self.efnu**2+(self.param['SYS_ERR']*self.fnu)**2)
+        self.efnu = np.sqrt(self.efnu_orig**2+(self.param['SYS_ERR']*self.fnu)**2)
         
         self.ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
         self.fnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
@@ -976,7 +979,8 @@ class PhotoZ(object):
         if verbose:
             print('`error_residuals`: force uncertainties to match residuals')
             
-        self.efnu = self.efnu_orig*1
+        #self.efnu = self.efnu_orig*1
+        self.efnu = np.sqrt(self.efnu_orig**2+(self.param['SYS_ERR']*self.fnu)**2)
 
         # residual
         r = np.abs(self.fmodel - self.fnu*self.ext_redden*self.zp)
@@ -3875,6 +3879,7 @@ class PhotoZ(object):
         mask &= (self.efnu_orig[:,f_ix] > 0)
         self.fnu[mask,f_ix] *= corr[mask]
         self.efnu_orig[mask,f_ix] *= corr[mask]
+        self.efnu = np.sqrt(self.efnu_orig**2+(self.param['SYS_ERR']*self.fnu)**2)
 
 
     def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None):

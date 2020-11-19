@@ -73,9 +73,12 @@ class Redden():
             (passed as tau_V for `WG00`)
             
         """
-        allowed = ['smc', 'lmc', 'mw', 'f99', 'c00', 'calzetti00', 'wg00']
-        
+        allowed = ['smc', 'lmc', 'mw', 'f99', 'c00', 'calzetti00', 'wg00',
+                   'kc13','reddy15','zafar15']
+                
         if isinstance(model, str):
+            self.model_name = model
+        
             if model in ['smc']:
                 from dust_extinction.averages import G03_SMCBar
                 self.model = G03_SMCBar()
@@ -88,6 +91,15 @@ class Redden():
             elif model in ['calzetti00', 'c00']:
                 from dust_attenuation.averages import C00
                 self.model = C00(Av=Av)
+            elif model.lower() in ['kc13']:
+                from eazy.sps import KC13
+                self.model = KC13(Av=Av, **kwargs)
+            elif model.lower() in ['reddy15']:
+                from eazy.sps import Reddy15
+                self.model = Reddy15(Av=Av, **kwargs)
+            elif model.lower() in ['zafar15']:
+                from eazy.sps import Zafar15
+                self.model = Zafar15(Av=Av)
             elif model in ['wg00']:
                 from dust_attenuation.radiative_transfer import WG00
                 if 'tau_V' in kwargs:
@@ -99,7 +111,8 @@ class Redden():
                 raise IOError(msg.format(model=model, allowed=allowed))
         else:
             self.model = model
-        
+            self.model_name = 'Unknown'
+            
         for k in ['Av', 'tau_V']:
             if hasattr(model, k):
                 Av = getattr(model, k)
@@ -638,8 +651,8 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
     from astropy.table import Table
     import astropy.io.fits as pyfits
 
-    if os.path.exists(os.path.join('./templates/stars/', file)):
-        hdu = pyfits.open(os.path.join('./templates/stars/', file))
+    if os.path.exists(os.path.join('./templates/', file)):
+        hdu = pyfits.open(os.path.join('./templates/', file))
     else:
         url = 'https://s3.amazonaws.com/grizli/CONF'
         print('Fetch {0}/{1}'.format(url, file))
@@ -803,3 +816,13 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
 #         if not silent:
 #             return self.igm_lambda, self.igm_factor
 
+def param_table(templates):
+    """
+    Try to generate parameters for a list of templates from their 
+    metadata
+    
+    (TBD)
+    """
+    pass
+    
+    

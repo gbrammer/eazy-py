@@ -8,6 +8,9 @@ import numpy as np
 import astropy.units as u
 from astropy.cosmology import WMAP9
 
+FLAM_CGS = u.erg/u.second/u.cm**2/u.Angstrom
+LINE_CGS = 1.e-17*u.erg/u.second/u.cm**2
+
 try:
     from dust_attenuation.baseclasses import BaseAttAvModel
 except:
@@ -572,6 +575,55 @@ def fit_dust_wg00():
         ax.grid()
         coeffs[_fit.param_names[i]] = c
 
+class Zafar15(BaseAttAvModel):
+    """
+    Quasar extinction curve from Zafar et al. (2015)
+        
+    https://ui.adsabs.harvard.edu/abs/2015A%26A...584A.100Z/abstract
+    """
+    name = 'Zafar+15'
+    #bump_ampl = 1.
+        
+    Rv = 2.21 # err 0.22
+    
+    @staticmethod
+    def Alam(mu, Rv):
+        """
+        klam, eq. 1
+        """
+        x = 1/mu
+                
+        # My fit
+        coeffs = np.array([0.05694421, 0.57778243, -0.12417444])
+        Alam = np.polyval(coeffs, x)*2.21/Rv
+        
+        # Only above x > 5.90
+        fuv = x > 5.90
+        if fuv.sum() > 0:
+            Afuv = 1/Rv*(-4.678+2.355*x + 0.622*(x-5.90)**2) + 1.
+            Alam[fuv] = Afuv[fuv]
+            
+        return Alam
+            
+    def evaluate(self, x, Av):
+       
+        if not hasattr(x, 'unit'):
+            xin = np.atleast_1d(x)*u.micron
+        else:
+            xin = np.atleast_1d(x)
+        
+        mu = xin.to(u.micron).value
+
+        alam = self.Alam(mu, self.Rv) #*self.Rv
+
+        # Rv = Av/EBV
+        # EBV=Av/Rv
+        # Ax = Alam/Av
+        # 
+        # klam = Alam/EBV
+        # Alam = klam*EBV = klam*Av/Rv
+        return np.maximum(alam*Av, 0.)
+        
 class Reddy15(BaseAttAvModel):
     """
     Attenuation curve from Reddy et al. (2015)
@@ -690,9 +742,9 @@ class KC13(BaseAttAvModel):
         from dust_attenuation import averages, shapes, radiative_transfer
 
         # Allow extrapolation
-        shapes.x_range_N09 = [0.009, 2.e8] 
-        averages.x_range_C00 = [0.009, 2.e8]
-        averages.x_range_L02 = [0.009, 0.18]
+        shapes.x_range_N09 = [0.9e-4, 2.e8] 
+        averages.x_range_C00 = [0.9e-4, 2.e8]
+        averages.x_range_L02 = [0.9e-4, 0.18]
 
         self.N09 = shapes.N09()
                 
@@ -828,7 +880,8 @@ BOUNDS['zred'] = [0.0, 13, 1.e-4]
 BOUNDS['Av'] = [0.0, 15, 0.05]
 BOUNDS['gas_logu'] = [-4, 0, 0.05]
 BOUNDS['gas_logz'] = [-2, 0.3, 0.05]
-BOUNDS['sigma_smooth'] = [0, 500, 0.05]
+BOUNDS['logzsol'] = [-2, 0.3, 0.05]
+BOUNDS['sigma_smooth'] = [100, 500, 0.05]
 
 def wuyts_line_Av(Acont):
     """
@@ -853,6 +906,16 @@ class ExtendedFsps(StellarPopulation):
     line_av_func = None
     
     #_meta_bands = ['v']
+    
+    @property
+    def izmet(self):
+        """
+        Get zmet index for nearest ``self.zlegend`` value to ``loggzsol``.
+        """
+        NZ = len(self.zlegend)
+        logzsol = self.params['logzsol']
+        zi = np.interp(logzsol, np.log10(self.zlegend/0.019), np.arange(NZ))
+        return np.clip(np.cast[int](np.round(zi)), 0, NZ-1)
     
     @property
     def fsps_ages(self):
@@ -1202,6 +1265,8 @@ class ExtendedFsps(StellarPopulation):
                 self.dust_obj = averages.C00(Av=Av)
             elif dust_obj_type == 'R15':
                 self.dust_obj = Reddy15(Av=Av, bump_ampl=2.)
+            elif hasattr(dust_obj_type, 'extinguish'):
+                self.dust_obj = dust_obj_type
             else:
                 self.dust_obj = KC13(Av=Av)
                 
@@ -1221,7 +1286,13 @@ class ExtendedFsps(StellarPopulation):
         else:
             self.dust_obj.Av = Av
     
-    def get_full_spectrum(self, tage=1.0, Av=0., get_template=True, set_all_templates=False, **kwargs):
+    def redden(self, wave):
+        if hasattr(self.dust_obj, 'extinguish'):
+            return self.dust_obj.extinguish(wave, Av=self.Av)
+        else:
+            return 10**(-0.4*self.dust_obj(wave))
+            
+    def get_full_spectrum(self, tage=1.0, Av=0., get_template=True, set_all_templates=False, z=None, tie_metallicity=True, **kwargs):
         """
         Get full spectrum with reprocessed emission lines and dust emission
         
@@ -1265,6 +1336,12 @@ class ExtendedFsps(StellarPopulation):
             if k in self.params.all_params:
                 self.params[k] = kwargs[k]
         
+        if 'zmet' not in kwargs:
+            self.params['zmet'] = self.izmet
+        
+        if ('gas_logz' not in kwargs) & tie_metallicity:
+            self.params['gas_logz'] = self.params['logzsol']
+            
         # Run the emission line function
         if tage is None:
             tage = self.params['tage']
@@ -1284,32 +1361,32 @@ class ExtendedFsps(StellarPopulation):
             # To template
             red = (wave > 1000)*1.
             wlim = (wave > 1000) & (wave < 3.e4)
-            red[wlim] = 10**(-0.4*self.dust_obj(wave[wlim]*u.Angstrom))
+            red[wlim] = self.redden(wave[wlim]*u.Angstrom)
             
             # To lines
             red_lines = (self.emline_wavelengths > 1000)*1.
             wlim = (self.emline_wavelengths > 1000) 
             wlim &= (self.emline_wavelengths < 3.e4)
-            Alam  = self.dust_obj(self.emline_wavelengths[wlim]*u.Angstrom)
-            red_lines[wlim] = 10**(-0.4*Alam)
+            line_wave = self.emline_wavelengths[wlim]*u.Angstrom
+            red_lines[wlim] = self.redden(line_wave)
             
         else:
-            red = 10**(-0.4*self.dust_obj(wave*u.Angstrom))
+            red = self.redden(wave*u.Angstrom)
             
             if self.line_av_func is None:
                 self.Av_line = self.Av*1.
                 red_lines_full = red
-                Alam = self.dust_obj(self.emline_wavelengths*u.Angstrom)
-                red_lines = 10**(-0.4*Alam)
+                line_wave = self.emline_wavelengths*u.Angstrom
+                red_lines = self.redden(line_wave)
             else:
                 # Differential reddening towards nebular lines
                 self.Av_line = self.line_av_func(Av)
                 self.set_dust(Av=self.Av_line,
                               dust_obj_type=self.dust_obj_type)
                 
-                red_lines_full = 10**(-0.4*self.dust_obj(wave*u.Angstrom))
-                Alam = self.dust_obj(self.emline_wavelengths*u.Angstrom)
-                red_lines = 10**(-0.4*Alam)
+                red_lines_full = self.redden(wave*u.Angstrom)
+                line_wave = self.emline_wavelengths*u.Angstrom
+                red_lines = self.redden(line_wave)
                 
                 # Reset for continuum
                 self.set_dust(Av=Av, dust_obj_type=self.dust_obj_type)
@@ -1342,8 +1419,8 @@ class ExtendedFsps(StellarPopulation):
             
             # Original wavelength grid
             owave = self.wavelengths
-            oAlam = self.dust_obj(owave[self.wg00lim]*u.Angstrom)
-            self.wg00red[self.wg00lim] = 10**(-0.4*oAlam)
+            owave = owave[self.wg00lim]*u.Angstrom
+            self.wg00red[self.wg00lim] = self.redden(owave)
             ofir = self.fir_template*self.energy_absorbed
             fl_orig = _['flux_line']*self.wg00red + ofir
             self.templ_orig = self.as_template(owave, fl_orig, meta=meta0)
@@ -1474,12 +1551,21 @@ class ExtendedFsps(StellarPopulation):
             
             for i in range(len(self.emline_wavelengths)):
                 n = self.emline_names[i]
-                meta['line {0}'.format(n)] = self.emline_luminosity[i]
+                if n in self.scale_lines:
+                    kscl = self.scale_lines[n]
+                else:
+                    kscl = 1.0
+                
+                meta[f'scale {n}'] = kscl
+                meta[f'line {n}'] = self.emline_luminosity[i]*kscl
                 if has_red:
-                    meta['rline {0}'.format(n)] = self.emline_reddened[i]
+                    meta[f'rline {n}'] = self.emline_reddened[i]*kscl
                     
-                meta['eqw {0}'.format(n)] = self.emline_eqw[i]
-        
+                meta[f'eqw {n}'] = self.emline_eqw[i]
+                meta[f'sigma {n}'] = self.emline_sigma[i]
+
+                    
+                
         # Band information
         if hasattr(self, '_meta_bands'):
             light_ages = self.light_age_band(self._meta_bands, flat=False)
@@ -1491,8 +1577,8 @@ class ExtendedFsps(StellarPopulation):
             band_lum = [f*w for f, w in zip(band_flux, band_waves)]
             
             for i, b in enumerate(self._meta_bands):
-                meta['lwage_'+b] = light_ages[i]
-                meta['lum_'+b] = band_lum[i].value
+                meta[f'lwage_{b}'] = light_ages[i]
+                meta[f'lum_{b}'] = band_lum[i].value
         try:
             meta['libraries'] = ';'.join([s.decode() for s in self.libraries])  
         except:
@@ -1575,7 +1661,7 @@ class ExtendedFsps(StellarPopulation):
                 
         return (blo, bhi), steps
             
-    def fit_spec(wave_obs, flux_obs, err_obs, mask=None, plist=['tage', 'Av', 'gas_logu', 'sigma_smooth'], func_kwargs={'lorentz':False}, verbose=True, bspl_kwargs=None, lsq_kwargs={'method':'trf', 'max_nfev':200, 'loss':'huber', 'x_scale':1.0, 'verbose':True}, show=False):
+    def fit_spec(self, wave_obs, flux_obs, err_obs, mask=None, plist=['tage', 'Av', 'gas_logu', 'sigma_smooth'], func_kwargs={'lorentz':False}, verbose=True, bspl_kwargs=None, lsq_kwargs={'method':'trf', 'max_nfev':200, 'loss':'huber', 'x_scale':1.0, 'verbose':True}, show=False):
         """
         Fit models to observed spectrum
         """
@@ -1627,7 +1713,7 @@ class ExtendedFsps(StellarPopulation):
         #lsq_kwargs['diff_step'] = 0.05
         lsq_kwargs['diff_step'] = steps
         lmargs = (self, plist, wave_obs, flux_obs, err_obs, mask, bspl, kwargs, 'least_squares verbose')        
-        _res = least_squares(objfun_fitspec, theta0, bounds=bounds, args=lmargs, **lsq_kwargs)
+        _res = least_squares(self.objfun_fitspec, theta0, bounds=bounds, args=lmargs, **lsq_kwargs)
         
         fit_model, Anorm, chi2_fit = objfun_fitspec(_res.x, *margs)
         
@@ -1652,6 +1738,8 @@ class ExtendedFsps(StellarPopulation):
         flux_model = templ.resample(wave_obs, z=self.params['zred'],
                                    in_place=False,
                                    return_array=True, interp_func=interp_func)
+        
+        flux_model = flux_model.flatten()
         
         if mask is None:
             mask = np.isfinite(flux_model+flux_obs+err_obs) & (err_obs > 0)
@@ -1684,9 +1772,15 @@ class ExtendedFsps(StellarPopulation):
         else:
             return chi2
     
-    def line_to_obsframe(self, zred=None, cosmology=None, verbose=False, unit=u.erg/u.second/u.cm**2):
+    def line_to_obsframe(self, zred=None, cosmology=None, verbose=False, unit=LINE_CGS, target_stellar_mass=None, target_sfr=None, target_lir=None):
         """
-        Scale factor to convert line luminosities to observed frame
+        Scale factor to convert internal line luminosities (L_sun) to observed frame
+        
+        If ``target_stellar_mass``, ``target_sfr``, or ``target_lir`` 
+        specified, then scale the output to the desired value using the 
+        intrinsic properties.  Units are linear ``Msun``, ``Msun/yr``, 
+        and ``Lsun``, respectively.
+        
         """
         from astropy.constants import L_sun
         
@@ -1707,12 +1801,25 @@ class ExtendedFsps(StellarPopulation):
             dL = cosmology.luminosity_distance(zred).to(u.cm)
 
         to_cgs = (1*L_sun/(4*np.pi*dL**2)).to(unit)
+        
+        if target_stellar_mass is not None:
+            to_cgs *= target_stellar_mass / self.stellar_mass
+        elif target_sfr is not None:
+            to_cgs *= target_sfr / self.sfr100
+        elif target_lir is not None:
+            to_cgs *= target_lir / self.energy_absorbed
+        
         return to_cgs.value
         
-    def continuum_to_obsframe(self, zred=None, cosmology=None, unit=u.microJansky, verbose=False):
+    def continuum_to_obsframe(self, zred=None, cosmology=None, unit=u.microJansky, verbose=False, target_stellar_mass=None, target_sfr=None, target_lir=None):
         """
         Compute a normalization factor to scale input FSPS model flux density 
         units of (L_sun / Hz) or (L_sun / \AA) to observed-frame `unit`.
+        
+        If ``target_stellar_mass``, ``target_sfr``, or ``target_lir`` 
+        specified, then scale the output to the desired value using the 
+        intrinsic properties.  Units are linear ``Msun``, ``Msun/yr``, 
+        and ``Lsun``, respectively.
         """
         from astropy.constants import L_sun
 
@@ -1743,6 +1850,13 @@ class ExtendedFsps(StellarPopulation):
             is_flam = False
             obs_unit = (1*L_sun/u.Hz/(4*np.pi*dL**2)).to(unit)*(1+zred)
         
+        if target_stellar_mass is not None:
+            obs_unit *= target_stellar_mass / self.stellar_mass
+        elif target_sfr is not None:
+            obs_unit *= target_sfr / self.sfr100
+        elif target_lir is not None:
+            obs_unit *= target_lir / self.energy_absorbed
+            
         return obs_unit.value
         
     def fit_phot(self, phot_dict, filters=None, flux_unit=u.microJansky, plist=['tage', 'Av', 'gas_logu', 'sigma_smooth'], func_kwargs={'lorentz':False}, verbose=True, lsq_kwargs={'method':'trf', 'max_nfev':200, 'loss':'huber', 'x_scale':1.0, 'verbose':True}, show=False, TEF=None, photoz_obj=None):
@@ -1806,7 +1920,8 @@ class ExtendedFsps(StellarPopulation):
             templ = _phot['templ']
             iz = templ.zindex(_phot['z'])
             
-            ax.plot(templ.wave*(1+_phot['z'])/1.e4, templ.flux_fnu(iz)*_phot['scale'], label=label, color='r', alpha=0.5)
+            igm = templ.igm_absorption(_phot['z'], scale_tau=1.4)
+            ax.plot(templ.wave*(1+_phot['z'])/1.e4, templ.flux_fnu(iz)*_phot['scale']*igm, label=label, color='r', alpha=0.5)
             ax.legend()
             # ax.set_xlim(0.3, 3000)
             # ax.set_ylim(0.05, 5000)
@@ -1873,11 +1988,14 @@ class ExtendedFsps(StellarPopulation):
         
         _out = self.objfun_fitphot(_res.x, *margs)
         
+        xtempl = _out[3]
+        xscale = _out[1]
+        
         _fit = {}
         _fit['fmodel'] = _out[0]
-        _fit['scale'] = _out[1]
+        _fit['scale'] = xscale
         _fit['chi2'] = _out[2]
-        _fit['templ'] = _out[3]
+        _fit['templ'] = xtempl
         _fit['plist'] = plist
         _fit['theta'] = _res.x
         _fit['res'] = _res
@@ -1906,11 +2024,13 @@ class ExtendedFsps(StellarPopulation):
                       alpha=0.8, zorder=101)
             
             iz = templ.zindex(z)
+            igm = templ.igm_absorption(z, scale_tau=1.4)
+            
             if is_flam:
-                ax.plot(templ.wave*(1+z)/1.e4, templ.flux[iz,:]*Anorm, 
+                ax.plot(xtempl.wave*(1+z)/1.e4, xtempl.flux[iz,:]*xscale*igm, 
                     color='r', alpha=0.3, zorder=10000)
             else:
-                ax.plot(templ.wave*(1+z)/1.e4, templ.flux_fnu(iz)*Anorm, 
+                ax.plot(xtempl.wave*(1+z)/1.e4, xtempl.flux_fnu(iz)*xscale*igm, 
                     color='r', alpha=0.3, zorder=10000)
         
         return _fit
