@@ -24,7 +24,8 @@ Installation
    :maxdepth: 2
 
    eazy/install.rst
-      
+   eazy/zout_columns.rst
+
 ~~~     
 API
 ~~~

@@ -12,7 +12,8 @@ Installation instructions
     
     ### Build the python code
     cd eazy-py
-    python setup.py install
+	pip install . 
+    # or python setup.py install
     
 Demonstration
 ~~~~~~~~~~~~~

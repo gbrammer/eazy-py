@@ -139,6 +139,8 @@ html_title = '{0} v{1}'.format(project, release)
 # Output file base name for HTML help builder.
 htmlhelp_basename = project + 'doc'
 
+extensions += ['recommonmark']
+extensions += ['sphinx.ext.mathjax']
 
 # -- Options for LaTeX output --------------------------------------------------
 
