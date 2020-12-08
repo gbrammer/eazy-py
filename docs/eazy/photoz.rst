@@ -14,6 +14,9 @@ Reference/API
 .. automodapi:: eazy.photoz
     :no-inheritance-diagram:
 
+.. automodapi:: eazy.sps
+    :no-inheritance-diagram:
+
 .. automodapi:: eazy.templates
     :no-inheritance-diagram:
 
