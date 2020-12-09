@@ -3,6 +3,52 @@ import numpy as np
 
 from .. import utils
 
+def test_milky_way():
+    """
+    Test that milky way extinction is avaliable
+    """
+    import astropy.units as u
+    
+    f99 = utils.GalacticExtinction(EBV=1./3.1, Rv=3.1)
+    
+    # Data types
+    np.testing.assert_allclose(f99(5500), 1., rtol=0.05, atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+
+    np.testing.assert_allclose(f99(5500.), 1., rtol=0.05, atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+    
+    np.testing.assert_allclose(f99(5500.*u.Angstrom), 1., rtol=0.05, 
+                               atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+    
+    np.testing.assert_allclose(f99(0.55*u.micron), 1., rtol=0.05, 
+                               atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+
+    np.testing.assert_allclose(f99(100*u.micron), 0., rtol=0.05, 
+                               atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+                                   
+    # Arrays
+    np.testing.assert_allclose(f99([5500., 5500.]), 1., rtol=0.05, 
+                               atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+    
+    arr = np.ones(10)*5500.                            
+    np.testing.assert_allclose(f99(arr), 1., rtol=0.05, 
+                               atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+
+    np.testing.assert_allclose(f99(arr*u.Angstrom), 1., rtol=0.05, 
+                               atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+
+    np.testing.assert_allclose(f99(arr*u.Angstrom), 1., rtol=0.05, 
+                               atol=0.05,
+                               equal_nan=False, err_msg='', verbose=True)
+                               
+
 def test_interp_conserve():
     """
     Test interpolation function

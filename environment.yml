@@ -12,7 +12,6 @@ dependencies:
 - pip:
   - astroML
   - peakutils==1.0.3
-  - extinction>=0.4
-  - "git+https://github.com/gbrammer/eazy-py.git"
+  - "git+https://github.com/gbrammer/dust_extinction.git"
   - "git+https://github.com/bd-j/prospector.git"
 

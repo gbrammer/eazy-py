@@ -279,6 +279,7 @@ class GalacticExtinction(object):
             to import `~specutils.extinction` and if that fails use
             `~extinction`.
         """
+        import importlib
         
         # Import handler
         if force == 'specutils.extinction':
@@ -287,13 +288,33 @@ class GalacticExtinction(object):
         elif force == 'extinction':
             from extinction import Fitzpatrick99
             self.module = 'extinction'
+        elif force == 'dust_extinction':
+            from dust_extinction.parameter_averages import F99
+            self.module = 'dust_extinction'
         else:
-            try:
-                import specutils.extinction
-                self.module = 'specutils.extinction'
-            except:
-                from extinction import Fitzpatrick99
-                self.module = 'extinction'
+            modules = [['dust_extinction.parameter_averages', 'F99'], 
+                       ['extinction','Fitzpatrick99'],
+                       ['specutils.extinction','ExtinctionF99']]
+            
+            self.module = None
+            for (mod, cla) in modules:
+                try:
+                    _F99 = getattr(importlib.import_module(mod), cla)
+                    self.module = mod
+                    break
+                except:
+                    continue
+            
+            if self.module is None:
+                raise ImportError("Couldn't import extinction module from "
+                                  "dust_extinction, extinction or specutils") 
+                                       
+            # try:
+            #     from specutils.extinction import ExtinctionF99
+            #     self.module = 'specutils.extinction'
+            # except:
+            #     from extinction import Fitzpatrick99
+            #     self.module = 'extinction'
         
         if radec is not None:
             self.EBV = get_mw_dust(ra=radec[0], dec=radec[1], type=ebv_type)
@@ -301,17 +322,26 @@ class GalacticExtinction(object):
             self.EBV = EBV
         
         self.Rv = Rv
-        self.Av = EBV*Rv
         
-        if self.module == 'specutils.extinction':
-            self.f99 = specutils.extinction.ExtinctionF99(self.Av)
+        if self.module == 'dust_extinction.parameter_averages':
+            self.f99 = _F99(Rv=self.Rv)
+            
+        elif self.module == 'specutils.extinction':
+            self.f99 = _F99(self.Av)
             #self.Alambda = f99(self.wave*u.angstrom)
         else:
-            self.f99 = Fitzpatrick99(self.Rv)
+            self.f99 = _F99(self.Rv)
             #self.Alambda = f99(self.wave*u.angstrom, Av)
     
+    @property
+    def Av(self):
+        return self.EBV*self.Rv
+    
+    @property    
     def info(self):
-        print('F99 extinction with `{0}`: Rv={1:.1f}, E(B-V)={2:.3f} (Av={3:.2f})'.format(self.module, self.Rv, self.EBV, self.Av))
+        msg = ('F99 extinction with `{0}`: Rv={1:.1f}, '
+              'E(B-V)={2:.3f} (Av={3:.2f})')
+        return msg.format(self.module, self.Rv, self.EBV, self.Av)
         
     def __call__(self, wave):
         """
@@ -333,18 +363,22 @@ class GalacticExtinction(object):
         """
         import astropy.units as u
         if not hasattr(wave, 'unit'):
-            unit = u.angstrom
+            unit = u.Angstrom
         else:
             unit = 1
-                
+                       
         inwave = np.squeeze(wave).flatten()
         clip = (inwave*unit > 909*u.angstrom) & (inwave*unit < 6*u.micron)
-        Alambda = inwave*0.
-        
+        Alambda = np.zeros(inwave.shape)
+                
         if clip.sum() == 0:
             return Alambda
         else:
-            if self.module == 'specutils.extinction':
+            if self.module == 'dust_extinction.parameter_averages':
+                flam = self.f99.extinguish(inwave[clip]*unit, Av=self.Av)
+                Alambda[clip] = -2.5*np.log10(flam)
+                
+            elif self.module == 'specutils.extinction':
                 Alambda[clip] = self.f99(inwave[clip]*unit)
             else:
                 Alambda[clip] = self.f99(inwave[clip]*unit, self.Av)
