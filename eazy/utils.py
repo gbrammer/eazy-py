@@ -368,7 +368,11 @@ class GalacticExtinction(object):
             unit = 1
                        
         inwave = np.squeeze(wave).flatten()
-        clip = (inwave*unit > 909*u.angstrom) & (inwave*unit < 6*u.micron)
+        if self.module == 'dust_extinction.parameter_averages':
+            clip = (inwave*unit > 1/10.*u.micron) 
+            clip &= (inwave*unit < 1/0.3*u.micron)
+        else:
+            clip = (inwave*unit > 909*u.angstrom) & (inwave*unit < 6*u.micron)
         Alambda = np.zeros(inwave.shape)
                 
         if clip.sum() == 0:
