@@ -11,6 +11,11 @@ def test_milky_way():
     
     f99 = utils.GalacticExtinction(EBV=1./3.1, Rv=3.1)
     
+    # Out of range, test that at least run
+    _ = f99(10)
+    _ = f99(5.e4)
+    _ = f99(10.e4)
+    
     # Data types
     np.testing.assert_allclose(f99(5500), 1., rtol=0.05, atol=0.05,
                                equal_nan=False, err_msg='', verbose=True)
