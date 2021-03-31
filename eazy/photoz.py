@@ -811,10 +811,13 @@ class PhotoZ(object):
         t1 = time.time()
         if verbose:
             print('Fit {1:.1f} s (n_proc={0}, NOBJ={2})'.format(n_proc, t1-t0, len(idx_fit)))
-            
-    def fit_object(self, iobj=0, z=0, show=False):
+
+
+    def fit_object(self, iobj=0, z=0, fitter='nnls', show=False):
         """
         Fit on the redshift grid
+        
+        *** deprecated ***
         """
         from scipy.optimize import nnls
         #import np.linalg
@@ -852,7 +855,42 @@ class PhotoZ(object):
             coeffs[iz, :] = coeffs_i
         
         return iobj, chi2, coeffs
-    
+
+
+    def fit_on_zgrid(self, iobj, fitter='nnls'):
+        """
+        Fit a single object on the redshift grid
+        """
+        chi2 = np.zeros(self.NZ, dtype=self.ARRAY_DTYPE)
+        coeffs = np.zeros((self.NZ, self.NTEMP), dtype=self.ARRAY_DTYPE)
+        
+        for iz, z in enumerate(self.zgrid):
+            chi2[iz,:], coeffs[iz], _ = self.fit_at_redshift(iobj, z=z, 
+                                                             fitter=fitter)
+        
+        return iobj, chi2, coeffs
+
+
+    def fit_at_redshift(self, iobj, z=None, fitter='nnls'):
+        """
+        Fit templates at a single redshift
+        """
+        fnu_i = np.squeeze(self.fnu[iobj, :])*self.ext_redden*self.zp
+        efnu_i = np.squeeze(self.efnu[iobj,:])*self.ext_redden*self.zp
+        ok_band = (fnu_i/self.zp > self.param['NOT_OBS_THRESHOLD']) 
+        ok_band &= (efnu_i/self.zp > 0)
+        efnu_i[~ok_band] = self.param['NOT_OBS_THRESHOLD'] - 9.
+        
+        tef_i = self.TEF(z)
+        
+        A = np.squeeze(self.tempfilt(z))
+        chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, 
+                                                   tef_i, self.zp, 
+                                                   0, fitter)
+        
+        return chi2_i, coeffs_i, fmodel
+
+
     def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=10000, **kwargs):
         """
         Recompute the fit coefficients at the "best" redshift
@@ -2213,14 +2251,22 @@ class PhotoZ(object):
         else:
             return fig, data
     
-    def observed_frame_fluxes(self, f_numbers=[325], verbose=True, n_proc=-1, percentiles=[2.5,16,50,84,97.5]):
+    def observed_frame_fluxes(self, f_numbers=[325], filters=None, verbose=True, n_proc=-1, percentiles=[2.5,16,50,84,97.5]):
         """
         Observed-frame fluxes in additional (e.g., unobserved) filters
         """        
         from astropy.table import Table
         
-        print('Compute template grid for filters {0}'.format(f_numbers))
-        
+        if verbose:
+            if filters is None:
+                print('Observed-frame f_numbers: {0}')
+                print(msg.format(f_numbers))
+            else:
+                fnames = '\n'.join([f'{i:>4} {f.name}'
+                                for i, f in enumerate(filters)])
+                print('Observed-frame filters:\n~~~~~~~~~~~~~~~~~~~ ')
+                print(fnames)
+                
         _tempfilt = TemplateGrid(self.zgrid, self.templates, 
                                    RES=self.param['FILTERS_RES'], 
                                    f_numbers=np.array(f_numbers), 
@@ -2229,9 +2275,16 @@ class PhotoZ(object):
                                    Eb=self.param['SCALE_2175_BUMP'], 
                                    n_proc=n_proc, verbose=verbose, 
                                    cosmology=self.cosmology,
-                                   array_dtype=self.ARRAY_DTYPE)
+                                   array_dtype=self.ARRAY_DTYPE, 
+                                   filters=filters)
         
-        NOBS = len(f_numbers)
+        if filters is None:
+            NOBS = len(f_numbers)            
+        else:
+            NOBS = len(filters)
+            f_numbers = [i for i, f in enumerate(filters)]
+
+            
         #izbest = np.argmax(self.pz, axis=1)
         izbest = self.izbest*1
                        
@@ -2262,28 +2315,94 @@ class PhotoZ(object):
         """
         Rest-frame fluxes, refit by down-weighting bands far away from 
         the desired RF band.
+        
+        Parameters
+        ==========
+        f_numbers : list
+            List of either integer indices of filters in ``self.RES`` read 
+            from FILTER_FILE or `~eazy.filters.FilterDefinition` objects.
+        
+        pad_width : float
+            Padding around rest-frame wavelength to down-weight observed 
+            filters.
+            
+        max_err : float
+            Increased uncertainty outside of ``pad_width``.
+            
+            The modified uncertainties are computed as follows:
+            
+            >>> import numpy as np
+            >>> pad_width = 0.5
+            >>> max_err = 0.5
+            >>> z = 1.5
+            >>> # Observed-frame pivot wavelengths
+            >>> lc_obs = np.array([10543.5, 12470.5, 13924.2, 15396.6,  
+                                   7692.3,  8056.9,  9032.7, 4318.8,  5920.8,  
+                                   3353.6, 35569.3, 45020.3, 
+                                   57450.3, 79157.5])       
+            >>> lc_rest = 5500. # e.g., rest V
+            >>> x = np.log(lc_rest/(lc_obs/(1+z)))
+            >>> grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
+            >>> TEFz = (2/(1+grow/grow.max())-1)*max_err
+            >>> so = np.argsort(lc_obs)
+            >>> plt.plot(lc_obs[so], TEFz[so])
+            >>> plt.xlabel(r'$\lambda_\mathrm{rest}$')
+            >>> plt.ylabel('Fractional uncertainty')
+            
+        percentiles : list
+            Percentiles to return of the computed rest-frame fluxes drawn 
+            from the fits including the observed uncertainties
+        
+        simple : bool
+            If ``True`` then just return the rest-frame fluxes of the currrent
+            best fits rather than doing the filter reweighting.
+        
+        fitter : str
+            Fitting method passed to `~eazy.photoz._fit_obj`.
+            
+        Returns
+        =======
+        rf_tempfilt : `~numpy.ndarray`
+            Array of the integrated template fluxes with dimensions 
+            ``[NZGRID,NTEMP,len(f_numbers)]``.
+        
+        lc_rest : `~numpy.ndarray`
+            Rest-frame filter pivot wavelengths
+        
+        rf_fluxes : `~numpy.ndarray`
+            Rest-frame fluxes, with dimensions 
+            ``[NOBJ, len(f_numbers), len(percentiles)]``.
+            
         """
         import multiprocessing as mp
         import time
+                
+        NREST = len(f_numbers)
+        if isinstance(f_numbers[0], int):
+            f_list = [self.RES[fn] for fn in f_numbers]
+        else:
+            f_list = [fn for fn in f_numbers]
         
         if verbose:
-            print('Rest-frame filters: {0}'.format(f_numbers))
-        
-        NREST = len(f_numbers)
-        
+            fnames = '\n'.join([f'{i:>4} {f.name}'
+                                for i, f in enumerate(f_list)])
+            print('Rest-frame filters:\n~~~~~~~~~~~~~~~~~~~ ')
+            print(fnames)
+            
         rf_tempfilt = np.zeros((self.NZ, self.NTEMP, NREST), 
                        dtype=self.ARRAY_DTYPE)
         
-        rf_lc = np.array([self.RES[fn].pivot for fn in f_numbers])
+        rf_lc = np.array([f_i.pivot for f_i in f_list])
         
         for i_t, templ in enumerate(self.templates):
-           iz = np.maximum(templ.zindex(self.zgrid), 0)
-           for i_f, fn in enumerate(f_numbers):
-               _rf = [templ.integrate_filter(self.RES[fn], z=0, iz=i) 
-                         for i in range(templ.NZ)]
-        
-               rf_tempfilt[:, i_t, i_f] = np.array(_rf)[iz]
-        
+            # Redshift dependent templates
+            iz = np.maximum(templ.zindex(self.zgrid), 0)
+            _rf = [templ.integrate_filter(f_list, z=0, iz=i) 
+                     for i in range(templ.NZ)]
+            
+            rf_tempfilt[:, i_t, :] = np.array(_rf)[iz,:]
+            
+            
         # Grid index of best redshfit
         izbest = self.izbest*1
 
@@ -3379,6 +3498,7 @@ class PhotoZ(object):
         tab.meta['version'] = (__version__, 'Eazy-py version')
         tab.meta['prior'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
         tab.meta['betprior'] = (beta_prior, 'Beta prior applied')
+        tab.meta['fitter'] = (fitter, 'Optimization method for template fits')
         
         if self.param['VERBOSITY'] >= 1:
             print('Get parameters (UBVJ={0}, LIR={1})'.format(UBVJ, LIR_wave))
@@ -4376,10 +4496,18 @@ def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter,
     
     return ix, f_rest
 
+#BOUNDED_DEFAULTS = {'bounds':(1.e3, 1.e18), 'method': 'bvls', 'tol': 1.e-8, 'verbose': 0}
+BOUNDED_DEFAULTS = {'bound_range':[0.1, 10], 'method': 'trf', 'tol': 1.e-8, 'verbose': 0, 'normalize_type':0}
 
 def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
+    """
+    Main optimization / fitting functino
+    """
     from scipy.optimize import nnls
+    import scipy.optimize
+    
     global MIN_VALID_FILTERS
+    global BOUNDED_DEFAULTS
     
     sh = A.shape
 
@@ -4405,6 +4533,37 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     try:
         if fitter == 'nnls':
             coeffs_x, rnorm = nnls(Ax[:,ok_temp], (fnu_i/rms)[ok_band])
+            
+        elif fitter == 'bounded':
+            func = scipy.optimize.lsq_linear
+
+            if 'bound_range' in BOUNDED_DEFAULTS:
+                br = BOUNDED_DEFAULTS.pop('bound_range')
+            else:
+                br = [0.1, 10]
+            
+            ### Normalize templates
+            normalize_type = 0
+            if 'normalize_type' in BOUNDED_DEFAULTS:
+                normalize_type = BOUNDED_DEFAULTS.pop('normalize_type')
+            
+            if normalize_type == 0:
+                # Fit templates individually
+                norm = (Ax[:,ok_temp].T*(fnu_i/rms)[ok_band]).sum(axis=1)
+                norm /= (Ax[:,ok_temp].T**2).sum(axis=1)
+                norm = norm[norm > 0]
+                bounds = (br[0]*norm.min(), br[1]*norm.max())
+                A0 = 1
+            else:
+                A0 = A[ok_temp,0]
+                A0nn = A0 > 0
+                A0t = (A[ok_temp,:].T/A0).T[A0nn]
+                bounds = (br[0]*A0t.min(), br[1]*A0t.max())
+
+            lsq_out = func(Ax[:,ok_temp]/A0, (fnu_i/rms)[ok_band], 
+                           bounds=bounds, **BOUNDED_DEFAULTS)
+            coeffs_x = lsq_out.x/A0
+            
         else:
             # With regularization
             lamb = 0.5
