@@ -36,10 +36,10 @@ class FilterDefinition:
             self.norm = np.trapz(self.throughput/self.wave, self.wave)
     
     def __repr__(self):
-        return self.name
+        return self.name.__repr__()
     
     def __str__(self):
-        return self.name
+        return self.name.__str__()
     
     def get_extinction(self, EBV=0, Rv=3.1):
         import astropy.units as u
