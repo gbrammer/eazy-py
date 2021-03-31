@@ -2332,22 +2332,24 @@ class PhotoZ(object):
             The modified uncertainties are computed as follows:
             
             >>> import numpy as np
+            >>> import matplotlib.pyplot as plt
             >>> pad_width = 0.5
             >>> max_err = 0.5
             >>> z = 1.5
             >>> # Observed-frame pivot wavelengths
-            >>> lc_obs = np.array([10543.5, 12470.5, 13924.2, 15396.6,  
-                                   7692.3,  8056.9,  9032.7, 4318.8,  5920.8,  
-                                   3353.6, 35569.3, 45020.3, 
+            >>> lc_obs = np.array([10543.5, 12470.5, 13924.2, 15396.6,  \
+                                   7692.3,  8056.9,  9032.7, 4318.8, \
+                                   5920.8, 3353.6, 35569.3, 45020.3, \
                                    57450.3, 79157.5])       
             >>> lc_rest = 5500. # e.g., rest V
             >>> x = np.log(lc_rest/(lc_obs/(1+z)))
             >>> grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
             >>> TEFz = (2/(1+grow/grow.max())-1)*max_err
             >>> so = np.argsort(lc_obs)
-            >>> plt.plot(lc_obs[so], TEFz[so])
-            >>> plt.xlabel(r'$\lambda_\mathrm{rest}$')
-            >>> plt.ylabel('Fractional uncertainty')
+            >>> _ = plt.plot(lc_obs[so], TEFz[so])
+            >>> _ = plt.xlabel(r'$\lambda_\mathrm{rest}$')
+            >>> _ = plt.ylabel('Fractional uncertainty')
+            
             
         percentiles : list
             Percentiles to return of the computed rest-frame fluxes drawn 
