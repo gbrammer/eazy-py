@@ -25,6 +25,7 @@ Installation
 
    eazy/install.rst
    eazy/zout_columns.rst
+   eazy/templates.rst
 
 ~~~     
 API
