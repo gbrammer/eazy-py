@@ -3,9 +3,12 @@ eazy-py: Pythonic photometric redshift tools based on EAZY
 
 Under heavy construction....
 
-Documentation will be here: https://eazy-py.readthedocs.io/
+Documentation will be here: https://eazy-py.readthedocs.io/, though it's essentially just the module API for now.
 
-Templates and filter files still here: https://github.com/gbrammer/eazy-photoz/
+Templates and filter files still here: https://github.com/gbrammer/eazy-photoz/.
+
+.. note::
+    Please submit any questions/comments/problems you have through the `Issues <https://github.com/gbrammer/eazy-py/issues>`_ interface.
 
 Installation instructions
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -27,4 +30,8 @@ Installation instructions
     
     # Build the python code and install it in your python env
     cd eazy-py
-    pip install .  
+    pip install .  -r requirements.txt
+
+Demo
+~~~~
+See `HDFN-Example.ipynb <https://nbviewer.jupyter.org/github/gbrammer/eazy-py/blob/HEAD/docs/examples/HDFN-demo.ipynb>`__.
