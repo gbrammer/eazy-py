@@ -1,0 +1,22 @@
+# python == 3.6.10
+numpy >= 1.19
+scipy >= 1.5.0
+matplotlib >= 3.2
+astropy >= 4.0
+peakutils >= 1.0.3
+astroML
+
+# dustmaps needs healpy in environment.yml since 
+# often can't compile on Mac with pip
+# ... removing requirement so that can distribute just with requirements.txt
+# dustmaps
+
+# My clones of the dust modules
+git+https://github.com/gbrammer/dust_extinction.git
+git+https://github.com/gbrammer/dust_attenuation.git
+
+# Needed for template smoothing, doesn't bring whole fsps distro
+astro-sedpy
+astro-prospector
+
+

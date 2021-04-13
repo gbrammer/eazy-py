@@ -12,9 +12,9 @@ Installation instructions
     
     ### Build the python code
     cd eazy-py
-	pip install . 
-    # or python setup.py install
+	pip install . -r requirements.txt
+
     
 Demonstration
 ~~~~~~~~~~~~~
-See `HDFN-Example.ipynb <https://github.com/gbrammer/eazy-py/blob/master/docs/examples/HDFN-demo.ipynb>`__.
+See `HDFN-Example.ipynb <https://nbviewer.jupyter.org/github/gbrammer/eazy-py/blob/HEAD/docs/examples/HDFN-demo.ipynb>`__.
