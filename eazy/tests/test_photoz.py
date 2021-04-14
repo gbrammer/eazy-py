@@ -171,7 +171,7 @@ def test_sps_parameters():
     ez.fit_parallel(fitter='nnls')
         
     ### SPS parameters
-    zout, hdu = ez.standard_output(rf_pad_width=0.5, rf_max_err=2, 
+    zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
                                      prior=True, beta_prior=True, simple=True)
     
     assert(np.allclose(zout['z_phot'][0], z_spec, atol=0.1*(1+z_spec)))
@@ -245,7 +245,15 @@ def test_sps_parameters():
     for k in zdict:
         assert(np.allclose(zout[k][0], zdict[k], rtol=0.1))
 
-
+    ### user-specified zbest
+    z2, _ = ez.standard_output(zbest=np.full(NRND+1, z_spec),
+                                   rf_pad_width=0.5, rf_max_err=2, 
+                                     prior=True, beta_prior=True, simple=True)
+    
+    assert(np.allclose(z2['z_phot'], z_spec, rtol=1.e-2))
+    
+    ### Check that sps parameters are different...
+    
 def test_fit_stars():
     """
     Fit phoenix star library for Star/Galaxy separation
