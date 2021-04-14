@@ -4430,7 +4430,7 @@ def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter,
     return ix, f_rest
 
 #BOUNDED_DEFAULTS = {'bounds':(1.e3, 1.e18), 'method': 'bvls', 'tol': 1.e-8, 'verbose': 0}
-BOUNDED_DEFAULTS = {'bound_range':[0.1, 10], 'method': 'trf', 'tol': 1.e-8, 'verbose': 0, 'normalize_type':0}
+BOUNDED_DEFAULTS = {'bound_range':[0.05, 20], 'method': 'trf', 'tol': 1.e-8, 'verbose': 0, 'normalize_type':0}
 
 def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     """
@@ -4469,17 +4469,24 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
             
         elif fitter == 'bounded':
             func = scipy.optimize.lsq_linear
-
+            
             if 'bound_range' in BOUNDED_DEFAULTS:
-                br = BOUNDED_DEFAULTS.pop('bound_range')
+                br = BOUNDED_DEFAULTS['bound_range']
             else:
-                br = [0.1, 10]
+                br = [0.05, 20]
+            
+            #print('xxx BR: ', br)
             
             ### Normalize templates
             normalize_type = 0
             if 'normalize_type' in BOUNDED_DEFAULTS:
-                normalize_type = BOUNDED_DEFAULTS.pop('normalize_type')
+                normalize_type = BOUNDED_DEFAULTS['normalize_type']
             
+            bound_kwargs = {}
+            for k in BOUNDED_DEFAULTS:
+                if k not in ['bound_range','normalize_type']:
+                    bound_kwargs[k] = BOUNDED_DEFAULTS[k]
+                    
             if normalize_type == 0:
                 # Fit templates individually
                 norm = (Ax[:,ok_temp].T*(fnu_i/rms)[ok_band]).sum(axis=1)
@@ -4494,7 +4501,7 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
                 bounds = (br[0]*A0t.min(), br[1]*A0t.max())
 
             lsq_out = func(Ax[:,ok_temp]/A0, (fnu_i/rms)[ok_band], 
-                           bounds=bounds, **BOUNDED_DEFAULTS)
+                           bounds=bounds, **bound_kwargs)
             coeffs_x = lsq_out.x/A0
             
         else:
