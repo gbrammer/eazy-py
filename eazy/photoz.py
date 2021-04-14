@@ -950,7 +950,7 @@ class PhotoZ(object):
         np.random.seed(self.random_seed)
         
         if n_proc <= 0:
-            n_proc = mp.cpu_count() - 2
+            n_proc = np.maximum(mp.cpu_count() - 2, 1)
         
         # Fit in parallel mode
         #np.save(par_savefile, [self.TEF, self.tempfilt])
