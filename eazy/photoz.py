@@ -3446,10 +3446,21 @@ class PhotoZ(object):
             self.compute_lnp(prior=prior, beta_prior=beta_prior, 
                          clip_wavelength=clip_wavelength) 
         
-        # Fit at max-lnp          
+            # Fit at max-lnp first so that we keep this information.          
+            self.fit_at_zbest(zbest=None, prior=prior, beta_prior=beta_prior, 
+                          get_err=get_err, fitter=fitter, n_proc=0, 
+                          clip_wavelength=clip_wavelength)
+            
+            tab['z_pdf'] = self.zbest
+            tab['z_pdf_chi2'] = self.chi2_best #chi2_fit.min(axis=1)
+            tab['z_pdf_risk'] = self.zbest_risk
+            
+            
+        # Fit at the user's requested zbest, which defaults to max-lnp if zbest is None
         self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
-                      get_err=get_err, fitter=fitter, n_proc=0, 
-                      clip_wavelength=clip_wavelength)
+                          get_err=get_err, fitter=fitter, n_proc=0, 
+                          clip_wavelength=clip_wavelength)
+            
                     
         try:
             zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5],
