@@ -650,18 +650,25 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
 
     from astropy.table import Table
     import astropy.io.fits as pyfits
-
-    if os.path.exists(os.path.join('./templates/', file)):
-        hdu = pyfits.open(os.path.join('./templates/', file))
-    else:
+    
+    paths = ['/tmp', './templates/', './']
+    hdu = None
+    for path in paths:
+        templ_path = os.path.join(path, file)
+        if os.path.exists(templ_path):
+            print(f'phoenix_templates: {templ_path}')
+            hdu = pyfits.open(templ_path)
+            break
+    
+    if hdu is None:
         url = 'https://s3.amazonaws.com/grizli/CONF'
         print('Fetch {0}/{1}'.format(url, file))
 
         #os.system('wget -O /tmp/{1} {0}/{1}'.format(url, file))
         res = urlretrieve('{0}/{1}'.format(url, file),
-                          filename=os.path.join('/tmp', file))
+                          filename=templ_path)
 
-        hdu = pyfits.open(os.path.join('/tmp/', file))
+        hdu = pyfits.open(templ_path)
 
     tab = Table.read(hdu[1])
 
