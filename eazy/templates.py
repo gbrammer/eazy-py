@@ -271,7 +271,7 @@ class Template():
                 self.wave, self.flux = _arr[0], _arr[1]
                         
         elif arrays is not None:
-            self.wave, self.flux = arrays[0]*1, arrays[1]*1
+            self.wave, self.flux = arrays[0]*1., arrays[1]*1.
             #self.set_fnu()
         else:
             raise TypeError('Must specify either `sp`, `file` or `arrays`')
@@ -824,5 +824,79 @@ def param_table(templates):
     (TBD)
     """
     pass
+
+
+def bspline_templates(wave, degree=3, df=6, get_matrix=True, log=False, clip=1.e-4, minmax=None):
+    """
+    B-spline basis functions, modeled after `~patsy.splines`
+    """
+    from collections import OrderedDict
+    from scipy.interpolate import splev
+
+    order = degree+1
+    n_inner_knots = df - order
+    inner_knots = np.linspace(0, 1, n_inner_knots + 2)[1:-1]
+
+    norm_knots = np.concatenate(([0, 1] * order,
+                                inner_knots))
+    norm_knots.sort()
+
+    if log:
+        xspl = np.log(wave)
+    else:
+        xspl = wave*1
+
+    if minmax is None:
+        mi = xspl.min()
+        ma = xspl.max()
+    else:
+        mi, ma = minmax
+
+    width = ma-mi
+    all_knots = norm_knots*width+mi
+
+    n_bases = len(all_knots) - (degree + 1)
+    basis = np.empty((xspl.shape[0], n_bases), dtype=float)
+
+    coefs = np.identity(n_bases)
+    basis = splev(xspl, (all_knots, coefs, degree))
+
+    for i in range(n_bases):
+        out_of_range = (xspl < mi) | (xspl > ma)
+        basis[i][out_of_range] = 0
+
+    wave_peak = np.round(wave[np.argmax(basis, axis=1)])
+
+    maxval = np.max(basis, axis=1)
+    for i in range(n_bases):
+        basis[i][basis[i] < clip*maxval[i]] = 0
+
+    if get_matrix:
+        return np.vstack(basis).T
+
+    temp = OrderedDict()
+    for i in range(n_bases):
+        key = 'bspl {0} {1:.0f}'.format(i, wave_peak[i])
+        temp[key] = Template(arrays=(wave*1., basis[i]), name=key, 
+                             meta={'wave_peak':wave_peak[i]})
+        #temp[key].name = key
+        #temp[key].wave_peak = wave_peak[i]
+
+    temp.knots = all_knots
+    temp.degree = degree
+    temp.xspl = xspl
+
+    return temp
+
+
+def gaussian_templates(wave, centers=[], widths=[], norm=False):
+    """
+    Make Gaussian "templates" for the template correction
+    """
+    _x = np.array([1/np.sqrt(2*np.pi*w**2)**norm*np.exp(-(wave-c)**2/2/w**2) 
+                   for c, w in zip(centers, widths)])
+    return _x.T
+
+
     
     

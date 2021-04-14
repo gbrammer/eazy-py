@@ -22,7 +22,10 @@ import astropy.constants as const
 from . import filters
 from . import param 
 from . import igm as igm_module
+
 from . import templates as templates_module 
+from .templates import gaussian_templates, bspline_templates
+
 from . import utils 
 
 IGM_OBJECT = igm_module.Inoue14()
@@ -45,7 +48,7 @@ NUVRK_FILTERS = [121, 158, 163]
 CDF_SIGMAS = np.linspace(-5, 5, 51)
 
 class PhotoZ(object):
-    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None):
+    def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, **kwargs):
         """
         Main object for fitting templates / photometric redshifts
         """
@@ -834,7 +837,8 @@ class PhotoZ(object):
         
         for iz in range(self.NZ):
             A = self.tempfilt(self.zgrid[iz])
-            var = (0.0*fnu_i)**2 + efnu_i**2 + (self.TEF(zgrid[iz])*fnu_i)**2
+            tef_var = (self.TEF(self.zgrid[iz])*fnu_i)**2
+            var = (0.0*fnu_i)**2 + efnu_i**2 + tef_var
             rms = np.sqrt(var)
             
             ok_temp = (np.sum(A, axis=1) > 0)
@@ -1081,8 +1085,7 @@ class PhotoZ(object):
         """
         Generate a template error function based on template fit residuals
         """    
-        from grizli import utils
-        from scipy.optimize import nnls
+        from scipy.optimize import nnls, minimize
         
         if optimizer is None:
             optimizer = nnls
@@ -1127,7 +1130,7 @@ class PhotoZ(object):
         _NF = _ok.sum()
         
         df = 9
-        Aspl = utils.bspline_templates(_w, degree=3, df=df, 
+        Aspl = bspline_templates(_w, degree=3, df=df, 
                                        get_matrix=True, log=log_wave)
         
         NTEF = Aspl.shape[1]
@@ -1145,7 +1148,7 @@ class PhotoZ(object):
             #val = (utils.nmad(_r/sig)-1)**2
             val = 0.
             for ix in indices:
-                val += (eazy.utils.nmad((_r/sig)[ix])-1)**2
+                val += (utils.nmad((_r/sig)[ix])-1)**2
                 
             #val = (RHS - (_Ax*scl/norm).sum())**2
             #val += ((scl[-_NF:]-norm)**2).sum()
@@ -1196,11 +1199,15 @@ class PhotoZ(object):
         
         for i in range(_NF):
             ix = indices[i]
-            print('{0:>10} {1:.3f}  {2:.2f} {3:.2f}'.format(self.flux_columns[_band_ix[i]], coeffs[i], eazy.utils.nmad(_r[ix]/sig[ix]), eazy.utils.nmad(_r[ix]/sig_band[ix])))
+            msg = '{0:>10} {1:.3f}  {2:.2f} {3:.2f}'
+            print(msg.format(self.flux_columns[_band_ix[i]], coeffs[i], 
+                             utils.nmad(_r[ix]/sig[ix]), 
+                             utils.nmad(_r[ix]/sig_band[ix])))
         
         # Normalize residuals, uncertainties by model flux
         E2 = ((F-M)/M)**2 - (sigma/M)**2 
-        clip = (sigma.flatten() > 0) & np.isfinite(M.flatten()) & np.isfinite(F.flatten())
+        clip = (sigma.flatten() > 0) & np.isfinite(M.flatten()) 
+        clip &= np.isfinite(F.flatten())
         clip &= (np.isfinite(E2.flatten())) & (np.abs(E2.flatten()) < 2)
         
         SN = (self.fnu[selection,:]/sigma).flatten()
@@ -1216,12 +1223,12 @@ class PhotoZ(object):
         
         wave_inp = lcz
             
-        Aspl = utils.bspline_templates(wave_inp, degree=3, df=7, 
+        Aspl = bspline_templates(wave_inp, degree=3, df=7, 
                                        get_matrix=True, log=log_wave)
         
         # Sampled
         wave_samp = np.linspace(wave_inp.min(), wave_inp.max(), 1024)
-        Asamp = utils.bspline_templates(wave_samp, degree=3, df=7, 
+        Asamp = bspline_templates(wave_samp, degree=3, df=7, 
                                         get_matrix=True, log=log_wave)
         
         _lsq = optimizer(Aspl, E2, **optimizer_args)
@@ -1266,9 +1273,6 @@ class PhotoZ(object):
         import matplotlib.pyplot as plt
         import matplotlib.gridspec as gridspec
         import scipy.interpolate
-
-        from grizli.utils import bspline_templates
-        from eazy import utils
 
         #import threedhst
         #from astroML.sum_of_norms import sum_of_norms, norm
@@ -1340,7 +1344,7 @@ class PhotoZ(object):
                            lczso[wclip])
             dw = np.gradient(wi)
 
-            bspl = utils.gaussian_templates(lczso, centers=wi, widths=dw)
+            bspl = gaussian_templates(lczso, centers=wi, widths=dw)
 
         # Pedestal
         #bspl = np.hstack([np.ones((clip.sum(), 1)), bspl])
@@ -1439,7 +1443,7 @@ class PhotoZ(object):
                                       log=False, get_matrix=True, 
                                       minmax=wfunc(wlim))
         else:
-            templ_spl = utils.gaussian_templates(templ_wave, centers=wi, 
+            templ_spl = gaussian_templates(templ_wave, centers=wi, 
                                                  widths=dw)
 
         #templ_spl = np.hstack([np.ones_like(templ_wave), templ_spl])
@@ -1556,7 +1560,7 @@ class PhotoZ(object):
                                               log=False, get_matrix=True, 
                                               minmax=wfunc(wlim))
                 else:
-                    templ_spl = utils.gaussian_templates(templ_wave, 
+                    templ_spl = gaussian_templates(templ_wave, 
                                                        centers=wi, widths=dw)
 
                 #templ_spl = np.hstack([np.ones_like(templ_wave), templ_spl])
@@ -2106,11 +2110,11 @@ class PhotoZ(object):
             print('`star_chi2` attribute not found, run `fit_phoenix_stars`.')
             
         elif show_stars & hasattr(self, 'star_chi2'):
-            if __name__ == '__main__':
-                # debug
-                ix = _[1]['ix']
-                chi2_i = self.chi2_noprior[ix]  
-                ax = _[0].axes[0]
+            # if __name__ == '__main__':
+            #     # debug
+            #     ix = _[1]['ix']
+            #     chi2_i = self.chi2_noprior[ix]  
+            #     ax = _[0].axes[0]
                 
             delta_chi2 = self.star_chi2[ix,:] - chi2_i    
             good_stars = delta_chi2 < delta_chi2_stars
@@ -2259,7 +2263,7 @@ class PhotoZ(object):
         
         if verbose:
             if filters is None:
-                print('Observed-frame f_numbers: {0}')
+                msg = 'Observed-frame f_numbers: {0}'
                 print(msg.format(f_numbers))
             else:
                 fnames = '\n'.join([f'{i:>4} {f.name}'
@@ -3633,8 +3637,12 @@ class PhotoZ(object):
     
     
     def get_grizli_photometry(self, id=1, rd=None, grizli_templates=None):
+        """
+        Get photometry dictionary of a given object that can be used with 
+        `~grizli` fits.
+        
+        """
         from collections import OrderedDict
-        from grizli import utils
         import astropy.units as u
         
         if grizli_templates is not None:
@@ -3645,7 +3653,7 @@ class PhotoZ(object):
             tempfilt = None
         
         if rd is not None:
-            ti = utils.GTable()
+            ti = Table()
             ti['ra'] = [rd[0]]
             ti['dec'] = [rd[1]]
             
@@ -3679,46 +3687,6 @@ class PhotoZ(object):
         """
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
-        
-        if False:
-            ok = (zout['z_phot'] > 0.4) & (zout['z_phot'] < 2)
-            col = (VJ < 1.5) & (UV > 1.5)
-            # Quiescent
-            idx = col & ok & (np.log10(sSFR) < -11.5)
-            idx = col & ok & (np.log10(sSFR) > -10.5)
-            idx = col & ok & (np.log10(sSFR) > -9.5)
-
-            idx = ok & (VJ > 1.8)
-             
-            ## Red
-            UWise = f_rest[:,0,2]/f_rest[:,2,2]
-            idx, label, c = ok & (np.log10(UWise) > -1) & (np.log10(sSFR) > -10), 'U22_blue', 'b'
-
-            idx, label, c = ok & (np.log10(UWise) < -1.8) & (np.log10(UWise) > -2.2) & (np.log10(sSFR) > -10), 'U22_mid', 'g'
-
-            idx, label, c = ok & (np.log10(UWise) < -2.4) & (np.log10(sSFR) > -10), 'U22_red', 'r'
-            
-            # Quiescent
-            idx, label, c = ok & (np.log10(zout['MLv']) > 0.4) & (np.log10(sSFR) < -11.9), 'Q', 'r'
-            
-            # Dusty
-            idx, label, c = ok & (np.log10(zout['MLv']) > 0.6) & (np.log10(sSFR) < -10.5), 'MLv_lo', 'brown'
-
-            idx, label, c = ok & (np.log10(zout['MLv']) > 0.6) & (np.abs(np.log10(sSFR)+10.5) < 0.5), 'MLv_mid', 'k'
-
-            idx, label, c = ok & (np.log10(zout['MLv']) > 0.6) & (np.log10(sSFR) > -9.5), 'MLv_hi', 'green'
-            
-            # post-SB    
-            #idx, label, c = (UV < 1.6) & ok & (np.log10(sSFR) < -11) & (VJ < 1), 'post-SB', 'orange'
-            
-            # star-forming    
-            idx, label, c = ok & (UV < 0.6) & (VJ < 0.5), 'SF0', 'purple'
-            
-            idx, label, c = ok & (np.abs(UV-0.8) < 0.2) & (np.abs(VJ-0.6) < 0.2), 'SF1', 'b'
-
-            idx, label, c = ok & (np.abs(UV-1.2) < 0.2) & (np.abs(VJ-1.0) < 0.2), 'SF2', 'orange'
-
-            idx, label, c = ok & (np.abs(UV-1.6) < 0.2) & (np.abs(VJ-1.6) < 0.2), 'SF3', 'pink'
         
         if isinstance(norm_band, int):
             init_sed_data = True
@@ -4057,43 +4025,6 @@ class PhotoZ(object):
         
         self.star_min_chi2 = self.star_chi2.min(axis=1)
         self.star_min_chinu = self.star_min_chi2 / (self.nusefilt - 1)
-        
-        # if False:
-        #     # Galaxy template fit, chi2 on same filters
-        #     #izbest = np.argmin(self.chi2_fit, axis=1)
-        #     izbest = self.izbest
-        #     
-        #     tempfilt_best = self.tempfilt.tempfilt[izbest[sample],:,:]
-        #     gal_model = (self.coeffs_best[sample,:].T * tempfilt_best.T).sum(axis=1).T
-        #     gal_chi2 = ((self.fnu[sample,:] - gal_model)**2*_wht[sample,:]).sum(axis=1)
-            
-        if False:
-            chi2i = self.star_chi2[idx[i],:]
-            cso = np.argsort(chi2i)
-            ok_i = self.ok_data[idx[i],:]
-
-            for j in cso:
-                tstar = self.star_templates[j]
-                tnorm = self.star_tnorm[idx[i], j]*self.to_flam[ok_i]
-                alpha = (1-np.minimum(chi2i[j] - chi2i.min(), 9)/9.)**2*0.5
-                if alpha < 0.01:
-                    continue
-                                                 
-                xso = np.argsort(self.lc[ok_i])
-                pl = ax.plot(self.lc[ok_i][xso]/1.e4, 
-                             ((self.star_flux)[ok_i,j]*tnorm)[xso], 
-                             marker='None', alpha=alpha, zorder=2, 
-                             label=self.star_templates[j].name)
-                
-                
-                ax.scatter(self.lc[ok_i]/1.e4, (self.star_flux)[ok_i,j]*tnorm, 
-                           s=200, color='w', alpha=1., zorder=2)
-                                        
-                ax.scatter(self.lc[ok_i]/1.e4, (self.star_flux)[ok_i,j]*tnorm, 
-                           s=100,
-                           color=pl[0].get_color(), alpha=alpha, zorder=3)
-            
-            ax.legend(loc='upper left')
 
 
     def _redshift_pairs(self, rix=None):

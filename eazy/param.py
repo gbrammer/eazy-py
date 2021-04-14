@@ -101,6 +101,7 @@ class EazyParam():
         """
         Show the templates
         """
+        import matplotlib.pyplot as plt
         
         if ax is None:
             ax = plt

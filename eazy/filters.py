@@ -182,8 +182,11 @@ class FilterFile:
         
         filters = []
         wave = []
+        trans = []
+        
         for line in lines:
             if 'lambda_c' in line:
+                header = ' '.join(line.split()[1:])
                 if len(wave) > 0:
                     new_filter = FilterDefinition(name=header,
                                                   wave=np.cast[float](wave), 
@@ -193,7 +196,6 @@ class FilterFile:
                     # new_filter.throughput = np.cast[float](trans)
                     filters.append(new_filter)
                     
-                header = ' '.join(line.split()[1:])
                 wave = []
                 trans = []
             else:
