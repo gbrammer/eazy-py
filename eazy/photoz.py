@@ -3444,7 +3444,16 @@ class PhotoZ(object):
         
         if self.param['VERBOSITY'] >= 1:
             print('Get best fit coeffs & best redshifts')
-        
+                        
+        tab = Table()
+        tab['id'] = self.cat['id']
+        for col in ['ra', 'dec']:
+            if col in self.cat.colnames:
+                tab[col] = self.cat[col]
+                
+        tab['z_spec'] = self.cat['z_spec']
+        tab['nusefilt'] = self.nusefilt
+
         # Full lnp
         if zbest is not None:
             self.compute_lnp(prior=prior, beta_prior=beta_prior, 
@@ -3464,23 +3473,13 @@ class PhotoZ(object):
         self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
                           get_err=get_err, fitter=fitter, n_proc=0, 
                           clip_wavelength=clip_wavelength)
-            
-                    
+               
         try:
             zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5],
                                           oversample=5)
         except:
             print('Couldn\'t compute pz_percentiles')
             zlimits = np.zeros((self.NOBJ, 5), dtype=self.ARRAY_DTYPE) - 1
-                        
-        tab = Table()
-        tab['id'] = self.cat['id']
-        for col in ['ra', 'dec']:
-            if col in self.cat.colnames:
-                tab[col] = self.cat[col]
-                
-        tab['z_spec'] = self.cat['z_spec']
-        tab['nusefilt'] = self.nusefilt
         
         # min/max observed wavelengths of valid data
         lc_full = np.dot(np.ones((self.NOBJ, 1)), self.lc[np.newaxis,:])
