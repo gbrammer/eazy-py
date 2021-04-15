@@ -230,7 +230,8 @@ def get_irsa_dust(ra=53.1227, dec=-27.805089, type='SandF'):
         return float(str(stats.refPixelValueSFD).split()[0])
     else:
         return float(str(stats.refPixelValueSandF).split()[0])
-        
+
+
 def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
     """
     Make `fill_between` work like linestyle='steps-mid'.
@@ -246,13 +247,6 @@ def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
         ax = plt.gca()
     
     ax.fill_between(xfull[so], yfull[so], zfull[so], *args, **kwargs)
-
-
-def gaussian_templates(wave, centers=[], widths=[], norm=False):
-    """Make Gaussian "templates" for the template correction
-    """
-    _x = np.array([1/np.sqrt(2*np.pi*w**2)**norm*np.exp(-(wave-c)**2/2/w**2) for c, w in zip(centers, widths)])
-    return _x.T
 
 
 class GalacticExtinction(object):
@@ -853,6 +847,8 @@ class emceeChain():
         """
         Make a FITS file of an EMCEE chain
         """
+        import astropy.io.fits as pyfits
+        
         header = pyfits.Header()
         header.update('NWALKERS', self.nwalkers)
         header.update('NSTEP', self.nstep)
@@ -871,6 +867,11 @@ class emceeChain():
             print('Wrote %s.' %(file))
     
     def load_fits(self, file='emcee_chain.fits'):
+        """
+        Load emcee chain fits file created by ``save_fits``.
+        """
+        import astropy.io.fits as pyfits
+        
         im = pyfits.open(file)
         self.nwalkers = im[0].header['NWALKERS']
         self.nstep = im[0].header['NSTEP']
@@ -888,7 +889,8 @@ class emceeChain():
             show = self.param_names
         
         NP = len(show)
-        fig = unicorn.plotting.plot_init(square=True, aspect=1, xs=size, left=0.05, right=0.01, bottom=0.01, top=0.01, NO_GUI=False, use_tex=False, fontsize=7)
+        #fig = unicorn.plotting.plot_init(square=True, aspect=1, xs=size, left=0.05, right=0.01, bottom=0.01, top=0.01, NO_GUI=False, use_tex=False, fontsize=7)
+        fig = plt.figure(figsize=(7,7))
         fig.subplots_adjust(wspace=0.0,hspace=0.0)
         
         counter = 0

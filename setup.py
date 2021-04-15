@@ -6,7 +6,7 @@ from setuptools.extension import Extension
 import subprocess
 
 import os
-import numpy
+#import numpy
 
 ### For Cython build
 # if False:
@@ -74,7 +74,7 @@ setup(
     url = "https://github.com/gbrammer/eazy-py",
     download_url = "https://github.com/gbrammer/eazy-py/tarball/"+version,
     packages=['eazy'],
-    install_requires=['dust_extinction','astropy', 'dustmaps'],
+    # install_requires=['astropy', 'dustmaps'],
     # requires=['numpy', 'scipy', 'astropy', 'drizzlepac', 'stwcs'],
     # long_description=read('README.rst'),
     classifiers=[

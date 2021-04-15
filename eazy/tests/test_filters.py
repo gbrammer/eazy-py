@@ -51,4 +51,6 @@ def test_read_filter_res():
     filter_file = os.path.join(data_path, 'filters/FILTER.RES.latest')
     res = filters.FilterFile(filter_file)
     
+    assert(res[155].name.startswith('REST_FRAME/maiz-apellaniz_Johnson_V'))
     assert(np.allclose(res[155].pivot, 5479.35, rtol=0.001))
+    return res

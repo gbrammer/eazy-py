@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 
 Test/*
+eazy/data/eazy_test*
+eazy/data/zphot.translate.test
 
 # C extensions
 *.so

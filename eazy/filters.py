@@ -163,7 +163,21 @@ class FilterDefinition:
         filt = np.cumsum((self.wave*self.throughput)[1:]*dl)
         ctw95 = np.interp([0.025, 0.975], filt/filt.max(), self.wave[1:])
         return np.diff(ctw95)
-            
+    
+    
+    def for_filter_file(self, row_str='{i:6} {wave:.5e} {thru:.5e}'):
+        """
+        Return a string that can be put in the EAZY filter file
+        """    
+        header = '{0} {1} lambda_c= {2:.4e} AB-Vega= {3:.3f} w95={4:.1f}'
+        N = len(self.wave)
+        lines = [header.format(N, self.name, 
+                               self.pivot, self.ABVega, self.ctw95)]
+        
+        lines += [row_str.format(i=i+1, wave=w, thru=t)
+                  for i, (w, t) in enumerate(zip(self.wave, self.throughput))]
+        
+        return '\n'.join(lines)
         
 class FilterFile:
     def __init__(self, file='FILTER.RES.latest', path='./'):
@@ -182,9 +196,13 @@ class FilterFile:
         
         filters = []
         wave = []
+        trans = []
+        header = ''
+        
         for line in lines:
             if 'lambda_c' in line:
                 if len(wave) > 0:
+                    # Make filter from lines already read in
                     new_filter = FilterDefinition(name=header,
                                                   wave=np.cast[float](wave), 
                                             throughput=np.cast[float](trans))
@@ -192,7 +210,8 @@ class FilterFile:
                     # new_filter.wave = np.cast[float](wave)
                     # new_filter.throughput = np.cast[float](trans)
                     filters.append(new_filter)
-                    
+
+                # Initialize filter
                 header = ' '.join(line.split()[1:])
                 wave = []
                 trans = []
