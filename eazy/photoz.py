@@ -48,6 +48,10 @@ NUVRK_FILTERS = [121, 158, 163]
 CDF_SIGMAS = np.linspace(-5, 5, 51)
 
 class PhotoZ(object):
+    ZBEST_WITH_PRIOR = None
+    ZBEST_WITH_BETA_PRIOR = None
+    ZBEST_AT_ZSPEC = None
+    
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, **kwargs):
         """
         Main object for fitting templates / photometric redshifts
