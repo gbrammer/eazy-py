@@ -258,6 +258,9 @@ def test_sps_parameters():
     # confirm that z2['z_pdf'] == zout['z_phot']
     assert( np.all(z2['z_pdf'] == zout['z_phot']) )
 
+    # confirm that zout['z_phot'] == zout['z_pdf']
+    assert( np.all(zout['z_pdf'] == zout['z_phot']) )
+
     ### Check that sps parameters are different...
     
 def test_fit_stars():
