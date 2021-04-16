@@ -102,12 +102,14 @@ class PhotoZ(object):
             self.param.params[key] = params[key]
             
         ### Read templates
-        self.templates = self.param.read_templates(templates_file=self.param['TEMPLATES_FILE'], 
-                          velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
-                          resample_wave=self.param['RESAMPLE_WAVE'])
+        kws = dict(templates_file=self.param['TEMPLATES_FILE'], 
+                    velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
+                    resample_wave=self.param['RESAMPLE_WAVE'])
+                          
+        self.templates = self.param.read_templates(**kws)
         
         ### Set redshift fit grid
-        self.get_zgrid()
+        self.set_zgrid()
         
         ### Set cosmology
         if cosmology is None:
@@ -122,7 +124,8 @@ class PhotoZ(object):
         ### Read catalog and filters
         self.read_catalog()
         if self.NFILT < 1:
-            print('\n!! No filters found, maybe a problem with the translate file?\n')
+            print('\n!! No filters found, maybe a problem with'
+                  ' the translate file?\n')
             return None
             
         self.idx = np.arange(self.NOBJ, dtype=int)
@@ -158,14 +161,20 @@ class PhotoZ(object):
                                      dtype=self.ARRAY_DTYPE)
         self.get_err = False
         
-        ### Interpolate templates
-        #self.tempfilt = TemplateGrid(self.zgrid, self.templates, self.filters, add_igm=True, galactic_ebv=0.0354)
-        
+        ### Interpolate templates        
         if tempfilt is None:
-            print('Template grid: {0} (this may take some time)'.format(self.param['TEMPLATES_FILE']))
+            msg = 'Template grid: {0} (this may take some time)'
+            print(msg.format(self.param['TEMPLATES_FILE']))
         
             t0 = time.time()
-            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=n_proc, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, 
+                                        RES=self.param['FILTERS_RES'], 
+                                        f_numbers=self.f_numbers, 
+                                        add_igm=self.param['IGM_SCALE_TAU'], 
+                                    galactic_ebv=self.param.params['MW_EBV'], 
+                                    Eb=self.param['SCALE_2175_BUMP'], 
+                                    n_proc=n_proc, cosmology=self.cosmology, 
+                                    array_dtype=self.ARRAY_DTYPE)
             t1 = time.time()
             print('Process templates: {0:.3f} s'.format(t1-t0))
         else:
@@ -197,8 +206,8 @@ class PhotoZ(object):
         Conversion of observed fluxes to microJansky
         """
         return 10**(-0.4*(self.param.params['PRIOR_ABZP']-23.9))
-    
-    
+
+
     @property 
     def NOBJ(self):
         """
@@ -208,8 +217,8 @@ class PhotoZ(object):
             return 0
         else:
             return len(self.cat)
-    
-    
+
+
     @property
     def NFILT(self):
         """
@@ -219,8 +228,8 @@ class PhotoZ(object):
             return len(self.filters)
         else:
             return 0
-    
-    
+
+
     @property 
     def lc(self):
         """
@@ -230,8 +239,8 @@ class PhotoZ(object):
             return np.array([f.pivot for f in self.filters])
         else:
             return None
-        
-    
+
+
     @property 
     def NTEMP(self):
         """
@@ -241,8 +250,8 @@ class PhotoZ(object):
             return len(self.templates)
         else:
             return 0
-    
-    
+
+
     @property
     def NZ(self):
         """
@@ -252,8 +261,8 @@ class PhotoZ(object):
             return len(self.zgrid)
         else:
             return 0
-    
-    
+
+
     def load_products(self, compute_error_residuals=False, fitter='nnls', **kwargs):
         """
         Load results from ``zout`` and ``data`` FITS files.
@@ -282,7 +291,8 @@ class PhotoZ(object):
             else:
                 self.fit_at_zbest(zbest=self.zout['z_phot'].data,
                               fitter=fitter, **kwargs)
-               
+
+
     def read_catalog(self, verbose=True):
         """
         Read catalog file
@@ -326,7 +336,9 @@ class PhotoZ(object):
                 self.flux_columns.append(k)
                 self.err_columns.append(ke)
                 self.f_numbers.append(f_number)
-                print('{0} {1} ({2:3d}): {3}'.format(k, ke, f_number, self.filters[-1].name.split()[0]))
+                msg = '{0} {1} ({2:3d}): {3}'
+                print(msg.format(k, ke, f_number, 
+                                 self.filters[-1].name.split()[0]))
                 
         # Apply translation       
         for k in self.translate.trans:
@@ -348,7 +360,9 @@ class PhotoZ(object):
                     self.flux_columns.append(k)
                     self.err_columns.append(ke)
                     self.f_numbers.append(f_number)
-                    print('{0} {1} ({2:3d}): {3}'.format(k, ke, f_number, self.filters[-1].name.split()[0]))
+                    msg = '{0} {1} ({2:3d}): {3}'
+                    print(msg.format(k, ke, f_number, 
+                                     self.filters[-1].name.split()[0]))
                         
         self.f_numbers = np.array(self.f_numbers)
         
@@ -373,9 +387,7 @@ class PhotoZ(object):
             self.ext_redden = self.ext_corr
         else:
             self.ext_redden = np.ones(self.NFILT)
-            
-        #self.ext_corr = np.array([10**(0.4*f.extinction_correction(self.param.params['MW_EBV'])) for f in self.filters])
-        
+
         self.zp = self.ext_corr*0+1
         
         for i in range(self.NFILT):
@@ -389,7 +401,11 @@ class PhotoZ(object):
         
         self.efnu = np.sqrt(self.efnu_orig**2+(self.param['SYS_ERR']*self.fnu)**2)
         
-        self.ok_data = (self.efnu > 0) & (self.fnu > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu) & np.isfinite(self.efnu)
+        self.ok_data = ((self.efnu > 0) 
+                        & (self.fnu > self.param['NOT_OBS_THRESHOLD']) 
+                        & np.isfinite(self.fnu) 
+                        & np.isfinite(self.efnu))
+                         
         self.fnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
         self.efnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
         
@@ -432,9 +448,9 @@ class PhotoZ(object):
         if compute_tef_lnp:
             self.compute_tef_lnp(in_place=True)
         
-    def get_zgrid(self):
+    def set_zgrid(self):
         """
-        Set zgrid from Z_MIN, Z_MAX, Z_STEP params
+        Set zgrid attributes from Z_MIN, Z_MAX, Z_STEP params
         """
         zr = [self.param['Z_MIN'], self.param['Z_MAX']]
         self.zgrid = utils.log_zgrid(zr=zr, 

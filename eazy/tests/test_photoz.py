@@ -117,7 +117,7 @@ def test_full_photoz():
     params['FIX_ZSPEC'] = False
     
     ### Initialize object
-    self = photoz.PhotoZ(param_file=None, translate_file=translate_file, 
+    ez = photoz.PhotoZ(param_file=None, translate_file=translate_file, 
                          zeropoint_file=None, params=params, load_prior=True, 
                          load_products=False)
     
@@ -158,6 +158,11 @@ def test_photoz_methods():
                       get_err=False, clip_wavelength=1100, fitter='nnls', 
                       selection=None, n_proc=0, par_skip=10000)
     
+    # Peak-finder
+    peaks, numpeaks = ez.find_peaks()
+    assert(np.allclose(numpeaks, 1))
+    assert(np.allclose(ez.zgrid[peaks[0][0]], z_spec, atol=0.01*(1+z_spec)))
+    
     return ez
 
 
@@ -171,8 +176,13 @@ def test_sps_parameters():
     ez.fit_parallel(fitter='nnls')
         
     ### SPS parameters
+    # Full RF-colors with filter weighting
     zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
-                                     prior=True, beta_prior=True, simple=True)
+                                   prior=True, beta_prior=True, simple=False)
+
+    # "Simple" best-fit template RF colors
+    zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
+                                   prior=True, beta_prior=True, simple=True)
     
     assert(np.allclose(zout['z_phot'][0], z_spec, atol=0.1*(1+z_spec)))
 
@@ -245,27 +255,29 @@ def test_sps_parameters():
     for k in zdict:
         assert(np.allclose(zout[k][0], zdict[k], rtol=0.1))
 
+    # confirm that zout['z_phot'] == zout['z_ml']
+    assert( np.all(zout['z_ml'] == zout['z_phot']) )
+        
     ### user-specified zbest
-    z2, _ = ez.standard_output(zbest=np.full(NRND+1, z_spec),
+    zuser = np.full(NRND+1, z_spec)
+    z2, _ = ez.standard_output(zbest=zuser,
                                    rf_pad_width=0.5, rf_max_err=2, 
                                      prior=True, beta_prior=True, simple=True)
     
     # confirm that z2 has 'z_ml' and 'z_phot' columns and they're different 
-    assert( np.any(z2['z_ml'] != z2['z_phot']) )
+    assert( np.all(z2['z_ml'] != z2['z_phot']) )
 
     # confirm that z2['z_ml'] == zout['z_phot']
     assert( np.all(z2['z_ml'] == zout['z_phot']) )
     
-    # zphot is the user-specified redshift
-    assert(np.allclose(z2['z_phot'], z_spec, rtol=1.e-2))
-
-    # confirm that zout['z_phot'] == zout['z_ml']
-    assert( np.all(zout['z_ml'] == zout['z_phot']) )
-
-    ### ToDo: Check that sps parameters are different...
+    # zphot is now the user-specified redshift
+    assert(np.allclose(z2['z_phot'], zuser, rtol=1.e-2))
     
-    ### ToDo: add tests for run_find_peaks, simple=False
-    
+    # SPS parameters are different, as calculated for zuser
+    assert( np.all(z2['mass'] != zout['mass']) )
+    assert( np.all(z2['sfr'] != zout['sfr']) )
+
+
 def test_fit_stars():
     """
     Fit phoenix star library for Star/Galaxy separation
