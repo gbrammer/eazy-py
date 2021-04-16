@@ -294,6 +294,8 @@ def test_photoz_figures():
     fig = ez.show_fit(id=1, show_fnu=True)
     fig = ez.show_fit(id=1, show_fnu=2)
 
+    fig = ez.show_fit(id=1, show_fnu=False, zshow=z_spec)
+
     fig = ez.show_fit(id=1, show_components=True)
     
     fig = ez.zphot_zspec()
