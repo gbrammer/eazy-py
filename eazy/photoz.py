@@ -919,6 +919,7 @@ class PhotoZ(object):
                                                     beta_prior=beta_prior,
                                             clip_wavelength=clip_wavelength)
             
+            self.ZBEST_USER = False # user did *not* specify zbest
             self.ZBEST_WITH_PRIOR = prior
             self.ZBEST_WITH_BETA_PRIOR = beta_prior
             self.zbest[~has_chi2] = -1
@@ -926,6 +927,7 @@ class PhotoZ(object):
         else:
             self.zbest = zbest
             #self.zchi2 = np.zeros_like(self.zbest)-1
+            self.ZBEST_USER = True # user *did* specify zbest
             self.ZBEST_WITH_PRIOR = False
             self.ZBEST_WITH_BETA_PRIOR = False
                     
@@ -3397,6 +3399,7 @@ class PhotoZ(object):
         for i, templ in enumerate(self.templates):
             tab.meta[f'TEMPL{i:03d}'] = templ.name
             
+        tab.meta['ZBEST_USER'] = self.ZBEST_USER
         tab.meta['ZBEST_AT_ZSPEC'] = self.ZBEST_AT_ZSPEC
         tab.meta['ZBEST_WITH_PRIOR'] = self.ZBEST_WITH_PRIOR
         tab.meta['ZBEST_WITH_BETA_PRIOR'] = self.ZBEST_WITH_BETA_PRIOR
@@ -3448,23 +3451,6 @@ class PhotoZ(object):
         
         if self.param['VERBOSITY'] >= 1:
             print('Get best fit coeffs & best redshifts')
-        
-        # Full lnp
-        if zbest is not None:
-            self.compute_lnp(prior=prior, beta_prior=beta_prior, 
-                         clip_wavelength=clip_wavelength) 
-        
-        # Fit at max-lnp          
-        self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
-                      get_err=get_err, fitter=fitter, n_proc=0, 
-                      clip_wavelength=clip_wavelength)
-                    
-        try:
-            zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5],
-                                          oversample=5)
-        except:
-            print('Couldn\'t compute pz_percentiles')
-            zlimits = np.zeros((self.NOBJ, 5), dtype=self.ARRAY_DTYPE) - 1
                         
         tab = Table()
         tab['id'] = self.cat['id']
@@ -3474,6 +3460,32 @@ class PhotoZ(object):
                 
         tab['z_spec'] = self.cat['z_spec']
         tab['nusefilt'] = self.nusefilt
+
+        # Fit at max-lnp (default if zbest = None) first and record this information no matter what.          
+        self.fit_at_zbest(zbest=None, prior=prior, beta_prior=beta_prior, 
+                      get_err=get_err, fitter=fitter, n_proc=0, 
+                      clip_wavelength=clip_wavelength)
+        
+        tab['z_pdf'] = self.zbest
+        tab['z_pdf_chi2'] = self.chi2_best #chi2_fit.min(axis=1)
+        tab['z_pdf_risk'] = self.zbest_risk
+            
+        # Fit at the user's requested zbest, which defaults to max-lnp if zbest is None
+        if zbest is not None:
+            # Full lnp
+            self.compute_lnp(prior=prior, beta_prior=beta_prior, 
+                         clip_wavelength=clip_wavelength) 
+
+            self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
+                          get_err=get_err, fitter=fitter, n_proc=0, 
+                          clip_wavelength=clip_wavelength)
+               
+        try:
+            zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5],
+                                          oversample=5)
+        except:
+            print('Couldn\'t compute pz_percentiles')
+            zlimits = np.zeros((self.NOBJ, 5), dtype=self.ARRAY_DTYPE) - 1
         
         # min/max observed wavelengths of valid data
         lc_full = np.dot(np.ones((self.NOBJ, 1)), self.lc[np.newaxis,:])

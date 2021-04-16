@@ -251,7 +251,16 @@ def test_sps_parameters():
                                      prior=True, beta_prior=True, simple=True)
     
     assert(np.allclose(z2['z_phot'], z_spec, rtol=1.e-2))
-    
+
+    # confirm that z2 has both 'z_pdf' and 'z_phot' columns and that they're different 
+    assert( np.any(z2['z_pdf'] != z2['z_phot']) )
+
+    # confirm that z2['z_pdf'] == zout['z_phot']
+    assert( np.all(z2['z_pdf'] == zout['z_phot']) )
+
+    # confirm that zout['z_phot'] == zout['z_pdf']
+    assert( np.all(zout['z_pdf'] == zout['z_phot']) )
+
     ### Check that sps parameters are different...
     
 def test_fit_stars():
