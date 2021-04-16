@@ -48,9 +48,10 @@ NUVRK_FILTERS = [121, 158, 163]
 CDF_SIGMAS = np.linspace(-5, 5, 51)
 
 class PhotoZ(object):
-    ZBEST_WITH_PRIOR = None
-    ZBEST_WITH_BETA_PRIOR = None
-    ZBEST_AT_ZSPEC = None
+    ZML_WITH_PRIOR = None
+    ZML_WITH_BETA_PRIOR = None
+    ZPHOT_AT_ZSPEC = None
+    ZPHOT_USER = None
     
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, **kwargs):
         """
@@ -144,6 +145,7 @@ class PhotoZ(object):
             
         self.lnpmax = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)
         self.zbest = np.zeros_like(self.lnpmax)
+        self.zml = np.zeros_like(self.lnpmax)
         self.chi2_best = np.zeros_like(self.zbest)-1
                 
         self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP), 
@@ -918,26 +920,28 @@ class PhotoZ(object):
             self.zbest, _lnpmax = self.get_maxlnp_redshift(prior=prior,
                                                     beta_prior=beta_prior,
                                             clip_wavelength=clip_wavelength)
-            
-            self.ZBEST_USER = False # user did *not* specify zbest
-            self.ZBEST_WITH_PRIOR = prior
-            self.ZBEST_WITH_BETA_PRIOR = beta_prior
+
+            self.ZPHOT_USER = False # user did *not* specify zbest
+            self.ZML_WITH_PRIOR = prior
+            self.ZML_WITH_BETA_PRIOR = beta_prior
+
             self.zbest[~has_chi2] = -1
+            self.zml = self.zbest
                             
         else:
             self.zbest = zbest
             #self.zchi2 = np.zeros_like(self.zbest)-1
-            self.ZBEST_USER = True # user *did* specify zbest
-            self.ZBEST_WITH_PRIOR = False
-            self.ZBEST_WITH_BETA_PRIOR = False
+            self.ZPHOT_USER = True # user *did* specify zbest
+            self.ZML_WITH_PRIOR = False
+            self.ZML_WITH_BETA_PRIOR = False
                     
         if ((self.param['FIX_ZSPEC'] in TRUE_VALUES) & 
             ('z_spec' in self.cat.colnames)):
             has_zsp = self.cat['z_spec'] > self.zgrid[0]
             self.zbest[has_zsp] = self.cat['z_spec'][has_zsp]
-            self.ZBEST_AT_ZSPEC = True
+            self.ZPHOT_AT_ZSPEC = True
         else:
-            self.ZBEST_AT_ZSPEC = False
+            self.ZPHOT_AT_ZSPEC = False
             
         # Compute Risk function at z=zbest
         self.zbest_risk = self.compute_best_risk()
@@ -2546,7 +2550,7 @@ class PhotoZ(object):
 
 
     def get_maxlnp_redshift(self, prior=True, beta_prior=True, clip_wavelength=1100):
-        """Fit parabola to ``lnp`` to get best maximum
+        """Fit parabola to ``lnp`` to get continuous max(lnp) redshift.
         
         """
         #from scipy import polyfit, polyval
@@ -3399,10 +3403,10 @@ class PhotoZ(object):
         for i, templ in enumerate(self.templates):
             tab.meta[f'TEMPL{i:03d}'] = templ.name
             
-        tab.meta['ZBEST_USER'] = self.ZBEST_USER
-        tab.meta['ZBEST_AT_ZSPEC'] = self.ZBEST_AT_ZSPEC
-        tab.meta['ZBEST_WITH_PRIOR'] = self.ZBEST_WITH_PRIOR
-        tab.meta['ZBEST_WITH_BETA_PRIOR'] = self.ZBEST_WITH_BETA_PRIOR
+        tab.meta['ZBEST_USER'] = self.ZPHOT_USER
+        tab.meta['ZBEST_AT_ZSPEC'] = self.ZPHOT_AT_ZSPEC
+        tab.meta['ZML_WITH_PRIOR'] = self.ZML_WITH_PRIOR
+        tab.meta['ZML_WITH_BETA_PRIOR'] = self.ZML_WITH_BETA_PRIOR
         tab.meta['RFSIMPLE'] = simple, 'RF fluxes without reweighting'
         
         for i in range(self.NFILT):
@@ -3461,21 +3465,24 @@ class PhotoZ(object):
         tab['z_spec'] = self.cat['z_spec']
         tab['nusefilt'] = self.nusefilt
 
-        # Fit at max-lnp (default if zbest = None) first and record this information no matter what.          
+        # Fit at max-lnp (default if zbest = None) first and record this 
+        # information no matter what.          
+
+        # Full lnp
+        self.compute_lnp(prior=prior, beta_prior=beta_prior, 
+                     clip_wavelength=clip_wavelength) 
+
         self.fit_at_zbest(zbest=None, prior=prior, beta_prior=beta_prior, 
                       get_err=get_err, fitter=fitter, n_proc=0, 
                       clip_wavelength=clip_wavelength)
         
-        tab['z_pdf'] = self.zbest
-        tab['z_pdf_chi2'] = self.chi2_best #chi2_fit.min(axis=1)
-        tab['z_pdf_risk'] = self.zbest_risk
+        tab['z_ml'] = self.zbest
+        tab['z_ml_chi2'] = self.chi2_best 
+        tab['z_ml_risk'] = self.zbest_risk
             
-        # Fit at the user's requested zbest, which defaults to max-lnp if zbest is None
+        # Fit at the user's requested zbest, which defaults to 
+        # z_pdf if zbest is None
         if zbest is not None:
-            # Full lnp
-            self.compute_lnp(prior=prior, beta_prior=beta_prior, 
-                         clip_wavelength=clip_wavelength) 
-
             self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
                           get_err=get_err, fitter=fitter, n_proc=0, 
                           clip_wavelength=clip_wavelength)
@@ -3489,7 +3496,8 @@ class PhotoZ(object):
         
         # min/max observed wavelengths of valid data
         lc_full = np.dot(np.ones((self.NOBJ, 1)), self.lc[np.newaxis,:])
-        tab['lc_min'] = (lc_full*(self.ok_data + 1e10*(~self.ok_data))).min(axis=1)
+        tab['lc_min'] = (lc_full*(self.ok_data +
+                                  1e10*(~self.ok_data))).min(axis=1)
         tab['lc_max'] = (lc_full*self.ok_data).max(axis=1)
         tab['lc_max'].format = tab['lc_min'].format = '.1f'
         

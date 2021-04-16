@@ -250,18 +250,21 @@ def test_sps_parameters():
                                    rf_pad_width=0.5, rf_max_err=2, 
                                      prior=True, beta_prior=True, simple=True)
     
+    # confirm that z2 has 'z_ml' and 'z_phot' columns and they're different 
+    assert( np.any(z2['z_ml'] != z2['z_phot']) )
+
+    # confirm that z2['z_ml'] == zout['z_phot']
+    assert( np.all(z2['z_ml'] == zout['z_phot']) )
+    
+    # zphot is the user-specified redshift
     assert(np.allclose(z2['z_phot'], z_spec, rtol=1.e-2))
 
-    # confirm that z2 has both 'z_pdf' and 'z_phot' columns and that they're different 
-    assert( np.any(z2['z_pdf'] != z2['z_phot']) )
+    # confirm that zout['z_phot'] == zout['z_ml']
+    assert( np.all(zout['z_ml'] == zout['z_phot']) )
 
-    # confirm that z2['z_pdf'] == zout['z_phot']
-    assert( np.all(z2['z_pdf'] == zout['z_phot']) )
-
-    # confirm that zout['z_phot'] == zout['z_pdf']
-    assert( np.all(zout['z_pdf'] == zout['z_phot']) )
-
-    ### Check that sps parameters are different...
+    ### ToDo: Check that sps parameters are different...
+    
+    ### ToDo: add tests for run_find_peaks, simple=False
     
 def test_fit_stars():
     """

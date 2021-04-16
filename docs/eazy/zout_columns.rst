@@ -14,28 +14,36 @@ Columns in ``{MAIN_OUTPUT_FILE}.zout.fits``.
 +-------------------+-----------------------------------------------------+
 | ``nusefilt``      | Number of filters used for photo-z                  |
 +-------------------+-----------------------------------------------------+
+| ``z_ml``          | Maximum Likelihood redshift ``max( pdf(z) ))``).    |
++-------------------+-----------------------------------------------------+
+| ``z_ml_chi2``     | chi-squared at ``z==z_ml``                          |
+|                   |                                                     |
++-------------------+-----------------------------------------------------+
+| ``z_ml_risk``     | ``R(z_ml)``, "Risk" parameter defined by            |
+|                   | `Tanaka et al. (2017) <https://shorturl.at/amCQ7>`_ |
+|                   | , evaluated at ``z_ml``                             |
++-------------------+-----------------------------------------------------+
 | ``lc_min``        | Minimum effective wavelength of valid filters [Å]   |
 +-------------------+-----------------------------------------------------+
 | ``lc_max``        | Maximum effective wavelength of valid filters [Å]   |
 +-------------------+-----------------------------------------------------+
-| ``numpeaks``      | Number of separate peaks identified in ``pdf(z)``.  |
+| ``numpeaks``      | Number of separate peaks identified in ``pdf(z)``,  |
+|                   | optional.                                           |
 +-------------------+-----------------------------------------------------+
-| ``z_phot``        | Best photometric redshift,                          |
-|                   | :math:`\int z\,\mathtt{pdf}(z)\,dz`.                |
+| ``z_phot``        | ``z_ml`` or, optionally, a user-specified redshift  |
+|                   | Parameters below evaluated at ``z_phot``.           |
 +-------------------+-----------------------------------------------------+
-| ``z_phot_chi2``   | Redshift where chi-squared maximized                |
+| ``z_phot_chi2``   | chi-squared at ``z==z_phot``                        |
 |                   |                                                     |
 +-------------------+-----------------------------------------------------+
-| ``z_phot_risk``   | ``R(z_phot)``, "Risk" parameter defined by          |
-|                   | `Tanaka et al. (2017) <https://shorturl.at/amCQ7>`_ |
-|                   | , evaluated at ``z_phot``                           |
+| ``z_phot_risk``   | Risk evaluated at ``z_phot``                        |
 +-------------------+-----------------------------------------------------+
 | ``z_min_risk``    | Redshift where ``R(z)`` minimized                   |
 +-------------------+-----------------------------------------------------+
 | ``min_risk``      | ``R(z_min_risk)``                                   |
 +-------------------+-----------------------------------------------------+
 |                   | Redshift where chi-squared maximized, before adding |
-| ``z_chi2_noprior``| the prior                                           |
+| ``z_chi2_noprior``| the (optional) prior                                |
 +-------------------+-----------------------------------------------------+
 | ``chi2_noprior``  |  ``chi2(z_chi2_noprior)``                           |
 +-------------------+-----------------------------------------------------+
@@ -76,7 +84,7 @@ Columns in ``{MAIN_OUTPUT_FILE}.zout.fits``.
 +-------------------+-----------------------------------------------------+
 | ``mass``          | Stellar mass [:math:`M_\odot`]                      |
 +-------------------+-----------------------------------------------------+
-| ``SFR``           | Star formation rate                                 |
+| ``sfr``           | Star formation rate                                 |
 |                   | [:math:`M_\odot\,\mathrm{yr}^{-1}`]                 |
 +-------------------+-----------------------------------------------------+
 | ``LIR``           | Total 8--1000 µm luminosity [:math:`L_\odot`]       |
@@ -84,7 +92,7 @@ Columns in ``{MAIN_OUTPUT_FILE}.zout.fits``.
 | ``energy_abs``    | Implied absorbed energy associated with :math:`A_V`,|
 |                   | [:math:`L_\odot`]                                   |
 +-------------------+-----------------------------------------------------+
-| ``massp``         | Percentiles of stellar mass                         |
+| ``massp``         | 2.5, 16, 50, 84, 97.5 Percentiles of stellar mass   |
 +-------------------+-----------------------------------------------------+
 | ``SFRp``          | Percentiles of SFR                                  |
 +-------------------+-----------------------------------------------------+
