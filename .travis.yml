@@ -18,8 +18,8 @@ matrix:
 install: 
     - git clone git://github.com/astropy/ci-helpers.git
     - source ci-helpers/travis/setup_conda.sh
-    - pip install git+https://github.com/karllark/dust_attenuation.git
-    - pip install git+https://github.com/karllark/dust_extinction.git
+    - pip install git+https://github.com/gbrammer/dust_attenuation.git
+    - pip install git+https://github.com/gbrammer/dust_extinction.git
     - pip install dustmaps
     - pip install pytest==5.4.1
     - pip install peakutils>=1.0.3
