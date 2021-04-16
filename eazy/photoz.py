@@ -144,8 +144,8 @@ class PhotoZ(object):
             self.zp = self.f_numbers*0+1.
             
         self.lnpmax = np.zeros(self.NOBJ, dtype=self.ARRAY_DTYPE)
+        self.zml = None
         self.zbest = np.zeros_like(self.lnpmax)
-        self.zml = np.zeros_like(self.lnpmax)
         self.chi2_best = np.zeros_like(self.zbest)-1
                 
         self.coeffs_best = np.zeros((self.NOBJ, self.NTEMP), 
@@ -179,8 +179,8 @@ class PhotoZ(object):
         ### Load previous products?
         if load_products:
             self.load_products(**kwargs)
-        
-                    
+
+
     @property 
     def to_flam(self):
         """
@@ -189,8 +189,8 @@ class PhotoZ(object):
         to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         to_flam *= utils.CLIGHT*1.e10/1.e-19/self.lc**2/self.ext_corr
         return to_flam
-        
-    
+
+
     @property 
     def to_uJy(self):
         """
@@ -811,9 +811,7 @@ class PhotoZ(object):
             if verbose:
                 print('Compute best fits')
             
-            self.fit_at_zbest(prior=prior, beta_prior=beta_prior, 
-                              fitter=fitter, zbest=None, n_proc=n_proc, 
-                              selection=selection)
+            self.fit_at_zbest(prior=prior, beta_prior=beta_prior)
         else:
             self.compute_lnp(prior=prior, beta_prior=beta_prior)
             
@@ -901,9 +899,34 @@ class PhotoZ(object):
         return chi2_i, coeffs_i, fmodel
 
 
-    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=True, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=10000, **kwargs):
+    def evaluate_zml(self, prior=False, beta_prior=False, clip_wavelength=1100):
         """
-        Recompute the fit coefficients at the "best" redshift
+        Evaluate the maximum likelihood redshift with optional priors
+        """
+        #izbest = np.argmin(self.chi2_fit, axis=1)
+        izbest = self.izbest*1
+        has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
+        
+        self.compute_lnp(prior=prior, beta_prior=beta_prior, 
+                     clip_wavelength=clip_wavelength) 
+
+        self.zml, _lnpmax = self.get_maxlnp_redshift(prior=prior,
+                                                beta_prior=beta_prior,
+                                        clip_wavelength=clip_wavelength)
+        
+        self.zml[~has_chi2] = -1
+        
+        self.ZML_WITH_PRIOR = prior
+        self.ZML_WITH_BETA_PRIOR = beta_prior
+
+
+    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=False, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=10000, **kwargs):
+        """
+        Recompute the fit coefficients at the "best" redshift.  
+        
+        If ``zbest`` not specified, then will fit at the maximum likelihood
+        redshift ``self.zml``.
+        
         """
         import multiprocessing as mp
                 
@@ -917,23 +940,22 @@ class PhotoZ(object):
         #self.chi_best
         
         if zbest is None:
-            self.zbest, _lnpmax = self.get_maxlnp_redshift(prior=prior,
-                                                    beta_prior=beta_prior,
-                                            clip_wavelength=clip_wavelength)
+            if (self.zml is None):
+                recompute_zml = True
+            else:
+                # Recompute if prior options changed
+                recompute_zml = prior is not self.ZML_WITH_PRIOR
+                recompute_zml |= beta_prior is not self.ZML_WITH_BETA_PRIOR
+                
+            if recompute_zml:
+                self.evaluate_zml(prior=prior, beta_prior=beta_prior)
 
             self.ZPHOT_USER = False # user did *not* specify zbest
-            self.ZML_WITH_PRIOR = prior
-            self.ZML_WITH_BETA_PRIOR = beta_prior
-
-            self.zbest[~has_chi2] = -1
-            self.zml = self.zbest
+            self.zbest = self.zml
                             
         else:
             self.zbest = zbest
-            #self.zchi2 = np.zeros_like(self.zbest)-1
             self.ZPHOT_USER = True # user *did* specify zbest
-            self.ZML_WITH_PRIOR = False
-            self.ZML_WITH_BETA_PRIOR = False
                     
         if ((self.param['FIX_ZSPEC'] in TRUE_VALUES) & 
             ('z_spec' in self.cat.colnames)):
@@ -1873,6 +1895,9 @@ class PhotoZ(object):
         -------
         fig : `~matplotlib.figure.Figure`
             Figure object
+        
+        data : dict
+            Dictionary of fit data (photometry, best-fit template, etc.).
             
         """
         import matplotlib.pyplot as plt
@@ -1923,8 +1948,8 @@ class PhotoZ(object):
         ok_band &= (efnu_i/self.zp > 0)
         efnu_i[~ok_band] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
+        ## Evaluate coeffs at specified redshift
         tef_i = self.TEF(z)
-        
         A = np.squeeze(self.tempfilt(z))
         chi2_i, coeffs_i, fmodel, draws = _fit_obj(fnu_i, efnu_i, A, 
                                                    tef_i, self.zp, 
@@ -2549,7 +2574,7 @@ class PhotoZ(object):
         return tef_lnp
 
 
-    def get_maxlnp_redshift(self, prior=True, beta_prior=True, clip_wavelength=1100):
+    def get_maxlnp_redshift(self, prior=False, beta_prior=False, clip_wavelength=1100):
         """Fit parabola to ``lnp`` to get continuous max(lnp) redshift.
         
         """
@@ -3446,7 +3471,7 @@ class PhotoZ(object):
         
         return tab
 
-    def standard_output(self, zbest=None, prior=True, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, simple=False):#
+    def standard_output(self, zbest=None, prior=False, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, simple=False):#
         """
         SPS output, stellar masses, etc.
         """
@@ -3467,11 +3492,6 @@ class PhotoZ(object):
 
         # Fit at max-lnp (default if zbest = None) first and record this 
         # information no matter what.          
-
-        # Full lnp
-        self.compute_lnp(prior=prior, beta_prior=beta_prior, 
-                     clip_wavelength=clip_wavelength) 
-
         self.fit_at_zbest(zbest=None, prior=prior, beta_prior=beta_prior, 
                       get_err=get_err, fitter=fitter, n_proc=0, 
                       clip_wavelength=clip_wavelength)
