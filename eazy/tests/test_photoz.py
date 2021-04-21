@@ -2,6 +2,7 @@ import pytest
 import os
 
 import numpy as np
+np.random.seed(0)
 
 from .. import utils
 from .. import templates
@@ -65,8 +66,7 @@ def make_fake_catalog(SN=20):
     
     ### Translate file
     translate_file = 'zphot.translate.test'
-    np.random.seed(0)
-
+    
     with open(translate_file,'w') as fp:
         for i, f in enumerate(f_names):
             tab[f'f_{f}'] = fnu[i] + np.append(0, np.random.normal(size=NRND)*efnu[i])
@@ -253,15 +253,17 @@ def test_sps_parameters():
     'DISTMOD': 43.340373559176065}
     
     for k in zdict:
-        assert(np.allclose(zout[k][0], zdict[k], rtol=0.1))
+        if '_err' in k:
+            assert(np.allclose(zout[k][0], zdict[k], rtol=0.5))
+        else:
+            assert(np.allclose(zout[k][0], zdict[k], rtol=0.1))
 
     # confirm that zout['z_phot'] == zout['z_ml']
     assert( np.all(zout['z_ml'] == zout['z_phot']) )
         
     ### user-specified zbest
     zuser = np.full(NRND+1, z_spec)
-    z2, _ = ez.standard_output(zbest=zuser,
-                                   rf_pad_width=0.5, rf_max_err=2, 
+    z2, _ = ez.standard_output(zbest=zuser, rf_pad_width=0.5, rf_max_err=2, 
                                      prior=True, beta_prior=True, simple=True)
     
     # confirm that z2 has 'z_ml' and 'z_phot' columns and they're different 
