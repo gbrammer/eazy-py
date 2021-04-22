@@ -11,7 +11,7 @@ VEGA_FILE = os.path.join(utils.path_to_eazy_data(),
                          
 VEGA = Table.read(VEGA_FILE)
 for c in VEGA.colnames:
-    VEGA[c] = VEGA[c].astype(np.float)
+    VEGA[c] = VEGA[c].astype(float)
     
 class FilterDefinition:
     def __init__(self, name=None, wave=None, throughput=None, bp=None, EBV=0, Rv=3.1):

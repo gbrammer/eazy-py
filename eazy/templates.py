@@ -246,8 +246,8 @@ class Template():
         
         if sp is not None:
             # Prospector        
-            self.wave = np.cast[np.float](sp.wave)
-            self.flux = np.cast[np.float](sp.flux)
+            self.wave = np.cast[float](sp.wave)
+            self.flux = np.cast[float](sp.flux)
             # already fnu
             self.flux *= utils.CLIGHT*1.e10 / self.wave**2
             
@@ -255,8 +255,8 @@ class Template():
             # Read from a file
             if file.split('.')[-1] in ['fits','csv','ecsv']:
                 tab = Table.read(file)
-                self.wave = tab['wave'].data.astype(np.float)
-                self.flux = tab[fits_column].data.astype(np.float)
+                self.wave = tab['wave'].data.astype(float)
+                self.flux = tab[fits_column].data.astype(float)
                 self.orig_table = tab
                 
                 # Transpose because FITS tables stored like NWAVE, NZ

@@ -6,8 +6,7 @@ from . import templates
 from . import filters
 from . import photoz
 
-#__version__ = "0.2.0"
-from .version import __version__
+from .version import __version__, __long_version__, __version_hash__
 
 def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False):
     """

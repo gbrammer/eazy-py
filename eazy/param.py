@@ -156,7 +156,7 @@ class EazyParam():
         else:
             fp = open(file,'w')
             for param in self.param_names:
-                if isinstance(self.params[param], np.str):
+                if isinstance(self.params[param], str):
                     fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
                 else:
                     fp.write('{0:25s} {1}\n'.format(param, self.params[param]))

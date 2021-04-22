@@ -4307,12 +4307,40 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
                            bounds=bounds, **bound_kwargs)
             coeffs_x = lsq_out.x/A0
             
-        else:
-            # With regularization
-            lamb = 0.5
-            Ai = Ax[:,ok_temp]*1
+        elif fitter.startswith('normal'):
+            # print('Fit with normal equations')
+            # Transform A to normal equations
+                            
+            ivmat = np.diag(1./var[ok_band])
+            Ai = A[ok_temp,:][:,ok_band].T
             An = np.median(Ai)
             Ai /= An
+            LHS = Ai.T.dot(ivmat).dot(Ai)
+            
+            # Regularization
+            if '_' in fitter:
+                lamb = float(fitter.split('_')[1])
+                n_col = ok_temp.sum()
+                LHS += lamb*np.identity(n_col)
+                
+            RHS = Ai.T.dot(ivmat).dot(fnu_i[ok_band])
+            if '+' in fitter:
+                coeffs_x, rnorm = nnls(LHS, RHS)
+            else:
+                coeffs_x = np.linalg.solve(LHS, RHS)
+            
+            coeffs_x /= An
+            
+        elif fitter.startswith('regularized'):
+            # With regularization
+            if '_' in fitter:
+                lamb = float(fitter.split('_')[1])
+            else:
+                lamb = 0.5
+            
+            Ai = Ax[:,ok_temp]*1
+            An = np.median(Ai)
+            # Ai /= An
             n_col = Ai.shape[1]
             y = (fnu_i/rms)[ok_band]
             LHS, RHS = Ai.T.dot(Ai) + lamb * np.identity(n_col), Ai.T.dot(y)
@@ -4322,7 +4350,9 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
             
             # coeffs_x, _, _, _ = np.linalg.lstsq(Ax[:,ok_temp], (fnu_i/rms)[ok_band],
             #                                     rcond=None)
-                        
+        else:
+            raise ValueError(f'fitter {fitter} not recognized')
+            
         coeffs_i = np.zeros(sh[0])
         coeffs_i[ok_temp] = coeffs_x
     except:
@@ -4343,6 +4373,7 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
         coeffs_draw = np.zeros((get_err, A.shape[0]))
         try:
             covar = np.matrix(np.dot(LHS.T, LHS)).I/An**2
+            #covar = utils.safe_invert(arr)/An**2
             #covar = np.matrix(np.dot(Ax[:,ok_temp].T, Ax[:,ok_temp])).I
             coeffs_draw[:, ok_temp] = np.random.multivariate_normal(coeffs_i[ok_temp], covar, size=get_err)
         except:

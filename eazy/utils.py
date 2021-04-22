@@ -249,6 +249,19 @@ def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
     ax.fill_between(xfull[so], yfull[so], zfull[so], *args, **kwargs)
 
 
+def safe_invert(arr):
+    """
+    version-safe matrix inversion using np.linalg or np.matrix.I
+    """
+    try:
+        from numpy.linalg import inv
+        _inv = inv(arr)
+    except:
+        _inv = np.matrix(arr).I.A
+    
+    return _inv
+
+
 class GalacticExtinction(object):
     def __init__(self, EBV=0, Rv=3.1, force=None, radec=None, ebv_type='SandF'):
         """
