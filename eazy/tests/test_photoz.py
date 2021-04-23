@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 np.random.seed(0)
+np.seterr(all='ignore')
 
 from .. import utils
 from .. import templates
@@ -47,7 +48,9 @@ def make_fake_catalog(SN=20):
     
     ### Add noise
     #SN = 20
-    efnu = fnu/SN
+    efnu_f160w = (fnu/SN)[i_f160]
+    lc = np.array([f.pivot for f in f_list])
+    efnu = efnu_f160w*(lc/lc[i_f160])**2
     
     ### Make table
     tab = photoz.Table()
@@ -102,8 +105,8 @@ def test_full_photoz():
     params['MW_EBV'] = 0.0
 
     params['Z_STEP'] = 0.01
-    params['Z_MIN'] = 0.5
-    params['Z_MAX'] = 2.1
+    params['Z_MIN'] = z_spec - 0.5*(1+z_spec)
+    params['Z_MAX'] = z_spec + 0.5*(1+z_spec)
 
     params['SYS_ERR'] = 0.02
 
@@ -129,14 +132,18 @@ def test_full_photoz():
 
 
 def test_photoz_methods():
+    """
+    Test methods on `~eazy.photoz.PhotoZ` object.
+    """
     global ez
     
     ### Catalog subset
     ez.fit_parallel(idx=np.where(ez.cat['id'] < 2)[0], fitter='nnls')
     
     ### Full catalog, fitting methods
-    for fitter in ['lstsq','bounded','nnls']:
-        ez.fit_parallel(fitter=fitter)
+    ez.fit_parallel(fitter='lstsq')
+    ez.fit_parallel(fitter='bounded')
+    ez.fit_parallel(fitter='nnls')
         
     ###### Methods
     
@@ -195,62 +202,64 @@ def test_sps_parameters():
     # for k in zout.colnames:
     #     zdict[k] = zout[k][0]
     
-    zdict = {
-    'nusefilt': 10,
+    zdict = {'nusefilt': 10,
+    'z_ml': 0.99616235,
+    'z_ml_chi2': 0.013447836,
+    'z_ml_risk': 0.0105553605,
     'lc_min': 3353.6304006459895,
     'lc_max': 45020.33785230743,
-    'z_phot': 0.99673086,
-    'z_phot_chi2': 0.0034560256,
-    'z_phot_risk': 0.035717614,
-    'z_min_risk': 0.9649467,
-    'min_risk': 0.030646123,
-    'z_raw_chi2': 1.0046412,
-    'raw_chi2': 0.026701305,
-    'z025': 0.8389708,
-    'z160': 0.92368615,
-    'z500': 0.9808423,
-    'z840': 1.0210177,
-    'z975': 1.0537113,
-    'restU': 0.41497922,
-    'restU_err': 0.017939776,
-    'restB': 0.8218043,
-    'restB_err': 0.03606099,
-    'restV': 0.9209713,
-    'restV_err': 0.035820752,
-    'restJ': 1.0253503,
-    'restJ_err': 0.023321927,
-    'dL': 6580.476033271505,
-    'mass': 1338116524.1430814,
-    'sfr': 0.016536130604908845,
-    'Lv': 3424873079.787285,
-    'LIR': 390855097.57019836,
-    'MLv': 0.39070543432406274,
-    'Av': 0.06089298262931584,
-    'rest270': 0.11237647,
-    'rest270_err': 0.011739388,
-    'rest274': 0.23368931,
-    'rest274_err': 0.012826629,
-    'rest120': 0.12594292,
-    'rest120_err': 0.008697912,
-    'rest121': 0.18348014,
-    'rest121_err': 0.005728759,
-    'rest156': 0.37412244,
-    'rest156_err': 0.0184125,
-    'rest157': 0.8652829,
-    'rest157_err': 0.031125754,
-    'rest158': 0.9475169,
-    'rest158_err': 0.018318474,
-    'rest159': 0.9954984,
-    'rest159_err': 0.030312747,
-    'rest160': 1.0260057,
-    'rest160_err': 0.021030843,
-    'rest161': 1.0253503,
-    'rest161_err': 0.023321927,
-    'rest162': 1.012053,
-    'rest162_err': 0.025552988,
-    'rest163': 0.7521126,
-    'rest163_err': 0.02862215,
-    'DISTMOD': 43.340373559176065}
+    'z_phot': 0.99616235,
+    'z_phot_chi2': 0.013447836,
+    'z_phot_risk': 0.0105553605,
+    'z_min_risk': 0.9937155,
+    'min_risk': 0.010250151,
+    'z_raw_chi2': 0.9937155,
+    'raw_chi2': 0.035614725,
+    'z025': 0.92501247,
+    'z160': 0.9604295,
+    'z500': 0.99208033,
+    'z840': 1.0187114,
+    'z975': 1.0420052,
+    'restU': 0.41460526,
+    'restU_err': 0.01217702,
+    'restB': 0.8223915,
+    'restB_err': 0.027577162,
+    'restV': 0.92202765,
+    'restV_err': 0.017819434,
+    'restJ': 1.024555,
+    'restJ_err': 0.05461645,
+    'dL': 6575.8372348364455,
+    'mass': 1338132577.7487125,
+    'sfr': 0.026515421690098212,
+    'Lv': 3418389791.239653,
+    'LIR': 438179193.31513166,
+    'MLv': 0.39145113912344354,
+    'Av': 0.06295947926487588,
+    'rest270': 0.11133574,
+    'rest270_err': 0.007641867,
+    'rest274': 0.23238972,
+    'rest274_err': 0.008679345,
+    'rest120': 0.12516989,
+    'rest120_err': 0.005393833,
+    'rest121': 0.1816069,
+    'rest121_err': 0.00364957,
+    'rest156': 0.3724664,
+    'rest156_err': 0.014633045,
+    'rest157': 0.86651146,
+    'rest157_err': 0.018754214,
+    'rest158': 0.94490474,
+    'rest158_err': 0.027536243,
+    'rest159': 0.997915,
+    'rest159_err': 0.023829281,
+    'rest160': 1.0238949,
+    'rest160_err': 0.0475851,
+    'rest161': 1.024555,
+    'rest161_err': 0.05461645,
+    'rest162': 1.010895,
+    'rest162_err': 0.06887752,
+    'rest163': 0.7563232,
+    'rest163_err': 0.06583378,
+    'DISTMOD': 43.33921454218198}
     
     for k in zdict:
         if '_err' in k:
@@ -286,7 +295,7 @@ def test_fit_stars():
     """
     global ez
     ez.fit_phoenix_stars()
-    assert(np.allclose(ez.star_chi2[0,0], 1930.887))
+    assert(np.allclose(ez.star_chi2[0,0], 3191.3662))
 
 
 def test_photoz_figures():

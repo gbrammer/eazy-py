@@ -71,7 +71,8 @@ def test_interp_conserve():
     
     np.testing.assert_allclose(integral, 0., rtol=1e-04, atol=1.e-4,
                                equal_nan=False, err_msg='', verbose=True)
-    
+
+
 def test_log_zgrid():
     """
     Test log_zgrid function
@@ -82,4 +83,14 @@ def test_log_zgrid():
     vals = utils.log_zgrid(zr=[0.1, 1], dz=0.1)
     np.testing.assert_allclose(vals, ref, rtol=1e-04, atol=1.e-4,
                                equal_nan=False, err_msg='', verbose=True)
-        
+
+
+def test_invert():
+    """
+    Test matrix invert helper
+    """        
+    a = np.array([[1., 2.], [3., 4.]])
+    ainv = utils.safe_invert(a)
+    assert(np.allclose(np.dot(a, ainv), np.eye(2)))
+    
+    

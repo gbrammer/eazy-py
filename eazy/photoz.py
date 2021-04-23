@@ -2462,7 +2462,10 @@ class PhotoZ(object):
         zbest[izmax == 0] = -1
         
         mask = (izmax > 0) & (izmax < self.NZ-1) & has_chi2
-
+        
+        if mask.sum() == 0:
+            return zbest, lnpmax
+            
         #####
         # Analytic parabola fit
         iz_ = izmax[self.idx[mask]]
@@ -4350,6 +4353,11 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
             
             # coeffs_x, _, _, _ = np.linalg.lstsq(Ax[:,ok_temp], (fnu_i/rms)[ok_band],
             #                                     rcond=None)
+        
+        elif fitter == 'lstsq':
+            _res  = np.linalg.lstsq(Ax[:,ok_temp], (fnu_i/rms)[ok_band], 
+                                         rcond=None)
+            coeffs_x = _res[0]
         else:
             raise ValueError(f'fitter {fitter} not recognized')
             
@@ -4372,8 +4380,8 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
         
         coeffs_draw = np.zeros((get_err, A.shape[0]))
         try:
-            covar = np.matrix(np.dot(LHS.T, LHS)).I/An**2
-            #covar = utils.safe_invert(arr)/An**2
+            #covar = np.matrix(np.dot(LHS.T, LHS)).I/An**2
+            covar = utils.safe_invert(np.dot(LHS.T, LHS))/An**2
             #covar = np.matrix(np.dot(Ax[:,ok_temp].T, Ax[:,ok_temp])).I
             coeffs_draw[:, ok_temp] = np.random.multivariate_normal(coeffs_i[ok_temp], covar, size=get_err)
         except:
