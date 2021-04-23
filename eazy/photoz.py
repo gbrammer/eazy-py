@@ -853,8 +853,8 @@ class PhotoZ(object):
         izbest = self.izbest*1
         has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
         
-        self.compute_lnp(prior=prior, beta_prior=beta_prior, 
-                     clip_wavelength=clip_wavelength) 
+        #self.compute_lnp(prior=prior, beta_prior=beta_prior, 
+        #             clip_wavelength=clip_wavelength) 
 
         self.zml, _lnpmax = self.get_maxlnp_redshift(prior=prior,
                                                 beta_prior=beta_prior,
@@ -866,7 +866,7 @@ class PhotoZ(object):
         self.ZML_WITH_BETA_PRIOR = beta_prior
 
 
-    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=False, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=10000, **kwargs):
+    def fit_at_zbest(self, zbest=None, prior=False, beta_prior=False, get_err=False, clip_wavelength=1100, fitter='nnls', selection=None,  n_proc=0, par_skip=10000, recompute_zml=True, **kwargs):
         """
         Recompute the fit coefficients at the "best" redshift.  
         
@@ -887,10 +887,10 @@ class PhotoZ(object):
         
         if zbest is None:
             if (self.zml is None):
-                recompute_zml = True
+                recompute_zml |= True
             else:
                 # Recompute if prior options changed
-                recompute_zml = prior is not self.ZML_WITH_PRIOR
+                recompute_zml |= prior is not self.ZML_WITH_PRIOR
                 recompute_zml |= beta_prior is not self.ZML_WITH_BETA_PRIOR
                 
             if recompute_zml:
