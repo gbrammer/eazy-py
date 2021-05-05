@@ -369,4 +369,10 @@ def test_photoz_figures():
     fig.savefig('eazy_test.zphot_zspec.png', dpi=72)
     
     plt.close('all')
+
+
+def test_cleanup():
     
+    if os.path.exists('filters/FILTER.RES.latest.npy'):
+        os.remove('filters/FILTER.RES.latest.npy')
+        

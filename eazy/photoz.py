@@ -311,6 +311,7 @@ class PhotoZ(object):
             
             data.close()
 
+
     def read_catalog(self, verbose=True):
         """
         Read catalog file
@@ -322,7 +323,7 @@ class PhotoZ(object):
             self.cat = Table.read(self.param['CATALOG_FILE'], format='fits')
         else:
             self.cat = Table.read(self.param['CATALOG_FILE'], 
-                                  format='ascii.commented_header')
+                                  format=self.param['CATALOG_FORMAT'])
         
         if verbose:
             print(f'   >>> NOBJ = {len(self.cat)}')    

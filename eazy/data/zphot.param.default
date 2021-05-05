@@ -36,6 +36,7 @@ CACHE_FILE           photz.tempfilt     # Template cache file (in OUTPUT_DIRECTO
 
 ## Input Files
 CATALOG_FILE         hdfn_fs99_eazy.cat # Catalog data file
+CATALOG_FORMAT       ascii.commented_header # Format if not FITS
 MAGNITUDES           n                  # Catalog photometry in magnitudes rather than f_nu fluxes
 NOT_OBS_THRESHOLD    -90                # Ignore flux point if <NOT_OBS_THRESH
 N_MIN_COLORS         5                  # Require N_MIN_COLORS to fit
