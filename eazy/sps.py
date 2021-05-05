@@ -119,15 +119,20 @@ class ExtinctionModel(BaseAttAvModel):
             xin = np.atleast_1d(x)
         
         xinv = 1./xin.to(u.micron)
+
+        curve = self.curve
+        xr = [x for x in curve.x_range]
+        xr[0] *= 1.001
+        xr[1] *= 0.999
+        print('xxx', xr)
         
-        if self.curve_type.upper() in ['MW','F99']:
-            curve = self.curve
+        if 'Rv' in curve.param_names:
             klam = curve.evaluate(1/np.clip(xinv, 
-                                    0.301/u.micron, 9.99/u.micron), 
+                                    xr[0]/u.micron, xr[1]/u.micron), 
                                     Rv=curve.Rv)
         else:
-            klam = self.curve.evaluate(1/np.clip(xinv, 
-                                    0.301/u.micron, 9.99/u.micron))
+            klam = curve.evaluate(1/np.clip(xinv, 
+                                    xr[0]/u.micron, xr[1]/u.micron))
             
         return klam*Av
 
@@ -137,8 +142,49 @@ class SMC(BaseAttAvModel):
     """     
     from dust_extinction.averages import G03_SMCBar
     SMCBar = G03_SMCBar()
+    
+    bump_ampl = Parameter(description="Amplitude of UV bump",
+                      default=0., min=0., max=10.)
+    
+    bump_gamma = 0.04
+    bump_x0 = 0.2175
+    
+    
+    def uv_bump(self, mu, bump_ampl):
+        """
+        Drude profile for computing the UV bump.
 
-    def evaluate(self, x, Av):
+        Parameters
+        ----------
+        x: np array (float)
+           expects wavelengths in [micron]
+
+        x0: float
+           Central wavelength of the UV bump (in microns).
+
+        gamma: float
+           Width (FWHM) of the UV bump (in microns).
+
+        ampl: float
+           Amplitude of the UV bump.
+
+        Returns
+        -------
+        np array (float)
+           lorentzian-like Drude profile
+
+        Raises
+        ------
+        ValueError
+           Input x values outside of defined range
+
+        """
+        return bump_ampl * (mu**2 * self.bump_gamma**2 /
+                       ((mu**2 - self.bump_x0**2)**2 + 
+                         mu**2 * self.bump_gamma**2))
+    
+    
+    def evaluate(self, x, Av, bump_ampl):
 
         if not hasattr(x, 'unit'):
             xin = np.atleast_1d(x)*u.Angstrom
@@ -149,9 +195,13 @@ class SMC(BaseAttAvModel):
 
         klam = self.SMCBar.evaluate(1/np.clip(xinv, 
                                     0.301/u.micron, 9.99/u.micron))
-
+        
+        if bump_ampl > 0:
+            klam += self.uv_bump(xin.to(u.micron).value, bump_ampl)
+            
         return klam*Av
                 
+
 class Reddy15(BaseAttAvModel):
     """
     Attenuation curve from Reddy et al. (2015)
@@ -264,16 +314,25 @@ class KC13(BaseAttAvModel):
                       default=0., min=-3., max=3.)
     
     #extra_bump = 1.
-    extra_params = {'extra_bump':1.}
+    extra_params = {'extra_bump':1., 'beta':-3.2, 'extra_uv':-0.4}
+    
+    # Big range for use with FSPS
+    x_range = [0.9e-4, 2.e8]
     
     def _init_N09(self):
         from dust_attenuation import averages, shapes, radiative_transfer
 
         # Allow extrapolation
-        shapes.x_range_N09 = [0.9e-4, 2.e8] 
-        averages.x_range_C00 = [0.9e-4, 2.e8]
-        averages.x_range_L02 = [0.9e-4, 0.18]
-
+        #shapes.x_range_N09 = [0.9e-4, 2.e8] 
+        #averages.x_range_C00 = [0.9e-4, 2.e8]
+        #averages.x_range_L02 = [0.9e-4, 0.18]
+        shapes.C00.x_range = self.x_range
+        shapes.N09.x_range = self.x_range 
+        if self.x_range[0] < 0.18:
+            shapes.L02.x_range = [self.x_range[0], 0.18] 
+        else:
+            shapes.L02.x_range = [0.097, 0.18] 
+                    
         self.N09 = shapes.N09()
                 
     def evaluate(self, x, Av, delta):
@@ -292,11 +351,30 @@ class KC13(BaseAttAvModel):
         else:
             xin = x
         
-        if dust_attenuation.__version__ >= '0.0.dev131':                
-            return self.N09.evaluate(xin, x0, gamma, ampl, delta, Av)
+        wred = np.array([2.199e4])*u.Angstrom
+        
+        if self.N09.param_names[0] == 'x0':                
+            Alam = self.N09.evaluate(xin, x0, gamma, ampl, delta, Av)
+            Ared = self.N09.evaluate(wred, x0, gamma, ampl, delta, Av)[0]
         else:
-            return self.N09.evaluate(xin, Av, x0, gamma, ampl, delta)
+            Alam = self.N09.evaluate(xin, Av, x0, gamma, ampl, delta)
+            Ared = self.N09.evaluate(wred, Av, x0, gamma, ampl, delta)[0]
             
+        
+        # Extrapolate with beta slope
+        red = xin > wred[0]
+        if red.sum() > 0:
+            Alam[red] = Ared*(xin[red]/wred[0])**self.extra_params['beta']
+        
+        blue = xin < 1500*u.Angstrom
+        if blue.sum() > 0:
+            plblue = np.ones(len(xin))
+            wb = xin[blue].to(u.Angstrom).value/1500
+            plblue[blue] = wb**self.extra_params['extra_uv']
+            Alam *= plblue
+            
+        return Alam
+        
 class ParameterizedWG00(BaseAttAvModel):
     
     coeffs = {'Av': np.array([-0.001,  0.026,  0.643, -0.016]),
@@ -373,7 +451,7 @@ class ParameterizedWG00(BaseAttAvModel):
         else:
             xin = x
         
-        if dust_attenuation.__version__ >= '0.0.dev131':                
+        if self.N09.param_names[0] == 'x0':                
             return self.N09.evaluate(xin, x0, gamma, ampl, slope, Av)
         else:
             return self.N09.evaluate(xin, Av, x0, gamma, ampl, slope)
@@ -1010,13 +1088,24 @@ class ExtendedFsps(StellarPopulation):
                 sfr_avg = self.lognorm_avg_sfr(tage=None, dt=0.1)
                 
             elif hasattr(self, '_sfh_tab'):
-                age_lb = self.params['tage'] - self._sfh_tab[0]
+                try:
+                    fwd = self.params['tabsfh_forward']
+                except:
+                    fwd = 1
+
+                if fwd == 1:
+                    age_lb = self.params['tage'] - self._sfh_tab[0]
+                    step = -1
+                else:
+                    age_lb = self._sfh_tab[0]
+                    step = 1
+                    
                 age100 = (age_lb <= 0.1) & (age_lb >= 0)
                 if age100.sum() < 2:
                     sfr_avg = 0.
                 else:
-                    sfr_avg = np.trapz(self._sfh_tab[1][age100][::-1],
-                                       age_lb[age100][::-1])/0.1
+                    sfr_avg = np.trapz(self._sfh_tab[1][age100][::step],
+                                       age_lb[age100][::step])/0.1
                 
             else:
                 sfr_avg = 0.
@@ -1038,13 +1127,24 @@ class ExtendedFsps(StellarPopulation):
                 sfr_avg = self.lognorm_avg_sfr(tage=None, dt=0.01)
                 
             elif hasattr(self, '_sfh_tab'):
-                age_lb = self.params['tage'] - self._sfh_tab[0]
+                try:
+                    fwd = self.params['tabsfh_forward']
+                except:
+                    fwd = 1
+                    
+                if fwd == 1:
+                    age_lb = self.params['tage'] - self._sfh_tab[0]
+                    step = -1
+                else:
+                    age_lb = self._sfh_tab[0]
+                    step = 1
+
                 age10 = (age_lb < 0.01) & (age_lb >= 0)
                 if age10.sum() < 2:
                     sfr_avg = 0.
                 else:
-                    sfr_avg = np.trapz(self._sfh_tab[1][age10][::-1],
-                                       age_lb[age10][::-1])/0.01
+                    sfr_avg = np.trapz(self._sfh_tab[1][age10][::step],
+                                       age_lb[age10][::step])/0.1
                 
             else:
                 sfr_avg = 0.
