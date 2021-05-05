@@ -1,6 +1,6 @@
 #### EAZY Default parameters
 
-VERBOSITY            2                  # Print information
+VERBOSITY            1                  # Print information
 
 ## Filters
 FILTERS_RES          FILTER.RES.latest  # Filter transmission data

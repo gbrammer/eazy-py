@@ -124,7 +124,7 @@ class EazyParam():
         formats = collections.OrderedDict()
         self.param_names = []
         for line in self.lines:
-            if line.strip().startswith('#') is False:
+            if not line.strip().startswith('#'):
                 lsplit = line.split()
                 if lsplit.__len__() >= 2:
                     params[lsplit[0]] = lsplit[1]

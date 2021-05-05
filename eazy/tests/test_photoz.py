@@ -185,11 +185,13 @@ def test_sps_parameters():
     ### SPS parameters
     # Full RF-colors with filter weighting
     zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
-                                   prior=True, beta_prior=True, simple=False)
+                                   prior=True, beta_prior=True, simple=False,
+                                   save_fits=False)
 
     # "Simple" best-fit template RF colors
     zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
-                                   prior=True, beta_prior=True, simple=True)
+                                   prior=True, beta_prior=True, simple=True, 
+                                   save_fits=False)
     
     assert(np.allclose(zout['z_phot'][0], z_spec, atol=0.1*(1+z_spec)))
 
@@ -273,7 +275,8 @@ def test_sps_parameters():
     ### user-specified zbest
     zuser = np.full(NRND+1, z_spec)
     z2, _ = ez.standard_output(zbest=zuser, rf_pad_width=0.5, rf_max_err=2, 
-                                     prior=True, beta_prior=True, simple=True)
+                                     prior=True, beta_prior=True, simple=True,
+                                     save_fits=False)
     
     # confirm that z2 has 'z_ml' and 'z_phot' columns and they're different 
     assert( np.all(z2['z_ml'] != z2['z_phot']) )
@@ -289,6 +292,46 @@ def test_sps_parameters():
     assert( np.all(z2['sfr'] != zout['sfr']) )
 
 
+def test_load_products():
+    """
+    Save and read products
+    """
+    global ez
+    
+    zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
+                                   prior=True, beta_prior=True, simple=True, 
+                                   save_fits=2)
+                                   
+    new = photoz.PhotoZ(param_file='eazy_test.zphot.param',
+                         translate_file='eazy_test.zphot.translate', 
+                         zeropoint_file='eazy_test.zphot.zeropoint', 
+                         load_prior=True, 
+                         load_products=False)
+    
+    assert(len(new.param.params) == len(ez.param.params))
+    
+    bool_param = utils.bool_param
+    for k in ez.param.params:
+        assert(bool_param(ez.param.params[k]) == 
+               bool_param(new.param.params[k]))
+        
+            
+    new.load_products()
+    assert(new.ZML_WITH_PRIOR == ez.ZML_WITH_PRIOR)
+    assert(new.ZML_WITH_BETA_PRIOR == ez.ZML_WITH_BETA_PRIOR)
+    
+    has_chi2_init = (ez.chi2_fit != 0).sum(axis=1) > 0 
+    has_chi2 = (new.chi2_fit != 0).sum(axis=1) > 0 
+    assert(has_chi2_init.sum() == has_chi2.sum())
+    
+    assert(np.allclose(new.coeffs_best, ez.coeffs_best))
+
+    assert(np.allclose(new.fit_coeffs, ez.fit_coeffs))
+
+    assert(np.allclose(new.prior_data, ez.prior_data))
+    
+    assert(np.allclose(ez.lnp[has_chi2,:], new.lnp[has_chi2,:]))
+    
 def test_fit_stars():
     """
     Fit phoenix star library for Star/Galaxy separation

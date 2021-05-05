@@ -30,8 +30,6 @@ from . import utils
 
 IGM_OBJECT = igm_module.Inoue14()
 
-TRUE_VALUES = [True, 'y', 'yes', 'Y', 'Yes']
-
 __all__ = ["PhotoZ", "TemplateGrid"]
 
 DEFAULT_UBVJ_FILTERS = [153,154,155,161] # Maiz-Appellaniz & 2MASS
@@ -56,6 +54,11 @@ class PhotoZ(object):
     def __init__(self, param_file='zphot.param', translate_file='zphot.translate', zeropoint_file=None, load_prior=True, load_products=True, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, **kwargs):
         """
         Main object for fitting templates / photometric redshifts
+        
+        cosmology: `~astropy.cosmology` object
+            If not specified, generate a flat cosmology with H0, OM, OL from 
+            param file.
+            
         """
         from astropy.cosmology import LambdaCDM
         global IGM_OBJECT
@@ -82,6 +85,9 @@ class PhotoZ(object):
                                      read_filters=False)
         self.translate = param.TranslateFile(translate_file)
         
+        for key in params:
+            self.param.params[key] = params[key]
+        
         if 'IGM_SCALE_TAU' in self.param.params:
             IGM_OBJECT.scale_tau = self.param['IGM_SCALE_TAU']
         
@@ -97,10 +103,7 @@ class PhotoZ(object):
             self.param.params['MW_EBV'] = 0.0354 # MACS0416
             #self.param.params['MW_EBV'] = 0.0072 # GOODS-S
             #self.param['SCALE_2175_BUMP'] = 0.4 # Test
-        
-        for key in params:
-            self.param.params[key] = params[key]
-            
+                    
         ### Read templates
         kws = dict(templates_file=self.param['TEMPLATES_FILE'], 
                     velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
@@ -274,12 +277,26 @@ class PhotoZ(object):
             data_file = '{0}.data.fits'.format(self.param['MAIN_OUTPUT_FILE'])
             data = pyfits.open(data_file)
             self.chi2_fit = data['CHI2'].data*1
-            #self.compute_pz()
-            self.compute_lnp()
+
+            self.zout = Table.read(zout_file)
+            
+            if 'ZCOEFFS' in data:
+                self.fit_coeffs = data['ZCOEFFS'].data*1
+                
+            # Do we need priors?
+            beta_prior = False
+            prior = False
+            for zname in ['ZBEST','ZML']:
+                if f'{zname}_WITH_PRIOR' in self.zout.meta:
+                    prior = self.zout.meta[f'{zname}_WITH_PRIOR']
+                    beta_prior = self.zout.meta[f'{zname}_WITH_BETA_PRIOR']
+                    
+            self.compute_lnp(prior=prior, beta_prior=beta_prior)
+            self.evaluate_zml(prior=prior, beta_prior=beta_prior)
+            
             if 'REST_UBVJ' in data:
                 self.ubvj = data['REST_UBVJ'].data*1
             
-            self.zout = Table.read(zout_file)
             
             print(' ... Fit templates at zout[z_phot] ')
             
@@ -291,7 +308,8 @@ class PhotoZ(object):
             else:
                 self.fit_at_zbest(zbest=self.zout['z_phot'].data,
                               fitter=fitter, **kwargs)
-
+            
+            data.close()
 
     def read_catalog(self, verbose=True):
         """
@@ -383,7 +401,7 @@ class PhotoZ(object):
 
         # Does catalog already have extinction correction applied?
         # If so, then set an array to put fluxes back in reddened space
-        if self.param.params['CAT_HAS_EXTCORR'] in TRUE_VALUES:
+        if self.param.params['CAT_HAS_EXTCORR'] in utils.TRUE_VALUES:
             self.ext_redden = self.ext_corr
         else:
             self.ext_redden = np.ones(self.NFILT)
@@ -399,7 +417,8 @@ class PhotoZ(object):
         self.efnu_orig = efnu*1.
         #self.fnu_orig = self.fnu*1.
         
-        self.efnu = np.sqrt(self.efnu_orig**2+(self.param['SYS_ERR']*self.fnu)**2)
+        self.efnu = np.sqrt(self.efnu_orig**2 + 
+                            (self.param['SYS_ERR']*self.fnu)**2)
         
         self.ok_data = ((self.efnu > 0) 
                         & (self.fnu > self.param['NOT_OBS_THRESHOLD']) 
@@ -700,7 +719,6 @@ class PhotoZ(object):
         """
         Fit individual templates on the redshift grid
         """
-        from tqdm import tqdm
         
         ampl = np.zeros((self.NTEMP, self.NOBJ, self.NZ), 
                         dtype=self.ARRAY_DTYPE)
@@ -746,7 +764,7 @@ class PhotoZ(object):
         return ampl, chi2, logpz
 
 
-    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls'):
+    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls', timeout=60):
         """
         This is the main function for fitting redshifts for a full catalog
         and is parallelized by fitting each redshift grid step separately.
@@ -779,20 +797,25 @@ class PhotoZ(object):
         efnu_corr[missing] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
         t0 = time.time()
-        pool = mp.Pool(processes=n_proc)
+        if n_proc <= 0:
+            np_check = mp.cpu_count()
+        else:
+            np_check = np.minimum(mp.cpu_count(), n_proc)
         
-        results = [pool.apply_async(_fit_vertical, 
+        pool = mp.Pool(processes=np_check)
+        
+        jobs = [pool.apply_async(_fit_vertical, 
                          (iz, self.zgrid[iz],  self.tempfilt(self.zgrid[iz]),
                           fnu_corr, efnu_corr, self.TEF, self.zp, 
                           self.param.params['VERBOSITY'], fitter)) 
                    for iz in range(self.NZ)]
 
         pool.close()
-        pool.join()
+        #pool.join()
         
         # Gather results
-        for res in results:
-            iz, chi2, coeffs = res.get(timeout=1)
+        for res in tqdm(jobs):
+            iz, chi2, coeffs = res.get(timeout=timeout)
             self.chi2_fit[idx_fit,iz] = chi2
             self.fit_coeffs[idx_fit,iz,:] = coeffs
         
@@ -807,8 +830,8 @@ class PhotoZ(object):
             
         t1 = time.time()
         if verbose:
-            msg = 'Fit {1:.1f} s (n_proc={0}, NOBJ={2})'
-            print(msg.format(n_proc, t1-t0, len(idx_fit)))
+            msg = 'Fit {0:.1f} s (n_proc={1}, NOBJ={2})'
+            print(msg.format(t1-t0, np_check, len(idx_fit)))
 
 
     def fit_at_redshift(self, iobj, z=None, fitter='nnls'):
@@ -903,7 +926,7 @@ class PhotoZ(object):
             self.zbest = zbest
             self.ZPHOT_USER = True # user *did* specify zbest
                     
-        if ((self.param['FIX_ZSPEC'] in TRUE_VALUES) & 
+        if ((self.param['FIX_ZSPEC'] in utils.TRUE_VALUES) & 
             ('z_spec' in self.cat.colnames)):
             has_zsp = self.cat['z_spec'] > self.zgrid[0]
             self.zbest[has_zsp] = self.cat['z_spec'][has_zsp]
@@ -928,16 +951,18 @@ class PhotoZ(object):
         np.random.seed(self.random_seed)
         
         if n_proc <= 0:
-            n_proc = np.maximum(mp.cpu_count() - 2, 1)
-        
+            np_check = np.maximum(mp.cpu_count() - 2, 1)
+        else:
+            np_check = np.minimum(mp.cpu_count(), n_proc)
+            
         # Fit in parallel mode        
         t0 = time.time()
         
         skip = np.maximum(len(idx)//par_skip, 1)
-        n_proc = np.minimum(n_proc, skip)
+        np_check = np.minimum(np_check, skip)
         
-        pool = mp.Pool(processes=n_proc)
-        results = [pool.apply_async(_fit_at_zbest_group, 
+        pool = mp.Pool(processes=np_check)
+        jobs = [pool.apply_async(_fit_at_zbest_group, 
                                       (idx[i::skip], 
                                        fnu_corr[idx[i::skip],:], 
                                        efnu_corr[idx[i::skip],:], 
@@ -950,7 +975,7 @@ class PhotoZ(object):
         pool.close()
         pool.join()
 
-        for res in results:
+        for res in jobs:
             _ = res.get(timeout=1)
             _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _coeffs_draws = _
             self.coeffs_best[_ix,:] = _coeffs_best
@@ -960,7 +985,7 @@ class PhotoZ(object):
             self.coeffs_draws[_ix,:,:] = _coeffs_draws
         
         t1 = time.time()
-        print(f'fit_best: {t1-t0:.1f} s (n_proc={n_proc}, '
+        print(f'fit_best: {t1-t0:.1f} s (n_proc={np_check}, '
               f' NOBJ={subset.sum()})')
 
 
@@ -1485,7 +1510,7 @@ class PhotoZ(object):
         l = ax.legend(fontsize=6, ncol=5, loc='upper right', handlelength=0.4)
         l.set_zorder(-20)
         ax.grid()
-        ax.vlines([2175, 3727, 5007, 6563.], 0.8, 1.0, linestyle='--', 
+        ax.vlines([1216., 2175, 3727, 5007, 6563.], 0.8, 1.0, linestyle='--', 
                   color='k', zorder=-18)
         ax.set_xlabel(r'$\lambda_\mathrm{rest}$')
         ax.set_ylabel('data / template')
@@ -2113,7 +2138,7 @@ class PhotoZ(object):
         return tab
 
 
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000, par_timeout=60, **kwargs):
         """
         Rest-frame fluxes, refit by down-weighting bands far away from 
         the desired RF band.
@@ -2180,7 +2205,7 @@ class PhotoZ(object):
         """
         import multiprocessing as mp
         import time
-                
+        
         NREST = len(f_numbers)
         if isinstance(f_numbers[0], int):
             f_list = [self.RES[fn] for fn in f_numbers]
@@ -2241,16 +2266,17 @@ class PhotoZ(object):
         
         if (n_proc >= 0) & (len(idx) > par_skip):            
             if n_proc == 0:
-                n_proc = mp.cpu_count() - 2
+                n_proc = np.maximum(mp.cpu_count() - 2, 1)
             
-            skip = np.maximum(len(idx)//par_skip, 1)
+            skip = np.maximum(len(idx)//par_skip+1, 1)
             
             n_proc = np.minimum(n_proc, skip)
+            np_check = np.minimum(mp.cpu_count(), n_proc)
             
             t0 = time.time()
 
-            pool = mp.Pool(processes=n_proc)
-            results = [pool.apply_async(_fit_rest_group, 
+            pool = mp.Pool(processes=np_check)
+            jobs = [pool.apply_async(_fit_rest_group, 
                                           (idx[i::skip], 
                                            fnu_corr[idx[i::skip],:], 
                                            efnu_corr[idx[i::skip],:], 
@@ -2264,19 +2290,19 @@ class PhotoZ(object):
                         for i in range(skip)]
 
             pool.close()
-            pool.join()
+            #pool.join()
 
-            for res in results:
-                _ = res.get(timeout=1)
+            for res in tqdm(jobs):
+                _ = res.get(timeout=par_timeout)
                 _ix, _frest = _                
                 f_rest[_ix,:,:] = _frest
             #
             t1 = time.time()
-            print(f' ... rest-frame flux: {t1-t0:.1f} s (n_proc={n_proc}, '
+            print(f' ... rest-frame flux: {t1-t0:.1f} s (n_proc={np_check}, '
                   f' NOBJ={len(idx)})')
             
         else:            
-            for ix in idx:
+            for ix in tqdm(idx):
 
                 fnu_i = fnu_corr[ix,:]*1
                 efnu_i = efnu_corr[ix,:]*1
@@ -2317,10 +2343,9 @@ class PhotoZ(object):
         """
         Uncertainty + TEF component of the log likelihood
         """
-        try:
-            import tqdm
-            iters = tqdm.tqdm(enumerate(self.zgrid))
-        except:
+        if HAS_TQDM:
+            iters = tqdm(enumerate(self.zgrid))
+        else:
             iters = enumerate(self.zgrid)
             
         tef_lnp = np.zeros((self.NOBJ, self.NZ), dtype=self.ARRAY_DTYPE)
@@ -2668,7 +2693,7 @@ class PhotoZ(object):
     
     def cdf_percentiles(self, cdf_sigmas=CDF_SIGMAS, **kwargs):
         """
-        Redshifts of PDF percentiles in terms of ``\sigma`` for a normal
+        Redshifts of PDF percentiles in terms of ``sigma`` for a normal
         distribution, useful for compressing the PDF.
         """
         import scipy.stats
@@ -2761,19 +2786,24 @@ class PhotoZ(object):
         return tab
 
 
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), simple=False):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), simple=False, n_proc=-1, **kwargs):
         """
         Rest-frame colors and population parameters
         
         template_fnu_units: Units of templates when converted to ``flux_fnu``, 
                             e.g., L_sun / Hz for fsps templates.
         
-        """        
+        """   
         if cosmology is None:
             #from astropy.cosmology import WMAP9 as cosmology
             cosmology = self.cosmology
             
-        _ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[2.5,16,50,84,97.5], verbose=False, simple=simple) 
+        _ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=rf_pad_width, 
+                                       max_err=rf_max_err, 
+                                       percentiles=[2.5,16,50,84,97.5], 
+                                       verbose=False, simple=simple, 
+                                       n_proc=n_proc, **kwargs)
+         
         self.ubvj_tempfilt, self.ubvj_lc, self.ubvj = _ubvj
         self.ubvj_f_numbers = UBVJ
         
@@ -2893,6 +2923,7 @@ class PhotoZ(object):
                            'Lu':u.solLum, 'Lj':u.solLum, 
                            'L1400':u.solLum, 'L2800':u.solLum, 
                            'lwAgeV':u.Gyr, 'lw_age_V':u.Gyr,
+                           'lwAgeR':u.Gyr, 'lw_age_R':u.Gyr,
                            'LHa':u.solLum, 'LOIII':u.solLum, 
                            'LHb':u.solLum, 'LOII':u.solLum}
                         
@@ -3207,7 +3238,7 @@ class PhotoZ(object):
         return tab
 
 
-    def standard_output(self, zbest=None, prior=False, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, simple=False):#
+    def standard_output(self, zbest=None, prior=False, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], simple=False, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, **kwargs):#
         """
         Full output to ``zout.fits`` file.  
         
@@ -3217,6 +3248,52 @@ class PhotoZ(object):
         `~eazy.photoz.PhotoZ.sps_parameters` for rest-frame colors, masses, 
         etc.
         
+        Parameters
+        ==========
+        zbest: array-like, None
+            If provided, derive properties at this specified redshift.  
+            Otherwise, defaults in internal ``zml`` maximum-likelihood 
+            redshift.
+        
+        prior: bool
+            Include the apparent magnitude prior in ``lnp``.
+        
+        beta_prior: bool
+            Include the UV slope prior in ``lnp``.
+            (`~eazy.photoz.PhotoZ.prior_beta).
+        
+        UBVJ: list of 4 ints
+            Filter indices of U, B, V, J filters in the ``FILTER_FILE``.
+        
+        extra_rf_filters: list
+            If specified, additional filters to calculate rest-frame fluxes
+        
+        cosmology: `~astropy.cosmology` object
+            Cosmology for calculating luminosity distances, etc.  Defaults to
+            flat cosmology with H0, OM, OL from the parameter file.
+            
+        LIR_wave: [min_wave, max_wave]
+            Limits in microns to integrate the far-IR SED to calculate LIR.
+        
+        simple, rf_pad_width, rf_max_err: bool, float, float
+            See `~eazy.photoz.PhotoZ.rest_frame_fluxes`.
+            
+        save_fits: bool / int 
+            0 - Return just the parameter table
+            1 - Return the parameter table and data HDU and write '.data.fits'
+            2 - Same as above, but also include template coeffs at all
+                redshifts, which can be a very large array with 
+                ``dim = (NOBJ, NZ, NFILT)``.
+        
+        get_err: bool
+            Get parameter percentiles at ``percentile_limits``.
+        
+        fitter: 'nnls', 'bounded'
+            least-squares method for template fits.
+        
+        absmag_filters: list
+            Optional list of filters to compute absolute (AB) magnitudes
+            
         """
         import astropy.io.fits as pyfits
         from .version import __version__
@@ -3236,7 +3313,7 @@ class PhotoZ(object):
         # Fit at max-lnp (default if zbest = None) first and record this 
         # information no matter what.          
         self.fit_at_zbest(zbest=None, prior=prior, beta_prior=beta_prior, 
-                      get_err=get_err, fitter=fitter, n_proc=0, 
+                      get_err=get_err, fitter=fitter, n_proc=n_proc, 
                       clip_wavelength=clip_wavelength)
         
         tab['z_ml'] = self.zbest
@@ -3247,7 +3324,7 @@ class PhotoZ(object):
         # z_pdf if zbest is None
         if zbest is not None:
             self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
-                          get_err=get_err, fitter=fitter, n_proc=0, 
+                          get_err=get_err, fitter=fitter, n_proc=n_proc, 
                           clip_wavelength=clip_wavelength)
                
         try:
@@ -3301,7 +3378,7 @@ class PhotoZ(object):
                           cosmology=cosmology, LIR_wave=LIR_wave, 
                           rf_pad_width=rf_pad_width, rf_max_err=rf_max_err, 
                           percentile_limits=percentile_limits, 
-                          simple=simple)
+                          simple=simple, n_proc=n_proc, **kwargs)
                           
         for col in sps_tab.colnames:
             tab[col] = sps_tab[col]
@@ -3323,7 +3400,7 @@ class PhotoZ(object):
             for key in absm.meta:
                 tab.meta[key] = absm.meta[key]
                 
-        if not save_fits:
+        if save_fits < 1:
             return tab, None
         
         root = self.param.params['MAIN_OUTPUT_FILE']
@@ -3338,21 +3415,31 @@ class PhotoZ(object):
         
         hdu = pyfits.HDUList(pyfits.PrimaryHDU())
         #hdu.append(pyfits.ImageHDU(self.cat['id'].astype(np.uint32), name='ID'))
-        hdu.append(pyfits.ImageHDU(self.zbest.astype(np.float32), name='ZBEST'))
-        hdu.append(pyfits.ImageHDU(self.zgrid.astype(np.float32), name='ZGRID'))
-        hdu.append(pyfits.ImageHDU(self.chi2_fit.astype(np.float32), name='CHI2'))
-        hdu[-1].header['PRIOR'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
+        hdu.append(pyfits.ImageHDU(self.zbest.astype(np.float32), 
+                                   name='ZBEST'))
+        hdu.append(pyfits.ImageHDU(self.zgrid.astype(np.float32), 
+                                   name='ZGRID'))
+        hdu.append(pyfits.ImageHDU(self.chi2_fit.astype(np.float32),
+                                   name='CHI2'))
+
+        h = hdu[-1].header
+        h['PRIOR'] = (prior, 'Prior applied ({0})'.format(self.param.params['PRIOR_FILE']))
+        h['BPRIOR'] = (beta_prior, 'UV beta prior applied')
         
         # Template coefficients 
-        hdu.append(pyfits.ImageHDU(self.coeffs_best, name='COEFFS'))
+        hdu.append(pyfits.ImageHDU(self.coeffs_best.astype(np.float32),
+                                   name='COEFFS'))
         h = hdu[-1].header
         h['ABZP'] = (self.param['PRIOR_ABZP'], 'AB zeropoint')
         h['NTEMP'] = (self.NTEMP, 'Number of templates')
         for i, t in enumerate(self.templates):
             h['TEMP{0:04d}'.format(i)] = t.name
         
-        if save_fits == 1:
-            hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
+        if save_fits == 2:
+            hdu.append(pyfits.ImageHDU(self.fit_coeffs.astype(np.float32),
+                                       name='ZCOEFFS'))
+            
+        hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
             
         return tab, hdu
 
@@ -3833,7 +3920,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
 
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32):
+    def __init__(self, zgrid, templates, RES='FILTERS.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, n_proc=4, Eb=0, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, par_timeout=120):
         """
         Integrate filters through filters on a redshift grid
         """
@@ -3880,32 +3967,40 @@ class TemplateGrid(object):
             if n_proc == 0:
                 pool = mp.Pool(processes=mp.cpu_count())
             else:
-                pool = mp.Pool(processes=n_proc)
+                np_check = np.minimum(mp.cpu_count(), n_proc)
+                pool = mp.Pool(processes=np_check)
                 
-            results = [pool.apply_async(_integrate_tempfilt,
+            jobs = [pool.apply_async(_integrate_tempfilt,
                                         (itemp, templates[itemp], zgrid, RES,
                                          f_numbers, add_igm, galactic_ebv, Eb,
                                          filters))
                        for itemp in range(self.NTEMP)]
 
             pool.close()
-            pool.join()
+            #pool.join()
                 
-            for res in results:
-                itemp, tf_i = res.get(timeout=1)
+            for res in tqdm(jobs):
+                itemp, tf_i = res.get(timeout=par_timeout)
                 if verbose > 1:
-                    print('Process template {0} (NZ={1}).'.format(templates[itemp].name, templates[itemp].NZ))
-                self.tempfilt[:,itemp,:] = tf_i        
+                    self.tempfilt[:,itemp,:] = tf_i        
+            
+            if verbose > 1:
+                for itemp in range(self.NTEMP):
+                    msg = 'Template {0:>3}: {1} (NZ={2}).'
+                    print(msg.format(itemp, templates[itemp].name,
+                                     templates[itemp].NZ))
+                
         else:
             # Serial
-            for itemp in range(self.NTEMP):
+            for itemp in tqdm(range(self.NTEMP)):
                 itemp, tf_i = _integrate_tempfilt(itemp, templates[itemp],
                                                   zgrid, RES, f_numbers, 
                                                   add_igm, galactic_ebv, Eb, 
                                                   filters)
                 if verbose > 1:
-                    msg = 'Process template {0}.'
-                    print(msg.format(templates[itemp].name))
+                    msg = 'Process template {0} (NZ={1}).'
+                    print(msg.format(templates[itemp].name,
+                                     templates[itemp].NZ))
                     
                 self.tempfilt[:,itemp,:] = tf_i        
         
@@ -4111,7 +4206,7 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose, fitter):
     coeffs = np.zeros((NOBJ, NTEMP))
     TEFz = TEF(z)
     
-    if verbose > 1:
+    if verbose > 2:
         print('z={0:7.3f}'.format(z))
     
     for iobj in range(NOBJ):
@@ -4123,7 +4218,8 @@ def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose, fitter):
         if ok_band.sum() < 2:
             continue
         
-        chi2[iobj], coeffs[iobj], fmodel, draws = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, False, fitter)
+        _res = _fit_obj(fnu_i, efnu_i, A, TEFz, zp, False, fitter)
+        chi2[iobj], coeffs[iobj], fmodel, draws = _res
             
     return iz, chi2, coeffs
 

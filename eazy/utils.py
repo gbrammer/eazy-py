@@ -9,8 +9,39 @@ import astropy.units as u
 
 CLIGHT = 299792458.0 # m/s
 
+TRUE_VALUES = [True, 1, '1', 'True', 'TRUE', 'true', 'y', 'yes', 'Y', 'Yes']
+FALSE_VALUES = [False, 0, '0', 'False', 'FALSE', 'false', 'n', 'no', 'N', 'No']
+
+
+def bool_param(value, false_values=FALSE_VALUES, true_values=TRUE_VALUES, which='false', check_both=True):
+    """
+    Flexible booleans
+    
+    If ``which == 'false'``, test that ``value not in false_values``.
+    
+    If ``which == 'true'``, test ``value in true_values``.
+    
+    If ``check_both`` and ``value`` isn't in either list, return the value 
+    itself.
+    
+    """
+    if which == 'false':
+        test = value not in false_values
+    elif which == 'true':
+        test = value in true_values
+    else:
+        raise ValueError("Option ``which`` must be 'true' or 'false'")
+    
+    if check_both:
+        if value not in true_values + false_values:
+            test = value
+            
+    return test
+
+
 def path_to_eazy_data():
     return os.path.join(os.path.dirname(__file__), 'data')
+
 
 def set_warnings(numpy_level='ignore', astropy_level='ignore'):
     """
