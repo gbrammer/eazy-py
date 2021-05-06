@@ -461,6 +461,16 @@ class Template():
                          
         if redshift_type == 'nearest':
             iz = np.round(zint).astype(int)
+            
+        elif redshift_type == 'interp':
+            iz = int(np.floor(zint))
+            if iz < self.NZ-1:
+                frac = 1 - ( (z - self.template_redshifts[iz]) / 
+                          np.diff(self.template_redshifts)[iz] )
+            else:
+                frac = 1.
+            
+            return iz, frac
         else:
             iz = zint.astype(int)
                     
@@ -493,9 +503,18 @@ class Template():
         
         # Fnu flux density, with IGM and scaling
         if iz is None:
-            iz = self.zindex(z=z, redshift_type=redshift_type)
-        
-        fnu = self.flux_fnu(iz)*scale*igmz
+            if redshift_type == 'interp':
+                iz, frac = self.zindex(z=z, redshift_type=redshift_type)
+                if frac == 1:
+                    fnu = self.flux_fnu(iz)*scale*igmz
+                else:
+                    fnu = frac*self.flux_fnu(iz)*scale*igmz
+                    fnu += (1-frac)*self.flux_fnu(iz+1)*scale*igmz
+            else:
+                iz = self.zindex(z=z, redshift_type=redshift_type)
+                fnu = self.flux_fnu(iz)*scale*igmz        
+        else:
+            fnu = self.flux_fnu(iz)*scale*igmz
                         
         fluxes = []
         for filt_i in filts:    

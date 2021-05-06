@@ -45,6 +45,8 @@ NUVRK_FILTERS = [121, 158, 163]
 
 CDF_SIGMAS = np.linspace(-5, 5, 51)
 
+TEMPLATE_REDSHIFT_TYPE = 'nearest'
+
 class PhotoZ(object):
     ZML_WITH_PRIOR = None
     ZML_WITH_BETA_PRIOR = None
@@ -1327,10 +1329,10 @@ class PhotoZ(object):
 
             wi = np.interp(np.linspace(0, 1, n_knots),
                            np.cumsum(np.ones(wclip.sum()))/wclip.sum(), 
-                           lczso[wclip])
+                           wfunc(lczso[wclip]))
             dw = np.gradient(wi)
 
-            bspl = gaussian_templates(lczso, centers=wi, widths=dw)
+            bspl = gaussian_templates(wfunc(lczso), centers=wi, widths=dw)
 
         # Pedestal
         #bspl = np.hstack([np.ones((clip.sum(), 1)), bspl])
@@ -2953,11 +2955,15 @@ class PhotoZ(object):
                     for _i, templ in enumerate(self.templates):
                         if templ.NZ == 0:
                             iz = iz0
+                            temp_matrix[:, _i] = temp_par[_i, iz]
+                        elif TEMPLATE_REDSHIFT_TYPE == 'interp':
+                            par_int = np.interp(zb, templ.template_redshifts,
+                                                temp_par[_i, :])
+                            temp_matrix[:, _i] = par_int
                         else:
                             iz = templ.zindex(zb)
+                            temp_matrix[:, _i] = temp_par[_i, iz]
                             
-                        temp_matrix[:, _i] = temp_par[_i, iz]
-                    
                     par_value = (coeffs_rest*temp_matrix).sum(axis=1)
                     if self.get_err:
                         par_draws = (rest_draws*temp_matrix).sum(axis=2)
@@ -3007,12 +3013,15 @@ class PhotoZ(object):
                     for _i, templ in enumerate(self.templates):
                         if templ.NZ == 0:
                             iz = iz0
+                            temp_matrix[:, _i] = temp_par[_i, iz]
+                        elif TEMPLATE_REDSHIFT_TYPE == 'interp':
+                            par_int = np.interp(zb, templ.template_redshifts,
+                                                temp_par[_i, :])
+                            temp_matrix[:, _i] = par_int
                         else:
                             iz = templ.zindex(zb)
-                            #pass
-                            
-                        temp_matrix[:, _i] = temp_par[_i, iz]
-                    
+                            temp_matrix[:, _i] = temp_par[_i, iz]
+
                     par_value = (coeffs_norm*temp_matrix).sum(axis=1)
                     if is_dust:
                         temp_ones = np.ones_like(temp_matrix)
@@ -4138,8 +4147,8 @@ class TemplateGrid(object):
         """
         
         return self.spline(z)
-    
-    
+
+
 def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters):
     """
     For multiprocessing filter integration
@@ -4190,7 +4199,8 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
             fnu = templ.integrate_filter(filters[ifilt], 
                                          scale=igmz*F_MW*Fbump, 
                                          z=zgrid[iz], 
-                                         include_igm=False)
+                                         include_igm=False, 
+                                         redshift_type=TEMPLATE_REDSHIFT_TYPE)
                                          
             tempfilt[iz, ifilt] = fnu
     
