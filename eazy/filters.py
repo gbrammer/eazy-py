@@ -140,6 +140,7 @@ class FilterDefinition:
         """
         return np.trapz(self.throughput, self.wave)
     
+    
     @property            
     def rectwidth(self):
         """
@@ -150,6 +151,7 @@ class FilterDefinition:
         
         rect = self.equivwidth / self.throughput.max()
         return rect
+    
     
     @property    
     def ctw95(self):
@@ -162,7 +164,7 @@ class FilterDefinition:
         dl = np.diff(self.wave)
         filt = np.cumsum((self.wave*self.throughput)[1:]*dl)
         ctw95 = np.interp([0.025, 0.975], filt/filt.max(), self.wave[1:])
-        return np.diff(ctw95)
+        return np.diff(ctw95)[0]
     
     
     def for_filter_file(self, row_str='{i:6} {wave:.5e} {thru:.5e}'):
@@ -171,7 +173,7 @@ class FilterDefinition:
         """    
         header = '{0} {1} lambda_c= {2:.4e} AB-Vega= {3:.3f} w95={4:.1f}'
         N = len(self.wave)
-        lines = [header.format(N, self.name, 
+        lines = [header.format(N, self.name.split('lambda_c')[0], 
                                self.pivot, self.ABVega, self.ctw95)]
         
         lines += [row_str.format(i=i+1, wave=w, thru=t)
