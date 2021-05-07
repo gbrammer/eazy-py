@@ -72,18 +72,7 @@ class PhotoZ(object):
         self.zeropoint_file = zeropoint_file
         
         self.random_seed = random_seed
-        
-        # param_file='zphot.param.m0416.uvista'; translate_file='zphot.translate.m0416.uvista'; zeropoint_file='zphot.zeropoint.m0416.uvista'
-        # 
-        # param_file='zphot.param.goodss.uvista'; translate_file='zphot.translate.goodss.uvista'; zeropoint_file='zphot.zeropoint.goodss.uvista'
-        
-        # if False:
-            # from eazypy.filters import FilterFile
-            # from eazypy.param import EazyParam, TranslateFile
-            # from eazypy.igm import Inoue14
-            # from eazypy.templates import TemplateError
-            # from eazypy.photoz import TemplateGrid
-            
+                    
         ### Read parameters
         self.param = param.read_param_file(param_file, verbose=True)
         self.translate = param.TranslateFile(translate_file)
@@ -167,7 +156,7 @@ class PhotoZ(object):
                                      dtype=self.ARRAY_DTYPE)
         self.get_err = False
         
-        ### Interpolate templates        
+        ### Grid of templates interpolated through filter bandpasses       
         if tempfilt is None:
             msg = 'Template grid: {0} (this may take some time)'
             print(msg.format(self.param['TEMPLATES_FILE']))
@@ -191,7 +180,7 @@ class PhotoZ(object):
         
         self.ubvj = None
         
-        ### Load previous products?
+        ### Load previously-generated products?
         if load_products:
             self.load_products(**kwargs)
 
@@ -421,8 +410,9 @@ class PhotoZ(object):
         self.efnu_orig = efnu*1.
         #self.fnu_orig = self.fnu*1.
         
-        self.efnu = np.sqrt(self.efnu_orig**2 + 
-                            (self.param['SYS_ERR']*self.fnu)**2)
+        #self.efnu = np.sqrt(self.efnu_orig**2 + 
+        #                    (self.param['SYS_ERR']*self.fnu)**2)
+        self.set_sys_err(nonzero=True)
         
         self.ok_data = ((self.efnu > 0) 
                         & (self.fnu > self.param['NOT_OBS_THRESHOLD']) 
@@ -471,6 +461,38 @@ class PhotoZ(object):
         # lnP term for TEF
         if compute_tef_lnp:
             self.compute_tef_lnp(in_place=True)
+
+
+    def set_sys_err(self, nonzero=True, in_place=True):
+        """
+        Include systematic error in uncertainties from ``param['SYS_ERR']``.
+        
+        Parameters
+        ----------
+        nonzero: bool
+            Only apply for positive fluxes in ``self.fnu``.
+        
+        in_place: bool
+            Set ``efnu`` attribute.  Or if False, return array as below.
+            
+        Returns
+        -------
+        efnu: array            
+            Full uncertainty: 
+            ``efnu**2 = efnu_orig**2 + (sys_err*fnu)**2``
+        
+        """
+        if nonzero:
+            efnu = np.sqrt(self.efnu_orig**2 + 
+                          (self.param['SYS_ERR']*np.maximum(self.fnu, 0.))**2)
+        else:
+            efnu = np.sqrt(self.efnu_orig**2 + 
+                            (self.param['SYS_ERR']*self.fnu)**2)
+        
+        if in_place:
+            self.efnu = efnu
+        else:
+            return efnu
 
 
     def set_zgrid(self):
@@ -1001,8 +1023,7 @@ class PhotoZ(object):
         if verbose:
             print('`error_residuals`: force uncertainties to match residuals')
             
-        #self.efnu = self.efnu_orig*1
-        self.efnu = np.sqrt(self.efnu_orig**2+(self.param['SYS_ERR']*self.fnu)**2)
+        self.set_sys_err(nonzero=True)
 
         # residual
         r = np.abs(self.fmodel - self.fnu*self.ext_redden*self.zp)
@@ -1597,7 +1618,7 @@ class PhotoZ(object):
         templf = np.dot(coeffs_i, tempflux)*igmz
         return templz, templf
                 
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, show_redshift_draws=False, draws_cmap=None, zshow=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=0, show_upperlimits=True, snr_thresh=2.):
+    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, show_redshift_draws=False, draws_cmap=None, zshow=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=0, show_upperlimits=True, snr_thresh=2., with_tef=True):
         """
         Make plot of SED and p(z) of a single object
         
@@ -1657,6 +1678,9 @@ class PhotoZ(object):
         snr_thresh: float
             Sets the threshold in SNR required for a detection.
             Default is 2.
+        
+        with_tef: bool
+            Plot uncertainties including template error function at z.
             
         Returns
         -------
@@ -1777,6 +1801,7 @@ class PhotoZ(object):
                            emodel=efmodel*fnu_factor*flam_sed,
                            fobs=fnu_i*fnu_factor*flam_sed, 
                            efobs=efnu_i*fnu_factor*flam_sed,
+                           tef=tef_i,
                            templz=templz,
                            templf=templf*fnu_factor*flam_spec,
                            unit=show_fnu*1,
@@ -1827,9 +1852,15 @@ class PhotoZ(object):
         # S/N < 2
         sn2_not = (~missing) & (fnu_i/efnu_i <= snr_thresh)
         
+        # Uncertainty with TEF
+        if with_tef:
+            err_tef = np.sqrt(efnu_i**2+(tef_i*fnu_i)**2)            
+        else:
+            err_tef = efnu_i*1
+            
         ax.errorbar(self.lc[sn2_detection]/1.e4, 
                     (fnu_i*fnu_factor*flam_sed)[sn2_detection], 
-                    (efnu_i*fnu_factor*flam_sed)[sn2_detection], 
+                    (err_tef*fnu_factor*flam_sed)[sn2_detection], 
                     color='k', marker='s', linestyle='None', label=None, 
                     zorder=10)
 
@@ -2362,8 +2393,8 @@ class PhotoZ(object):
         tef_lnp = np.zeros((self.NOBJ, self.NZ), dtype=self.ARRAY_DTYPE)
         for i, z in iters:
             TEFz = self.TEF(z)
-            var = self.efnu**2 + (TEFz*self.fnu)**2
-            tef_lnp[:,i] = -1/2.*(np.log(var)*self.ok_data).sum(axis=1)
+            var = self.efnu**2 + (TEFz*np.maximum(self.fnu, 0.))**2
+            tef_lnp[:,i] = -0.5*(np.log(var)*self.ok_data).sum(axis=1)
         
         if in_place:
             self.tef_lnp = tef_lnp
@@ -3855,7 +3886,9 @@ class PhotoZ(object):
         mask &= (self.efnu_orig[:,f_ix] > 0)
         self.fnu[mask,f_ix] *= corr[mask]
         self.efnu_orig[mask,f_ix] *= corr[mask]
-        self.efnu = np.sqrt(self.efnu_orig**2+(self.param['SYS_ERR']*self.fnu)**2)
+        #self.efnu = np.sqrt(self.efnu_orig**2 + 
+        #                    (self.param['SYS_ERR']*self.fnu)**2)
+        self.set_sys_err(nonzero=True)
 
 
     def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None):
@@ -4373,7 +4406,7 @@ def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
         fmodel = np.dot(coeffs_i, A)
         return np.inf, np.zeros(A.shape[0]), fmodel, None
         
-    var = efnu_i**2 + (TEFz*fnu_i)**2
+    var = efnu_i**2 + (TEFz*np.maximum(fnu_i, 0.))**2
     rms = np.sqrt(var)
     
     # Nonzero templates
