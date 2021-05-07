@@ -408,11 +408,8 @@ class PhotoZ(object):
                 efnu[:,i] *= self.translate.error[self.err_columns[i]]
                 
         self.efnu_orig = efnu*1.
-        #self.fnu_orig = self.fnu*1.
         
-        #self.efnu = np.sqrt(self.efnu_orig**2 + 
-        #                    (self.param['SYS_ERR']*self.fnu)**2)
-        self.set_sys_err(nonzero=True)
+        self.set_sys_err(positive=True)
         
         self.ok_data = ((self.efnu > 0) 
                         & (self.fnu > self.param['NOT_OBS_THRESHOLD']) 
@@ -463,13 +460,13 @@ class PhotoZ(object):
             self.compute_tef_lnp(in_place=True)
 
 
-    def set_sys_err(self, nonzero=True, in_place=True):
+    def set_sys_err(self, positive=True, in_place=True):
         """
         Include systematic error in uncertainties from ``param['SYS_ERR']``.
         
         Parameters
         ----------
-        nonzero: bool
+        positive: bool
             Only apply for positive fluxes in ``self.fnu``.
         
         in_place: bool
@@ -482,7 +479,7 @@ class PhotoZ(object):
             ``efnu**2 = efnu_orig**2 + (sys_err*fnu)**2``
         
         """
-        if nonzero:
+        if positive:
             efnu = np.sqrt(self.efnu_orig**2 + 
                           (self.param['SYS_ERR']*np.maximum(self.fnu, 0.))**2)
         else:
@@ -1023,7 +1020,7 @@ class PhotoZ(object):
         if verbose:
             print('`error_residuals`: force uncertainties to match residuals')
             
-        self.set_sys_err(nonzero=True)
+        self.set_sys_err(positive=True, in_place=True)
 
         # residual
         r = np.abs(self.fmodel - self.fnu*self.ext_redden*self.zp)
@@ -3886,9 +3883,7 @@ class PhotoZ(object):
         mask &= (self.efnu_orig[:,f_ix] > 0)
         self.fnu[mask,f_ix] *= corr[mask]
         self.efnu_orig[mask,f_ix] *= corr[mask]
-        #self.efnu = np.sqrt(self.efnu_orig**2 + 
-        #                    (self.param['SYS_ERR']*self.fnu)**2)
-        self.set_sys_err(nonzero=True)
+        self.set_sys_err(positive=True, in_place=True)
 
 
     def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None):
