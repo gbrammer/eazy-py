@@ -1803,7 +1803,9 @@ class PhotoZ(object):
                            templf=templf*fnu_factor*flam_spec,
                            unit=show_fnu*1,
                            flux_unit=flux_unit,
-                           wave_unit=u.AA)
+                           wave_unit=u.AA, 
+                           chi2=chi2_i, 
+                           coeffs=coeffs_i)
         except:
             data = None
         
