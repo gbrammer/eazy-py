@@ -2,7 +2,7 @@ import os
 import collections
 import numpy as np
 
-__all__ = ["EazyParam", "TranslateFile", "load_param_file"]
+__all__ = ["EazyParam", "TranslateFile", "read_param_file"]
 
 def read_param_file(param_file=None, verbose=True):
     """
