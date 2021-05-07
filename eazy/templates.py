@@ -7,13 +7,42 @@ from . import utils
 
 #import unicorn
 
-__all__ = ["TemplateError", "Template"]
+__all__ = ["TemplateError", "Template", "Redden", "ModifiedBlackBody", 
+           "read_templates_file", "load_phoenix_stars", 
+           "bspline_templates", "gaussian_templates"]
 
 class TemplateError():
-    """
-    Make an easy (spline) interpolator for the template error function
-    """
     def __init__(self, file='templates/TEMPLATE_ERROR.eazy_v1.0', arrays=None, lc=[5500.], scale=1.):
+        """
+        Template error function with spline interpolation at arbitrary redshift.
+        
+        Parameters
+        ----------
+        file: str
+            File containing the template error function definition 
+            (columns of wavelength in Angstroms and the TEF).
+        
+        arrays: optional, (wave, TEF)
+            Set from arrays rather than reading from ``file``.
+        
+        lc: list
+            List of filter pivot wavelengths (observed-frame Angstroms).
+        
+        scale: float
+            Scale factor multiplied to TEF array, e.g., the ``TEMP_ERR_A2`` 
+            parameter.
+        
+        Attributes
+        ----------
+        te_x, te_y: arrays
+            The input wavelength and TEF arrays.
+        
+        min_wavelength, min_wavelength: float
+            Min/max of the wavelengths in ``te_x``.
+            
+        lc, scale: set from input params.
+        """
+
         self.file = file
         if arrays is None:
             self.te_x, self.te_y = np.loadtxt(file, unpack=True)
@@ -24,7 +53,8 @@ class TemplateError():
         self.lc = lc
         self._set_limits()
         self._init_spline()
-    
+
+
     def _set_limits(self):
         """
         Limits to control extrapolation
@@ -32,25 +62,35 @@ class TemplateError():
         nonzero = self.te_y > 0
         self.min_wavelength = self.te_x[nonzero].min()
         self.max_wavelength = self.te_x[nonzero].max()
-        
+
+
     def _init_spline(self):
+        """
+        Initialize the CubicSpline interpolator
+        """
         from scipy import interpolate
         self._spline = interpolate.CubicSpline(self.te_x, self.te_y)
-        
+
+
     def interpolate(self, filter_wavelength=5500., z=1.):
         """
-        observed_wavelength is observed wavelength of photometric filters.  But 
-        these sample the *rest* wavelength of the template error function at lam/(1+z)
+        ``filter_wavelength`` is observed wavelength of photometric filters.  
+        But these sample the *rest* wavelength of the template error function
+        at lam/(1+z)
         """
         return self._spline(filter_wavelength/(1+z))*self.scale
-    
+
+
     def __call__(self, z):
-        lcz = np.array(self.lc)/(1+z)
-        tef_z = self._spline(self.lc/(1+z))*self.scale 
+        """
+        Interpolate TEF arrays at a specific redshift"""
+        lcz = np.atleast_1d(self.lc)/(1+z)
+        tef_z = self._spline(np.atleast_1d(self.lc)/(1+z))*self.scale 
         clip = (lcz < self.min_wavelength) | (lcz > self.max_wavelength)
         tef_z[clip] = 0.
         
         return tef_z
+
 
 class Redden():
     """
@@ -127,10 +167,12 @@ class Redden():
         else:
             print('Warning: Rv not defined for model: ' + self.__repr__())
             return 0.
-            
+
+
     def __repr__(self):
         return '<Redden {0}, Av/tau_V={1}>'.format(self.model.__repr__(), self.Av)
-        
+
+
     def __call__(self, wave, left=0, right=1., **kwargs):
         """
         Return reddening factor.  If input has no units, assume 
@@ -203,7 +245,37 @@ class Redden():
 
 def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth=0):
     """
-    Read templates listed in ``templates_file``
+    Read templates listed in ``templates_file``.
+    
+    The file has a format like 
+        
+    Parameters
+    ----------
+    templates_file: str
+        Filename of the ascii file containing the templates list.  Has format
+        like
+        
+        .. code-block::
+
+            1 templates/fsps_full/tweak_fsps_QSF_12_v3_001.dat 1.0
+            2 templates/fsps_full/tweak_fsps_QSF_12_v3_002.dat 1.0
+            ...
+            N {path} {scale}
+
+        where ``scale`` is the factor needed to scale the template wavelength 
+        array to units of Angstroms.
+    
+    resample_wave: array, optional
+        Resample templates to a common wavelength array
+    
+    velocity_smooth: float
+        If non-zero, smooth all templates with a gaussian in velocity space
+        
+    Returns
+    -------
+    templates: list
+        List of `~eazy.templates.Template` objects.
+        
     """
     lines = open(templates_file).readlines()
     templates = []
@@ -391,18 +463,22 @@ class Template():
         """
         self.flux is flam.  Scale to fnu
         """
-        return self.flux[i,:] * self.wave**2 / (utils.CLIGHT*1.e10) * self.redden
-                    
+        return (self.flux[i,:] * 
+                self.wave**2 / (utils.CLIGHT*1.e10) * 
+                self.redden)
+
+
     def set_fnu(self):
         """
-        Deprecated.  `flux_fnu` is now a `@property`.
+        Deprecated.  ``flux_fnu`` is now a `@property`.
         """
+        print('Deprecated.  ``flux_fnu`` is now a property')
         pass
-        #self.flux_fnu = self.flux * self.wave**2 / 3.e18
-    
+
+
     def smooth_velocity(self, velocity_smooth, in_place=True, raise_error=False):
         """
-        Smooth template in velocity using `prospect`
+        Smooth template in velocity using ``astro-prospector``
         """
         try:
             from prospect.utils.smoothing import smooth_vel
@@ -432,7 +508,8 @@ class Template():
             return Template(arrays=(self.wave, sm_flux), 
                             name=self.name, meta=self.meta, 
                             template_redshifts=self.template_redshifts)
-            
+
+
     def resample(self, new_wave, z=0, in_place=True, return_array=False, interp_func=utils.interp_conserve):
         """
         Resample the template to a new wavelength grid
@@ -477,7 +554,8 @@ class Template():
                 return Template(arrays=(new_wave, new_flux), 
                                 name=self.name, meta=self.meta, 
                                 template_redshifts=self.template_redshifts)
-    
+
+
     def zindex(self, z=0., redshift_type='nearest'):
         """
         Get the redshift index of a multi-dimensional template array
@@ -503,7 +581,8 @@ class Template():
             iz = zint.astype(int)
                     
         return iz
-        
+
+
     def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, redshift_type='nearest', iz=None):
         """
         Integrate the template through a `FilterDefinition` filter object.
@@ -564,7 +643,8 @@ class Template():
             return fluxes[0]
         else:
             return np.array(fluxes)
-                    
+
+
     def igm_absorption(self, z, scale_tau=1., pow=1):
         """
         Compute IGM absorption.  
@@ -581,7 +661,8 @@ class Template():
         lyman = self.wave < 1300
         igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])**pow
         return igmz
-        
+
+
     def integrate_filter_list(self, filters, include_igm=True, norm_index=None, **kwargs):
         """
         Integrate template through all filters
@@ -596,8 +677,12 @@ class Template():
             fluxes /= fluxes[norm_index]
             
         return fluxes
-        
+
+
     def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False, flatten=True):
+        """
+        Return template as an ``~astropy.table.Table``.
+        """
         from astropy.table import Table
         import astropy.units as u
         import copy
@@ -624,13 +709,12 @@ class Template():
                 tab['flux'] = self.flux[0,:]
                                
         return tab
-        
+
+
 class ModifiedBlackBody():
     """
     Modified black body: nu**beta * BB(nu) 
     + FIR-radio correlation
-    
-    
     """
     def __init__(self, Td=47, beta=1.6, q=2.34, alpha=-0.75):
         self.Td = Td
