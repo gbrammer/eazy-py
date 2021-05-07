@@ -88,7 +88,7 @@ class Zafar15(BaseAttAvModel):
 
 class ExtinctionModel(BaseAttAvModel):
     """
-    Modify `dust_extinction.averages.G03_SMCBar` to work as Att
+    Modify `~dust_extinction.averages.G03_SMCBar` to work as Att
     """     
     #from dust_extinction.averages import G03_SMCBar
     #SMCBar = G03_SMCBar()
@@ -141,7 +141,7 @@ class ExtinctionModel(BaseAttAvModel):
 
 class SMC(BaseAttAvModel):
     """
-    Modify `dust_extinction.averages.G03_SMCBar` to work as Att
+    Modify `~dust_extinction.averages.G03_SMCBar` to work as Att
     """     
     from dust_extinction.averages import G03_SMCBar
     SMCBar = G03_SMCBar()
