@@ -1,9 +1,12 @@
 import pytest
 import os
+import warnings
 
 import numpy as np
 np.random.seed(0)
 np.seterr(all='ignore')
+
+from astropy.utils.exceptions import AstropyWarning
 
 from .. import utils
 from .. import templates
@@ -298,7 +301,11 @@ def test_load_products():
     """
     global ez
     
-    zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', AstropyWarning)
+    
+        zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, 
+                                   rf_max_err=2, 
                                    prior=True, beta_prior=True, simple=True, 
                                    save_fits=2)
                                    

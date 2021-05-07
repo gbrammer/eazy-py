@@ -33,6 +33,9 @@ DEFAULT_LABEL = 'fsps_tau{tau:3.1f}_logz{logzsol:4.2f}_tage{tage:4.2f}_av{Av:4.2
 WG00_DEFAULTS = dict(geometry='shell', dust_type='mw', 
                    dust_distribution='homogeneous')
 
+__all__ = ["Zafar15", "ExtinctionModel", "SMC", "Reddy15", "KC13",
+           "ParameterizedWG00", "ExtendedFsps", "fsps_line_info", 
+           "wuyts_line_Av"]
 
 class Zafar15(BaseAttAvModel):
     """
@@ -489,12 +492,14 @@ BOUNDS['gas_logz'] = [-2, 0.3, 0.05]
 BOUNDS['logzsol'] = [-2, 0.3, 0.05]
 BOUNDS['sigma_smooth'] = [100, 500, 0.05]
 
+
 def wuyts_line_Av(Acont):
     """
     Wuyts prescription for extra extinction towards nebular emission
     """
     return Acont + 0.9*Acont - 0.15*Acont**2
-    
+
+
 class ExtendedFsps(StellarPopulation):
     """
     Extended functionality for the `~fsps.StellarPopulation` object

@@ -1,7 +1,10 @@
 import pytest
 import os
+import warnings
 
 import numpy as np
+
+from astropy.utils.exceptions import AstropyWarning
 
 from .. import utils
 from .. import filters
@@ -21,6 +24,7 @@ def test_array_filter():
     assert(np.allclose(f1.equivwidth, 180))
     assert(np.allclose(f1.rectwidth, 180))
 
+
 def test_pysynphot_filter():
     """
     PySynphot filter bandpass
@@ -30,11 +34,15 @@ def test_pysynphot_filter():
     except:
         return True
     
-    v_pysyn = S.ObsBandpass('v')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', AstropyWarning)
+        v_pysyn = S.ObsBandpass('v')
+        
     v_eazy = filters.FilterDefinition(bp=v_pysyn)
     
     assert(np.allclose(v_pysyn.pivot(), v_eazy.pivot, rtol=0.001))
-    
+
+
 def test_data_path():
     """
     Data path
@@ -42,6 +50,7 @@ def test_data_path():
     path = os.path.join(os.path.dirname(__file__), '../data/')
     assert(os.path.exists(path))
     return path
+
 
 def test_read_filter_res():
     """

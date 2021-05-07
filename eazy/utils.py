@@ -40,6 +40,9 @@ def bool_param(value, false_values=FALSE_VALUES, true_values=TRUE_VALUES, which=
 
 
 def path_to_eazy_data():
+    """
+    Return internal path to ``eazy/data``.
+    """
     return os.path.join(os.path.dirname(__file__), 'data')
 
 
@@ -125,8 +128,15 @@ def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=Fals
     return xm, ym, ys, N
 
 def nmad(arr):
+    """
+    Normalized median absolute deviation statistic
+    
+    Includes the normalization factor of 1.48, see 
+    `~astropy.stats.median_absolute_deviation`.
+    """
     import astropy.stats
     return 1.48*astropy.stats.median_absolute_deviation(arr)
+
 
 def log_zgrid(zr=[0.7,3.4], dz=0.01):
     """Make a logarithmically spaced redshift grid
@@ -148,6 +158,7 @@ def log_zgrid(zr=[0.7,3.4], dz=0.01):
     zgrid = np.exp(np.arange(np.log(1+zr[0]), np.log(1+zr[1]), dz))-1
     return zgrid
 
+
 def trapz_dx(x):
     """
     Return trapezoid rule coefficients, useful for numerical integration 
@@ -168,7 +179,8 @@ def trapz_dx(x):
     dx[:-1] += diff
     dx[1:] += diff
     return dx
-    
+
+
 def clipLog(im, lexp=1000, cmap=[-1.4914, 0.6273], scale=[-0.1,10]):
     """
     Return normalized array like DS9 log
@@ -180,6 +192,7 @@ def clipLog(im, lexp=1000, cmap=[-1.4914, 0.6273], scale=[-0.1,10]):
     clip_log = np.clip((np.log10(lexp*clip+1)/np.log10(lexp)-bias)*contrast+0.5, 0, 1)
     
     return clip_log
+
 
 def get_mw_dust(ra, dec, **kwargs):
     """

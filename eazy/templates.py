@@ -199,7 +199,35 @@ class Redden():
             return ext[0]
         else:
             return ext
+
+
+def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth=0):
+    """
+    Read templates listed in ``templates_file``
+    """
+    lines = open(templates_file).readlines()
+    templates = []
+    
+    for line in lines:
+        if line.strip().startswith('#'):
+            continue
+        
+        lspl = line.split()
+        template_file = lspl[1]
+        if len(lspl) > 2:
+            to_angstrom = float(lspl[2])
+        else:
+            to_angstrom = 1.
             
+        templ = Template(file=template_file, to_angstrom=to_angstrom, 
+                         resample_wave=resample_wave,
+                         velocity_smooth=velocity_smooth)
+        
+        templates.append(templ)
+    
+    return templates
+
+
 class Template():
     def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), template_redshifts=[0], verbose=True):
         """

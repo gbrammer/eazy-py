@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 import numpy as np
 
 from collections import OrderedDict
@@ -18,6 +19,7 @@ except:
 import astropy.io.fits as pyfits
 import astropy.units as u
 import astropy.constants as const
+from astropy.utils.exceptions import AstropyWarning
 
 from . import filters
 from . import param 
@@ -83,8 +85,7 @@ class PhotoZ(object):
             # from eazypy.photoz import TemplateGrid
             
         ### Read parameters
-        self.param = param.EazyParam(param_file, read_templates=False, 
-                                     read_filters=False)
+        self.param = param.read_param_file(param_file, verbose=True)
         self.translate = param.TranslateFile(translate_file)
         
         for key in params:
@@ -111,7 +112,7 @@ class PhotoZ(object):
                     velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
                     resample_wave=self.param['RESAMPLE_WAVE'])
                           
-        self.templates = self.param.read_templates(**kws)
+        self.templates = templates_module.read_templates_file(**kws)
         
         ### Set redshift fit grid
         self.set_zgrid()
@@ -2141,7 +2142,7 @@ class PhotoZ(object):
         return tab
 
 
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000, par_timeout=60, **kwargs):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000, par_timeout=600, **kwargs):
         """
         Rest-frame fluxes, refit by down-weighting bands far away from 
         the desired RF band.
@@ -2161,24 +2162,31 @@ class PhotoZ(object):
             
             The modified uncertainties are computed as follows:
             
-            >>> import numpy as np
-            >>> import matplotlib.pyplot as plt
-            >>> pad_width = 0.5
-            >>> max_err = 0.5
-            >>> z = 1.5
-            >>> # Observed-frame pivot wavelengths
-            >>> lc_obs = np.array([10543.5, 12470.5, 13924.2, 15396.6,  \
-                                   7692.3,  8056.9,  9032.7, 4318.8, \
-                                   5920.8, 3353.6, 35569.3, 45020.3, \
+            .. plot::
+                :include-source:
+            
+                import numpy as np
+                import matplotlib.pyplot as plt
+                
+                pad_width = 0.5
+                max_err = 0.5
+                z = 1.5
+                
+                # Observed-frame pivot wavelengths
+                lc_obs = np.array([10543.5, 12470.5, 13924.2, 15396.6,
+                                   7692.3,  8056.9,  9032.7, 4318.8,
+                                   5920.8, 3353.6, 35569.3, 45020.3,
                                    57450.3, 79157.5])       
-            >>> lc_rest = 5500. # e.g., rest V
-            >>> x = np.log(lc_rest/(lc_obs/(1+z)))
-            >>> grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
-            >>> TEFz = (2/(1+grow/grow.max())-1)*max_err
-            >>> so = np.argsort(lc_obs)
-            >>> _ = plt.plot(lc_obs[so], TEFz[so])
-            >>> _ = plt.xlabel(r'$\lambda_\mathrm{rest}$')
-            >>> _ = plt.ylabel('Fractional uncertainty')
+                
+                lc_rest = 5500. # e.g., rest V
+                x = np.log(lc_rest/(lc_obs/(1+z)))
+                grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
+                TEFz = (2/(1+grow/grow.max())-1)*max_err
+                so = np.argsort(lc_obs)
+                
+                _ = plt.plot(lc_obs[so], TEFz[so])
+                _ = plt.xlabel(r'$\lambda_\mathrm{rest}$')
+                _ = plt.ylabel('Fractional uncertainty')
             
             
         percentiles : list
@@ -2204,7 +2212,7 @@ class PhotoZ(object):
         rf_fluxes : `~numpy.ndarray`
             Rest-frame fluxes, with dimensions 
             ``[NOBJ, len(f_numbers), len(percentiles)]``.
-            
+        
         """
         import multiprocessing as mp
         import time
@@ -3269,8 +3277,8 @@ class PhotoZ(object):
             Include the apparent magnitude prior in ``lnp``.
         
         beta_prior: bool
-            Include the UV slope prior in ``lnp``.
-            (`~eazy.photoz.PhotoZ.prior_beta).
+            Include the UV slope prior in ``lnp`` 
+            (`~eazy.photoz.PhotoZ.prior_beta`).
         
         UBVJ: list of 4 ints
             Filter indices of U, B, V, J filters in the ``FILTER_FILE``.
@@ -3289,11 +3297,12 @@ class PhotoZ(object):
             See `~eazy.photoz.PhotoZ.rest_frame_fluxes`.
             
         save_fits: bool / int 
-            0 - Return just the parameter table
-            1 - Return the parameter table and data HDU and write '.data.fits'
-            2 - Same as above, but also include template coeffs at all
-                redshifts, which can be a very large array with 
-                ``dim = (NOBJ, NZ, NFILT)``.
+            - 0 = Return just the parameter table
+            - 1 = Return the parameter table and data HDU and write 
+              '.data.fits'
+            - 2 = Same as above, but also include template coeffs at all
+              redshifts, which can be a very large array with 
+              ``dim = (NOBJ, NZ, NFILT)``.
         
         get_err: bool
             Get parameter percentiles at ``percentile_limits``.
@@ -3448,7 +3457,7 @@ class PhotoZ(object):
         if save_fits == 2:
             hdu.append(pyfits.ImageHDU(self.fit_coeffs.astype(np.float32),
                                        name='ZCOEFFS'))
-            
+        
         hdu.writeto('{0}.data.fits'.format(root), overwrite=True)
             
         return tab, hdu

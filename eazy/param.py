@@ -2,10 +2,24 @@ import os
 import collections
 import numpy as np
 
-from .filters import FilterDefinition, FilterFile, ParamFilter
-from .templates import TemplateError, Template
+__all__ = ["EazyParam", "TranslateFile", "load_param_file"]
 
-__all__ = ["EazyParam", "TranslateFile"]
+def read_param_file(param_file=None, verbose=True):
+    """
+    Load a param file and add default parameters if any missing
+    """
+    param = EazyParam(param_file, verbose=True)
+    if param_file is not None:
+        # Read defaults
+        defaults = EazyParam(None, verbose=False)
+        for k in defaults.param_names:
+            if k not in param.param_names:
+                param[k] = defaults[k]
+                if verbose:
+                    print(f'Parameter default: {k} = {defaults[k]}')
+
+    return param
+
 
 class EazyParam():
     """
@@ -18,117 +32,50 @@ class EazyParam():
         ...     print(params['Z_STEP'])
 
     """    
-    def __init__(self, PARAM_FILE=None, read_filters=False,
-                 read_templates=False):
+    def __init__(self, PARAM_FILE=None, verbose=True):
         
         if PARAM_FILE is None:
-            PARAM_FILE = os.path.join(os.path.dirname(__file__), 'data/zphot.param.default')
+            PARAM_FILE = os.path.join(os.path.dirname(__file__), 
+                                      'data/zphot.param.default')
+        
+        if verbose:
             print('Read default param file: '+PARAM_FILE)
             
         self.filename = PARAM_FILE
         self.param_path = os.path.dirname(PARAM_FILE)
-            
+           
         f = open(PARAM_FILE,'r')
         self.lines = f.readlines()
         f.close()
+
+        self.params = collections.OrderedDict()
+        self.formats = collections.OrderedDict()
         
         self._process_params()
-        
-        filters = []
-        templates = []
-        for line in self.lines:
-            if line.startswith('#  Filter'):
-                filters.append(ParamFilter(line))
-            if line.startswith('#  Template'):
-                templates.append(line.split()[3])
-                
-        self.NFILT = len(filters)
-        self.filters = filters
-        self.template_files = templates
-        
-        if read_filters:
-            RES = FilterFile(self.params['FILTERS_RES'])
-            for i in range(self.NFILT):
-                filters[i].wave = RES.filters[filters[i].fnumber-1].wave
-                filters[i].throughput = RES.filters[filters[i].fnumber-1].throughput
-        
-        if read_templates:
-            self.templates = self.read_templates(templates_file=self.params['TEMPLATES_FILE'])
-            
-    def read_templates(self, templates_file=None, resample_wave=None, velocity_smooth=0):
-        
-        lines = open(templates_file).readlines()
-        templates = []
-        
-        for line in lines:
-            if line.strip().startswith('#'):
-                continue
-            
-            lspl = line.split()
-            template_file = lspl[1]
-            if len(lspl) > 2:
-                to_angstrom = float(lspl[2])
-            else:
-                to_angstrom = 1.
-                
-                
-            templ = Template(file=template_file, to_angstrom=to_angstrom, 
-                             resample_wave=resample_wave,
-                             velocity_smooth=velocity_smooth)
-            
-#             if velocity_smooth > 0:
-#                 try:
-#                     from prospect.utils.smoothing import smooth_vel
-#                     sm_flux = smooth_vel(templ.wave, templ.flux, templ.wave, 
-#                                          velocity_smooth)
-#                     
-#                     sm_flux[~np.isfinite(sm_flux)] = 0.
-#                     templ.flux_orig = templ.flux
-#                     templ.flux = sm_flux
-#                 except:
-#                     print("""
-# "prospect" needed for template smoothing.     
-# Try installing with `pip install git+https://github.com/bd-j/prospector.git`.
-#                     """)
-#                     pass
-                           
-            #templ.set_fnu()
-            templates.append(templ)
-        
-        return templates
-            
-    def show_templates(self, interp_wave=None, ax=None, fnu=False, i=0):
+
+
+    @property 
+    def param_names(self):
         """
-        Show the templates
+        Keywords of the ``param`` dictionary
         """
-        import matplotlib.pyplot as plt
-        
-        if ax is None:
-            ax = plt
-        
-        for templ in self.templ:
-            if fnu:
-                flux = templ.flux_fnu(i=i)
-            else:
-                flux = templ.flux
-                
-            if interp_wave is not None:
-                y0 = np.interp(interp_wave, templ.wave, flux)
-            else:
-                y0 = 1.
-            
-            plt.plot(templ.wave, flux / y0, label=templ.name)
-            
+        return list(self.params.keys())
+
+
     def _process_params(self):
+        """
+        Process parameter dictionary
+        """
         params = collections.OrderedDict()
         formats = collections.OrderedDict()
-        self.param_names = []
+        
+        #self.param_names = []
         for line in self.lines:
             if not line.strip().startswith('#'):
                 lsplit = line.split()
                 if lsplit.__len__() >= 2:
                     params[lsplit[0]] = lsplit[1]
-                    self.param_names.append(lsplit[0])
+                    #self.param_names.append(lsplit[0])
                     try:
                         flt = float(lsplit[1])
                         formats[lsplit[0]] = 'f'
@@ -137,20 +84,21 @@ class EazyParam():
                         formats[lsplit[0]] = 's'
                     
         self.params = params
-        #self.param_names = params.keys()
         self.formats = formats
-    
-    def list_filters(self):
-        for filter in self.filters:
-            print(' F{0:d}, {1}, lc={2}'.format(filter.fnumber, filter.name, filter.lambda_c))
 
+
+    @property
     def to_mJy(self):
         """
-        Return conversion factor to mJy
+        Return catalog conversion factor to mJy based on ``PRIOR_ABZP``.
         """
         return 10**(-0.4*(self.params['PRIOR_ABZP']-23.9))/1000.
-        
+
+
     def write(self, file=None):
+        """
+        Write to an ascii file
+        """
         if file == None:
             print('No output file specified...')
         else:
@@ -163,24 +111,36 @@ class EazyParam():
                     #str = '%-25s %'+self.formats[param]+'\n'
             #
             fp.close()
-            
+
+
     def __getitem__(self, param_name):
         """
-        Get item from ``params`` dict.
+        Get item from ``params`` dict and return None if parameter not found.
         """
         if param_name not in self.param_names:
-            print('Column {0} not found.  Check `column_names` attribute.'.format(param_name))
+            print(f'Parameter {param_name} not found.  Check `param_names`'              
+                    ' attribute.')
             return None
         else:
-            #str = 'out = self.%s*1' %column_name
-            #exec(str)
             return self.params[param_name]
-    
+
+
     def __setitem__(self, param_name, value):
+        """
+        Set item in ``params`` dict.
+        """
+        # if param_name not in self.param_names:
+        #     print('xxx append param', param_name)
+        #     self.param_names.append(param_name)
+
         self.params[param_name] = value
-    
+
+
 class TranslateFile():
     def __init__(self, file='zphot.translate'):
+        """
+        File for translating filter columns for parsing as 
+        """
         self.file=file
         self.ordered_keys = []
         lines = open(file).readlines()
@@ -198,10 +158,12 @@ class TranslateFile():
                 self.error[key] = float(spl[2])
             else:
                 self.error[key] = 1.
-            #
-            
+
+
     def change_error(self, filter=88, value=1.e8):
-        
+        """
+        Modify uncertainties based on error scaling factors in translate file
+        """
         if isinstance(filter, str):
             if 'f_' in filter:
                 err_filt = filter.replace('f_','e_')
@@ -219,9 +181,12 @@ class TranslateFile():
                     return True
         
         print('Filter {0} not found in list.'.format(str(filter)))
-    
-    def write(self, file=None, show_ones=False):
 
+
+    def write(self, file=None, show_ones=False):
+        """
+        Write to an ascii file
+        """
         lines = []
         for key in self.ordered_keys:
             line = '{0}  {1}'.format(key, self.trans[key])
