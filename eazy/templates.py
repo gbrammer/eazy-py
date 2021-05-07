@@ -86,8 +86,10 @@ class TemplateError():
         Interpolate TEF arrays at a specific redshift"""
         lcz = np.atleast_1d(self.lc)/(1+z)
         tef_z = self._spline(np.atleast_1d(self.lc)/(1+z))*self.scale 
-        clip = (lcz < self.min_wavelength) | (lcz > self.max_wavelength)
-        tef_z[clip] = 0.
+        clip_lo = (lcz < self.min_wavelength) 
+        clip_hi = (lcz > self.max_wavelength)
+        tef_z[clip_lo] = self.te_y[0]
+        tef_z[clip_hi] = self.te_y[-1]
         
         return tef_z
 
