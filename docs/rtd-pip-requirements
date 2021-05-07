@@ -5,3 +5,5 @@ scikit-image
 scipy
 astropy
 sphinx_astropy
+dust_extinction
+dust_attenuation
