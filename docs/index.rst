@@ -45,4 +45,3 @@ API
    :maxdepth: 2
 
    eazy/photoz.rst
-   changelog

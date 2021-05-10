@@ -1,10 +1,10 @@
 import numpy as np
 import os
 
-__all__ = ["FilterDefinition", "FilterFile", "ParamFilter"]
-
 from astropy.table import Table
 from . import utils
+
+__all__ = ["FilterDefinition", "FilterFile", "ParamFilter"]
 
 VEGA_FILE = os.path.join(utils.path_to_eazy_data(),
                          'alpha_lyr_stis_008.fits')
@@ -14,9 +14,24 @@ for c in VEGA.colnames:
     VEGA[c] = VEGA[c].astype(float)
     
 class FilterDefinition:
-    def __init__(self, name=None, wave=None, throughput=None, bp=None, EBV=0, Rv=3.1):
+    def __init__(self, name=None, wave=None, throughput=None, bp=None):
         """
-        Placeholder for the filter definition information.
+        Bandpass object
+        
+        Parameters
+        ----------
+        name : str
+            Label name
+        
+        wave : array
+            Wavelength array, in `astropy.units.Angstrom`.
+        
+        throughput : array
+            Throughput, arbitrary normalization
+        
+        bp : optional, `pysynphot.obsbandpass` object
+            `pysynphot` filter bandpass
+        
         """
         self.name = name
         self.wave = wave
@@ -28,27 +43,32 @@ class FilterDefinition:
             self.wave = np.cast[np.double](bp.wave)
             self.throughput =  np.cast[np.double](bp.throughput)
             self.name = bp.name
-            
-            #self.get_extinction(EBV=EBV, Rv=Rv)
-        
+                    
         self.norm = 1.
         if self.throughput is not None:
             self.norm = np.trapz(self.throughput/self.wave, self.wave)
-    
+
+
     def __repr__(self):
         return self.name.__repr__()
-    
+
+
     def __str__(self):
         return self.name.__str__()
-    
+
+
     def get_extinction(self, EBV=0, Rv=3.1):
+        """
+        Extinction factor 
+        """
         import astropy.units as u
         
         f99 = utils.GalacticExtinction(EBV=EBV, Rv=Rv)
         self.Alambda = f99(self.wave)
         self.Aflux = 10**(-0.4*self.Alambda)
-        
-    def extinction_correction(self, EBV, Rv=3.1, mag=True, source_lam=None, source_flux = None):
+
+
+    def extinction_correction(self, EBV, Rv=3.1, mag=True, source_lam=None, source_flux=None):
         """
         Get the MW extinction correction within the filter.  
         
@@ -82,7 +102,8 @@ class FilterDefinition:
             return 2.5*np.log10(delta)
         else:
             return 1./delta
-    
+
+
     @property    
     def ABVega(self):
         """
@@ -116,7 +137,8 @@ class FilterDefinition:
         den = np.trapz(absp*thru_full, full_x)
         
         return -2.5*np.log10(num/den)
-        
+
+
     @property    
     def pivot(self):
         """
@@ -157,6 +179,7 @@ class FilterDefinition:
     def ctw95(self):
         """
         95% cumulative throughput width
+        
         http://www.stsci.edu/hst/acs/analysis/bandwidths/#keywords
         
         """
@@ -180,11 +203,33 @@ class FilterDefinition:
                   for i, (w, t) in enumerate(zip(self.wave, self.throughput))]
         
         return '\n'.join(lines)
-        
+
+
 class FilterFile:
     def __init__(self, file='FILTER.RES.latest', path='./'):
         """
-        Read a EAZY (HYPERZ) filter file.
+        Read a EAZY filter file.
+        
+        .. plot::
+            :include-source:
+        
+            import matplotlib.pyplot as plt
+            from eazy.filters import FilterFile
+            
+            res = FilterFile(path=None)
+            print(len(res.filters))
+            
+            bp = res[205]
+            print(bp)
+            
+            plt.plot(bp.wave, bp.throughput, label=bp.name.split()[0])
+            plt.xlabel('wavelength, Angstroms')
+            plt.ylabel('throughput')
+            plt.legend()
+            
+            plt.tight_layout(pad=0.5)
+            
+        
         """
         if path is None:
             file_path = os.path.join(os.getenv('EAZYCODE'), 'filters', file)
@@ -234,17 +279,23 @@ class FilterFile:
         filters.append(new_filter)
            
         self.filters = filters
-    
+
+
     @property 
     def NFILT(self):
+        """
+        Number of filters in the list
+        """
         return len(self.filters)
-        
+
+
     def __getitem__(self, i1):
         """
         Return unit-indexed filter, e.g., 161 = 2mass-j
         """
         return self.filters[i1-1]
-        
+
+
     def names(self, verbose=True):
         """
         Print the filter names.
@@ -255,7 +306,8 @@ class FilterFile:
         else:
             string_list = ['{0:5d} {1}\n'.format(i+1, self.filters[i].name) for i in range(len(self.filters))]
             return string_list
-            
+
+
     def write(self, file='xxx.res', verbose=True):
         """
         Dump the filter information to a filter file.
@@ -275,10 +327,11 @@ class FilterFile:
         
         if verbose:
             print('Wrote <{0}[.info]>'.format(file))
-            
-    def search(self, search_string, case=True, verbose=True):
+
+
+    def search(self, search_string, case=False, verbose=True):
         """ 
-        Search filter names for `search_string`.  If `case` is True, then
+        Search filter names for ``search_string``.  If ``case`` is True, then
         match case.
         """
         import re
@@ -299,7 +352,8 @@ class FilterFile:
                 matched.append(i)
         
         return np.array(matched)
-        
+
+
 class ParamFilter(FilterDefinition):
     def __init__(self, line='#  Filter #20, RES#78: COSMOS/SUBARU_filter_B.txt - lambda_c=4458.276253'):
         

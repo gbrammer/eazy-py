@@ -155,15 +155,15 @@ class Inoue14(object):
         
         Parameters
         ----------
-        z : float
+        z: float
             Redshift to evaluate IGM absorption
         
-        lobs : array-like
+        lobs: array
             Observed-frame wavelength(s).
         
         Returns
         -------
-        abs : IGM absorption
+        abs: IGM absorption
         
         """
         tau_LS = self.tLSLAF(z, lobs) + self.tLSDLA(z, lobs)

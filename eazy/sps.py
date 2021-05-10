@@ -88,7 +88,7 @@ class Zafar15(BaseAttAvModel):
 
 class ExtinctionModel(BaseAttAvModel):
     """
-    Modify `~dust_extinction.averages.G03_SMCBar` to work as Att
+    Modify `dust_extinction.averages.G03_SMCBar` to work as Att
     """     
     #from dust_extinction.averages import G03_SMCBar
     #SMCBar = G03_SMCBar()
@@ -141,7 +141,7 @@ class ExtinctionModel(BaseAttAvModel):
 
 class SMC(BaseAttAvModel):
     """
-    Modify `~dust_extinction.averages.G03_SMCBar` to work as Att
+    Modify `dust_extinction.averages.G03_SMCBar` to work as Att
     """     
     from dust_extinction.averages import G03_SMCBar
     SMCBar = G03_SMCBar()
@@ -502,7 +502,7 @@ def wuyts_line_Av(Acont):
 
 class ExtendedFsps(StellarPopulation):
     """
-    Extended functionality for the `~fsps.StellarPopulation` object
+    Extended functionality for the `fsps.StellarPopulation` object
     """
     
     lognorm_center = 0.
@@ -590,7 +590,7 @@ class ExtendedFsps(StellarPopulation):
         
     def _set_extend_attrs(self, line_sigma=50, lya_sigma=200, **kwargs):
         """
-        Set attributes on `~fsps.StellarPopulation` object used by `narrow_lines`.
+        Set attributes on `fsps.StellarPopulation` object used by `narrow_lines`.
 
         sigma : line width (FWHM/2.35), km/s.
         lya_sigma : width for Lyman-alpha
@@ -842,8 +842,8 @@ class ExtendedFsps(StellarPopulation):
         
         dust_obj_type: 
         
-            'WG00'  = `~dust_attenuation.radiative_transfer.WG00`
-            'C00'   = `~dust_attenuation.averages.C00`
+            'WG00'  = `dust_attenuation.radiative_transfer.WG00`
+            'C00'   = `dust_attenuation.averages.C00`
             'WG00x' = `ParameterizedWG00`
             'KC13'  = Kriek & Conroy (2013) with dust_index parameter
             'R15'  = Reddy et al. (2015) with dust bump parameter
@@ -1059,7 +1059,7 @@ class ExtendedFsps(StellarPopulation):
             
     def as_template(self, wave, flux, label=DEFAULT_LABEL, meta=None):
         """
-        Return a `~templates.Template` object with metadata
+        Return a `eazy.templates.Template` object with metadata
         """
         if meta is None:
             meta = self.meta

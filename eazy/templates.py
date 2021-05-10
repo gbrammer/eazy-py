@@ -11,7 +11,7 @@ __all__ = ["TemplateError", "Template", "Redden", "ModifiedBlackBody",
            "read_templates_file", "load_phoenix_stars", 
            "bspline_templates", "gaussian_templates"]
 
-class TemplateError():
+class TemplateError(object):
     def __init__(self, file='templates/TEMPLATE_ERROR.eazy_v1.0', arrays=None, filter_wavelengths=[5500.], scale=1.):
         """
         Template error function with spline interpolation at arbitrary redshift.
@@ -114,9 +114,9 @@ class TemplateError():
         return tef_z*self.scale 
 
 
-class Redden():
+class Redden(object):
     """
-    Wrapper function for `~dust_attenuation` and `~dust_extinction` 
+    Wrapper function for `dust_attenuation` and `dust_extinction` 
     reddening laws
     """
     def __init__(self, model=None, Av=0., **kwargs):
@@ -125,11 +125,11 @@ class Redden():
             
             Allowable string arguments:
                 
-                'smc' = `~dust_extinction.averages.G03_SMCBar`
-                'lmc' = `~dust_extinction.averages.G03_LMCAvg`
-                'mw','f99' = `~dust_extinction.parameter_averages.F99`
-                'calzetti00', 'c00' = `~dust_attenuation.averages.C00`
-                'wg00' = '~dust_attenuation.radiative_transfer.WG00`
+                - 'smc': `dust_extinction.averages.G03_SMCBar`
+                - 'lmc': `dust_extinction.averages.G03_LMCAvg`
+                - 'mw','f99': `dust_extinction.parameter_averages.F99`
+                - 'calzetti00', 'c00': `dust_attenuation.averages.C00`
+                - 'wg00': `dust_attenuation.radiative_transfer.WG00`
         
         Av: selective extinction/attenuation
             (passed as tau_V for `WG00`)
@@ -198,7 +198,7 @@ class Redden():
     def __call__(self, wave, left=0, right=1., **kwargs):
         """
         Return reddening factor.  If input has no units, assume 
-        `~astropy.units.Angstrom`.
+        `astropy.units.Angstrom`.
         """
                     
         if not hasattr(wave, 'unit'):
@@ -296,7 +296,7 @@ def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth
     Returns
     -------
     templates: list
-        List of `~eazy.templates.Template` objects.
+        List of `eazy.templates.Template` objects.
         
     """
     lines = open(templates_file).readlines()
@@ -327,9 +327,15 @@ class Template():
         """
         Template object.
         
+        Can optionally specify a 2D flux array with the first
+        dimension indicating the template for the nearest redshift in the 
+        corresponding ``redshifts`` list.  See When integrating the 
+        filter fluxes with ``integrate_filter``, the template index with the 
+        redshift nearest to the specified redshift will be used.
+        
         Parameters
         ----------
-        sp: (array, array)
+        sp: obj
             Object with ``wave``, ``flux`` attributes, e.g., from
             ``prospector``.  Here ``flux`` is assumed to have units of f-nu.
         
@@ -342,30 +348,30 @@ class Template():
         
         to_angstrom: float
             Scale factor such that ``wave * to_angstrom`` has units of 
-            `~astropy.units.Angstrom`
+            `astropy.units.Angstrom`
         
         velocity_smooth: float
             Velocity smooothing in km/s, applied if > 0
         
-        resample_wave: array
+        resample_wave: `numpy.ndarray`
             Grid to resample the template wavelengths read from the input 
         
         fits_column: str
             Column name of the flux column if arrays read from a ``file``
         
-        redfunc: ``~eazy.templates.Redden``
+        redfunc: `eazy.templates.Redden`
             Object to apply additional reddening.  
         
         redshifts: array-like
             Redshift grid for redshift-dependent templates
 
-        flux_unit: `~astropy.units.core.Unit`
+        flux_unit: `astropy.units.core.Unit`
             Units of ``flux`` array.
         
         Attributes
         ----------
         wave: array
-            wavelength in `~astropy.units.Angstrom`, dimensions ``[NWAVE]``.
+            wavelength in `astropy.units.Angstrom`, dimensions ``[NWAVE]``.
         
         flux: array
             Flux density f-lambda, can have redshift dependence, dimensions
@@ -377,16 +383,10 @@ class Template():
         meta: dict
             Metadata
             
-        redfunc: `~eazy.templates.Redden`, optional
+        redfunc: `eazy.templates.Redden`, optional
             Object for applying dust reddening.
         
-        
-        Can optionally specify a 2D flux array with the first
-        dimension indicating the template for the nearest redshift in the 
-        corresponding ``redshifts`` list.  See When integrating the 
-        filter fluxes with ``integrate_filter``, the template index with the 
-        redshift nearest to the specified redshift will be used.
-        
+            
         """
         import copy
         from astropy.table import Table
@@ -545,10 +545,10 @@ class Template():
         
         z: float, None
             If specified, get the redshift index with 
-            ``~eazy.templates.Template.zindex``.
+            `~eazy.templates.Template.zindex`.
         
         redshift_type: 'nearest', 'interp'
-            See ``~eazy.templates.Template.zindex``.
+            See `~eazy.templates.Template.zindex`.
         
         Returns
         -------
@@ -585,10 +585,10 @@ class Template():
         
         z: float, None
             If specified, get the redshift index with 
-            ``~eazy.templates.Template.zindex``.
+            `~eazy.templates.Template.zindex`.
         
         redshift_type: str
-            See ``~eazy.templates.Template.zindex``.
+            See `~eazy.templates.Template.zindex`.
         
         Returns
         -------
@@ -613,8 +613,8 @@ class Template():
         """
         Smooth template in velocity using ``astro-prospector``
         
-        Parmeters
-        ---------
+        Parameters
+        ----------
         velocity_smooth: float
             Velocity smoothing factor, in km/s.
         
@@ -681,8 +681,8 @@ class Template():
         
         interp_func: None
             Interpolation function.  If nothing specified, tries to use
-            `~grizli.utils_c.interp.interp_conserve_c` and falls back to 
-            `~eazy.utils.interp_conserve`.  
+            `grizli.utils_c.interp.interp_conserve_c` and falls back to 
+            `eazy.utils.interp_conserve`.  
         
         """
         import astropy.units as u
@@ -789,8 +789,8 @@ class Template():
         """
         Integrate the template through a `FilterDefinition` filter object.
         
-        .. note:: The `~grizli` interpolation function 
-                  `~grizli.utils_c.interp.interp_conserve_c` will be used if 
+        .. note:: The `grizli` interpolation function 
+                  `grizli.utils_c.interp.interp_conserve_c` will be used if 
                   available.
         
         Parameters
@@ -813,7 +813,7 @@ class Template():
             Include IGM absorption
         
         redshift_type: str
-            See ``~eazy.templates.Template.zindex``.
+            See `~eazy.templates.Template.zindex`.
         
         iz: int
             Evaluate for a specific index of the ``flux`` array rather than
@@ -879,7 +879,7 @@ class Template():
 
     def igm_absorption(self, z, scale_tau=1., pow=1):
         """
-        Compute IGM absorption with `~eazy.igm.Inoue14`.
+        Compute IGM absorption with `eazy.igm.Inoue14`.
         
         Parameters
         ----------
@@ -922,7 +922,7 @@ class Template():
 
     def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False, flatten=True):
         """
-        Return template as an ``~astropy.table.Table``.
+        Return template as an `astropy.table.Table`.
         
         Parameters
         ----------
@@ -937,7 +937,7 @@ class Template():
         
         Returns
         -------
-        tab: ``~astropy.table.Table``
+        tab: `astropy.table.Table`
             Output table
             
         """
@@ -969,7 +969,7 @@ class Template():
         return tab
 
 
-class ModifiedBlackBody():
+class ModifiedBlackBody(object):
     def __init__(self, Td=47, beta=1.6, q=2.34, alpha=-0.75):
         """
         Modified black body: nu**beta * BB(nu, Td) + FIR-radio correlation
@@ -997,7 +997,7 @@ class ModifiedBlackBody():
     @property 
     def bb(self):
         """
-        `~astropy.modeling.models` function with ``self.Td`` dust temperature
+        `astropy.modeling.models.BlackBody` function with ``self.Td`` dust temperature
         """
         from astropy.modeling.models import BlackBody
         return BlackBody(temperature=self.Td*u.K)
@@ -1010,7 +1010,7 @@ class ModifiedBlackBody():
         ----------
         wave: array
             Wavelength array.  If no ``unit`` attribute, assume 
-            `~astropy.units.micron`.
+            `astropy.units.micron`.
         
         q: float
             Parameter of FIR-radio correlation.  If not specified, use 
@@ -1134,7 +1134,7 @@ def param_table(templates):
 
 def bspline_templates(wave, degree=3, df=6, get_matrix=True, log=False, clip=1.e-4, minmax=None):
     """
-    B-spline basis functions, modeled after `~patsy.splines`
+    B-spline basis functions, modeled after `patsy.splines`
     """
     from collections import OrderedDict
     from scipy.interpolate import splev

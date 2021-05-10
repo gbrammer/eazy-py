@@ -12,7 +12,7 @@ Installation instructions
     
     ### Build the python code
     cd eazy-py
-	pip install . -r requirements.txt
+    pip install . -r requirements.txt
 
     
 Demo

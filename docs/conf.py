@@ -67,7 +67,7 @@ rst_epilog += """
 # -- Project information ------------------------------------------------------
 
 # This does not *have* to match the package name, but typically does
-project = setup_cfg['package_name']
+project = setup_cfg['name']
 author = setup_cfg['author']
 copyright = '{0}, {1}'.format(
     datetime.datetime.now().year, setup_cfg['author'])
@@ -76,8 +76,8 @@ copyright = '{0}, {1}'.format(
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 
-import_module(setup_cfg['package_name'])
-package = sys.modules[setup_cfg['package_name']]
+import_module(setup_cfg['name'])
+package = sys.modules[setup_cfg['name']]
 
 # The short X.Y version.
 version = package.__version__.split('-', 1)[0]
@@ -107,8 +107,8 @@ release = package.__version__
 
 html_theme_options = {
     'logotext1': 'eazy',  # white,  semi-bold
-    'logotext2': '',  # orange, light
-    'logotext3': ':docs'   # white,  light
+    'logotext2': 'docs',  # orange, light
+    'logotext3': ''   # white,  light
     }
 
 
@@ -122,7 +122,7 @@ html_theme_options = {
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
 # pixels large.
-#html_favicon = ''
+html_favicon = '' #os.path.join('_static', 'grizli.ico')
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
@@ -154,12 +154,15 @@ man_pages = [('index', project.lower(), project + u' Documentation',
 
 # -- Options for the edit_on_github extension ---------------------------------
 
-if setup_cfg.get('edit_on_github').lower() == 'true':
-
+if eval(setup_cfg.get('edit_on_github')):
     extensions += ['sphinx_astropy.ext.edit_on_github']
 
+    versionmod = import_module(setup_cfg['name'] + '.version')
     edit_on_github_project = setup_cfg['github_project']
-    edit_on_github_branch = "master"
+    if versionmod.release:
+        edit_on_github_branch = "v" + versionmod.version
+    else:
+        edit_on_github_branch = "master"
 
     edit_on_github_source_root = ""
     edit_on_github_doc_root = "docs"

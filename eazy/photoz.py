@@ -59,7 +59,7 @@ class PhotoZ(object):
         """
         Main object for fitting templates / photometric redshifts
         
-        cosmology: `~astropy.cosmology` object
+        cosmology: `astropy.cosmology` object
             If not specified, generate a flat cosmology with H0, OM, OL from 
             param file.
             
@@ -1636,7 +1636,7 @@ class PhotoZ(object):
         
         draws_cmap: color map
             Color map for `show_reshift_draws=True`, defaults to 
-            `~matplotlib.pyplot.cm.rainbow`.
+            `matplotlib.pyplot.cm.rainbow`.
             
         zshow : None, float
             If a value is supplied, compute the best-fit SED at this redshift,
@@ -1666,7 +1666,7 @@ class PhotoZ(object):
             
         Returns
         -------
-        fig : `~matplotlib.figure.Figure`
+        fig : `matplotlib.figure.Figure`
             Figure object
         
         data : dict
@@ -2085,7 +2085,7 @@ class PhotoZ(object):
             Unit-index of filters specified in``FILTER_FILE``.
         
         filters: list, optional
-            Manually-specified `~eazy.filtesr.FilterDefinition` objects.
+            Manually-specified `~eazy.filters.FilterDefinition` objects.
             If specified, then supercedes `f_numbers`.
         
         n_proc: int
@@ -2098,7 +2098,7 @@ class PhotoZ(object):
         
         Returns
         -------
-        tab: `~astropy.table.Table`
+        tab: `astropy.table.Table`
             Table of the observed-frame flux densities with metadata 
             describing the filters.
             
@@ -2166,7 +2166,7 @@ class PhotoZ(object):
         the desired RF band.
         
         Parameters
-        ==========
+        ----------
         f_numbers : list
             List of either unit-indices of filters in ``self.RES`` read 
             from FILTER_FILE or `~eazy.filters.FilterDefinition` objects.
@@ -2216,18 +2216,18 @@ class PhotoZ(object):
             best fits rather than doing the filter reweighting.
         
         fitter : str
-            Fitting method passed to `~eazy.photoz._fit_obj`.
+            Fitting method passed to `eazy.photoz._fit_obj`.
             
         Returns
-        =======
-        rf_tempfilt : `~numpy.ndarray`
+        -------
+        rf_tempfilt : `numpy.ndarray`
             Array of the integrated template fluxes with dimensions 
             ``[NZGRID,NTEMP,len(f_numbers)]``.
         
-        lc_rest : `~numpy.ndarray`
+        lc_rest : `numpy.ndarray`
             Rest-frame filter pivot wavelengths
         
-        rf_fluxes : `~numpy.ndarray`
+        rf_fluxes : `numpy.ndarray`
             Rest-frame fluxes, with dimensions 
             ``[NOBJ, len(f_numbers), len(percentiles)]``.
         
@@ -2395,7 +2395,7 @@ class PhotoZ(object):
         Compute log-likelihood from chi2, prior, and TEF terms
         
         Parameters
-        ==========
+        ----------
         
         prior : bool
             Apply apparent magnitude prior
@@ -2409,7 +2409,7 @@ class PhotoZ(object):
             for a given object.
          
         Returns
-        =======
+        -------
         Updates ``lnp``, ``lnpmax`` attributes.
             
         """
@@ -2733,12 +2733,12 @@ class PhotoZ(object):
 
     def find_peaks(self, thres=0.8, min_dist_dz=0.1):
         """
-        Find discrete peaks in ``lnp`` with `~peakutils`.
+        Find discrete peaks in ``lnp`` with `peakutils`.
         
         Parameters
         ----------
         thres: float
-            Threshold passed to `~peakutils.indexes`.
+            Threshold passed to `peakutils.indexes`.
         
         min_dist_dz: float
             Peak separation in units of dz*(1+z)
@@ -2767,20 +2767,20 @@ class PhotoZ(object):
         Get absolute mags (e.g., UV).
         
         Parameters
-        ==========
+        ----------
         f_numbers : list
             List of either unit-indices of filters in ``self.RES`` read 
             from FILTER_FILE or `~eazy.filters.FilterDefinition` objects.
             
-        cosmology : `~astropy.cosmology` object
+        cosmology : `astropy.cosmology` object
             If ``None``, default to ``self.cosmology``.
         
         rest_kwargs : dict
             Arguments passed to `~eazy.photoz.PhotoZ.rest_frame_fluxes`
         
         Returns
-        =======
-        tab : `~astropy.table.Table`
+        -------
+        tab : `astropy.table.Table`
            Table with rest-frame luminosities.  `tab.meta` includes the filter
            information.
            
@@ -3285,7 +3285,7 @@ class PhotoZ(object):
         etc.
         
         Parameters
-        ==========
+        ----------
         zbest: array-like, None
             If provided, derive properties at this specified redshift.  
             Otherwise, defaults in internal ``zml`` maximum-likelihood 
@@ -3304,7 +3304,7 @@ class PhotoZ(object):
         extra_rf_filters: list
             If specified, additional filters to calculate rest-frame fluxes
         
-        cosmology: `~astropy.cosmology` object
+        cosmology: `astropy.cosmology` object
             Cosmology for calculating luminosity distances, etc.  Defaults to
             flat cosmology with H0, OM, OL from the parameter file.
             
@@ -3541,7 +3541,7 @@ class PhotoZ(object):
     def get_grizli_photometry(self, id=1, rd=None, grizli_templates=None):
         """
         Get photometry dictionary of a given object that can be used with 
-        `~grizli` fits.
+        `grizli` fits.
         
         """
         from collections import OrderedDict
@@ -3753,7 +3753,7 @@ class PhotoZ(object):
             them.
         
         statistic : str
-            See `~scipy.stats.binned_statistic_2d`.
+            See `scipy.stats.binned_statistic_2d`.
             
         
         """
@@ -4120,8 +4120,8 @@ class TemplateGrid(object):
         
         Parameters
         ----------
-        interpolator: None or a `~scipy.interpolate` class.
-            Defaults to `~scipy.interpolate.Akima1DInterpolator` which has 
+        interpolator: None or a `scipy.interpolate` class.
+            Defaults to `scipy.interpolate.Akima1DInterpolator` which has 
             desirable smooth behavior robust to large curvature in the 
             interpolated data.
             

@@ -54,11 +54,11 @@ def set_warnings(numpy_level='ignore', astropy_level='ignore'):
     
     Parameters
     ----------
-    numpy_level : {'ignore', 'warn', 'raise', 'call', 'print', 'log'}
-        Numpy error level (see `~numpy.seterr`).
+    numpy_level : 'ignore', 'warn', 'raise', 'call', 'print', 'log'
+        Numpy error level (see `numpy.seterr`).
         
-    astropy_level : {'error', 'ignore', 'always', 'default', 'module', 'once'}
-        Astropy error level (see `~warnings.simplefilter`).
+    astropy_level : 'error', 'ignore', 'always', 'default', 'module', 'once'
+        Astropy error level (see `warnings.simplefilter`).
     
     """
     from astropy.utils.exceptions import AstropyWarning
@@ -134,7 +134,7 @@ def nmad(arr):
     Normalized median absolute deviation statistic
     
     Includes the normalization factor of 1.48, see 
-    `~astropy.stats.median_absolute_deviation`.
+    `astropy.stats.median_absolute_deviation`.
     """
     import astropy.stats
     return 1.48*astropy.stats.median_absolute_deviation(arr)
@@ -246,7 +246,7 @@ def get_irsa_dust(ra=53.1227, dec=-27.805089, type='SandF'):
     ra, dec : float
         RA/Dec in decimal degrees.
         
-    type : 'SFD' or 'SandF'
+    type : 'SFD', 'SandF'
         Dust model, with        
             SandF = Schlafly & Finkbeiner 2011 (ApJ 737, 103) 
               SFD = Schlegel et al. 1998 (ApJ 500, 525)
@@ -280,7 +280,7 @@ def get_irsa_dust(ra=53.1227, dec=-27.805089, type='SandF'):
 
 def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
     """
-    Make `fill_between` work like linestyle='steps-mid'.
+    Make `matplotlib.pyplot.fill_between` work like linestyle='steps-mid'.
     """
     so = np.argsort(x)
     mid = x[so][:-1] + np.diff(x[so])/2.
@@ -297,7 +297,7 @@ def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
 
 def safe_invert(arr):
     """
-    version-safe matrix inversion using np.linalg or np.matrix.I
+    Version-safe matrix inversion using `numpy.linalg.inv` or `numpy.matrix.I`
     """
     try:
         from numpy.linalg import inv
@@ -311,7 +311,7 @@ def safe_invert(arr):
 class GalacticExtinction(object):
     def __init__(self, EBV=0, Rv=3.1, force=None, radec=None, ebv_type='SandF'):
         """
-        Wrapper to use either `~specutils.extinction` or the `~extinction` 
+        Wrapper to use either `specutils.extinction` or the `extinction` 
         modules, which have different calling formats.  The results from 
         both of these modules should be equivalent.
                 
@@ -329,8 +329,8 @@ class GalacticExtinction(object):
             
         force : None, 'extinction', 'specutils.extinction'
             Force use one or the other modules.  If `None`, then first try
-            to import `~specutils.extinction` and if that fails use
-            `~extinction`.
+            to import `specutils.extinction` and if that fails use
+            `extinction`.
         """
         import importlib
         
@@ -402,13 +402,13 @@ class GalacticExtinction(object):
         
         Parameters
         ----------
-        wave : float or `~numpy.ndarray`
+        wave : float or `numpy.ndarray`
             Observed-frame wavelengths.  If no `unit` attribute available, 
-            assume units are `~astropy.units.Angstrom`.
+            assume units are `astropy.units.Angstrom`.
         
         Returns
         -------
-        Alambda : like `wave`
+        Alambda : like ``wave``
             F99 extinction (mags) as a function of wavelength.  Output will
             be set to zero below 909 Angstroms and above 6 microns as the
             extinction modules themselves don't compute outside that range.
@@ -453,11 +453,11 @@ def abs_mag_to_luminosity(absmag, pivot=None, output_unit=u.L_sun):
     
     pivot : float
         Filter pivot wavelength associated with the magnitude.  If no units, 
-        then assume `~astropy.units.Angstrom`.
+        then assume `astropy.units.Angstrom`.
     
-    output_unit : `~astropy.units.core.Unit`
+    output_unit : `astropy.units.core.Unit`
         Desired output unit.  Must specify a ``pivot`` wavelength for output
-        power units, e.g., `~astropy.unit.L_sun`.
+        power units, e.g., `astropy.unit.L_sun`.
     
     """
     if pivot is None:
@@ -705,14 +705,14 @@ def show_legacysurvey(ra, dec, layer='dr8', zoom=14):
     
 def interp_conserve(x, xp, fp, left=0., right=0.):
     """
-    Interpolation analogous to `~numpy.interp` but conserving "flux".
+    Interpolation analogous to `numpy.interp` but conserving "flux".
     
     Parameters
     ----------
-    x : `~numpy.ndarray`
+    x : `numpy.ndarray`
         Desired interpolation locations
 
-    xp, fp : `~numpy.ndarray`
+    xp, fp : `numpy.ndarray`
         The `x` and `y` coordinates of the function to be interpolated.  The
         `x` array can be irregularly spaced but should be increase
         monotonically.
@@ -727,10 +727,10 @@ def interp_conserve(x, xp, fp, left=0., right=0.):
         Interpolated values.
     
     Interpolation performed by trapezoidal integration between the midpoints
-    of the output `x` array with `~numpy.trapz`.
+    of the output `x` array with `numpy.trapz`.
     
     .. note:: For a faster `cython` implementation of this function, see 
-              `~grizli.utils_c.interp_conserve_c`.
+              `grizli.utils_c.interp_conserve_c`.
               
     """
     midpoint = (x[1:]-x[:-1])/2.+x[:-1]
