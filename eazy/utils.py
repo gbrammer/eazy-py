@@ -12,6 +12,8 @@ CLIGHT = 299792458.0 # m/s
 TRUE_VALUES = [True, 1, '1', 'True', 'TRUE', 'true', 'y', 'yes', 'Y', 'Yes']
 FALSE_VALUES = [False, 0, '0', 'False', 'FALSE', 'false', 'n', 'no', 'N', 'No']
 
+FNU_CGS = u.erg/u.second/u.cm**2/u.Hz
+FLAM_CGS = u.erg/u.second/u.cm**2/u.Angstrom
 
 def bool_param(value, false_values=FALSE_VALUES, true_values=TRUE_VALUES, which='false', check_both=True):
     """

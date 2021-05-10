@@ -191,7 +191,7 @@ class PhotoZ(object):
         Conversion factor to 1e-19 erg/s/cm**2/A
         """
         to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
-        to_flam *= utils.CLIGHT*1.e10/1.e-19/self.lc**2/self.ext_corr
+        to_flam *= utils.CLIGHT*1.e10/1.e-19/self.pivot**2/self.ext_corr
         return to_flam
 
 
@@ -227,6 +227,13 @@ class PhotoZ(object):
 
     @property 
     def lc(self):
+        """
+        Filter pivot wavelengths (deprecated, use ``pivot``)
+        """     
+
+
+    @property
+    def pivot(self):
         """
         Filter pivot wavelengths
         """        
@@ -377,9 +384,7 @@ class PhotoZ(object):
                         
         self.f_numbers = np.array(self.f_numbers)
         
-        #self.lc = np.array([f.pivot for f in self.filters])
-                
-        #self.NFILT = len(self.filters)
+        # Initialize flux arrays
         self.fnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
         efnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
         self.spatial_offset = None
@@ -420,7 +425,7 @@ class PhotoZ(object):
         self.efnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
         
         self.nusefilt = self.ok_data.sum(axis=1)
-        self.lc_reddest = np.max(self.ok_data*self.lc, axis=1)
+        self.lc_reddest = np.max(self.ok_data*self.pivot, axis=1)
         self.lc_zmax = self.zgrid.max()
         self.clip_wavelength = None
 
@@ -446,7 +451,7 @@ class PhotoZ(object):
         """
         if TEF is None:
             TEF = templates_module.TemplateError(self.param['TEMP_ERR_FILE'], 
-                                              lc=self.lc, 
+                                              filter_wavelengths=self.pivot, 
                                               scale=self.param['TEMP_ERR_A2'])
         
         self.TEF = TEF
@@ -1060,7 +1065,7 @@ class PhotoZ(object):
         eresid = np.sqrt((self.efnu_i/self.fmodel)**2+self.param.params['SYS_ERR']**2 + teff_err**2)
         
         okz = (self.zbest > 0.1) & (self.zbest < 3)
-        scale_errors = self.lc*0.
+        scale_errors = self.pivot*0.
         
         for ifilt in range(self.NFILT):
             iok = okz & (self.efnu_orig[:,ifilt] > 0) & (self.fnu[:,ifilt] > self.param['NOT_OBS_THRESHOLD'])
@@ -1069,7 +1074,7 @@ class PhotoZ(object):
                continue
                 
             # Spline interp
-            xw = self.lc[ifilt]/(1+self.zbest[iok])
+            xw = self.pivot[ifilt]/(1+self.zbest[iok])
             so = np.argsort(xw)
             #spl = UnivariateSpline(xw[so], resid[iok,ifilt][so], w=1/np.clip(eresid[iok,ifilt][so], 0.002, 0.1), s=iok.sum()*4)
             spl = LSQUnivariateSpline(xw[so], resid[iok,ifilt][so], np.exp(np.arange(np.log(xw.min()+100), np.log(xw.max()-100), 0.2)), w=1/eresid[iok,ifilt][so])#, s=10)
@@ -1083,7 +1088,8 @@ class PhotoZ(object):
             #plt.hist(resid[iok,ifilt], bins=100, range=[-3,3], alpha=0.5)
         
         # Overall average
-        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
+        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]),
+                     self.pivot[np.newaxis,:])
 
 
     def make_template_error_function(self, te_wave=None, log_wave=True, selection=None, optimizer=None, optimizer_args={}, in_place=False, sn_limits=[-2, 100], min_err=0.02, scale_errors=False):
@@ -1106,7 +1112,8 @@ class PhotoZ(object):
             
         M = (self.fmodel/self.ext_redden/self.zp)[selection,:]*1
         F = self.fnu[selection,:]*1
-        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])
+        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), 
+                     self.pivot[np.newaxis,:])
         lcz = lcz[selection]
         
         clip = ((M-F)**2 < 25*(sigma**2+(0.03*M)**2)) & np.isfinite(M) & np.isfinite(F) & (M > 0) & (sigma > 0)
@@ -1251,7 +1258,8 @@ class PhotoZ(object):
         if in_place:
             self.TEF = templates_module.TemplateError(file='internal', 
                                                       arrays=(te_wave, te_y),
-                                                      lc=self.lc, scale=1.0)
+                                                filter_wavelengths=self.pivot, 
+                                                      scale=1.0)
 
             self.TEFgrid = np.zeros((self.NZ, self.NFILT),
                                     dtype=self.ARRAY_DTYPE)
@@ -1317,7 +1325,7 @@ class PhotoZ(object):
         ## Helper arrays
         # Redshifted filter wavelengths
         lcz = np.dot(1/(1+self.zgrid[izbest][:, np.newaxis]),
-                     self.lc[np.newaxis,:])
+                     self.pivot[np.newaxis,:])
 
         so = np.argsort(lcz[clip])
         lczso = lcz[clip][so]
@@ -1488,7 +1496,7 @@ class PhotoZ(object):
             image_corrections = 1/self.zp
 
         # Filters  
-        for i, ifilt in enumerate(np.argsort(self.lc)):
+        for i, ifilt in enumerate(np.argsort(self.pivot)):
             ix = xpc == ifilt
             if ix.sum() == 0:
                 self.zp_delta[ifilt] = 1.
@@ -1575,9 +1583,8 @@ class PhotoZ(object):
                 templ_corr[templ.wave < wlim[0]] = 1.
                 templ_corr[templ.wave > wlim[1]] = 1.
 
-                #templ_tweak[(templ.wave < xmin) | (templ.wave > xmax)] = 1
+                # Apply correction to template
                 templ.flux *= templ_corr
-                #templ.flux_fnu /= templ_tweak
 
             # Recompute filter fluxes from tweaked templates    
             self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
@@ -1591,30 +1598,8 @@ class PhotoZ(object):
             fp.write('F{0:<3d}  {1:.6f}  # {2}\n'.format(self.f_numbers[i], self.zp[i], self.flux_columns[i]))
         
         fp.close()
-    
-    def full_sed(self, z, coeffs_i):
-        import astropy.units as u
-        global IGM_OBJECT
-        
-        templ = self.templates[0]
-        tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]),
-                            dtype=self.ARRAY_DTYPE)
-        for i in range(self.NTEMP):
-            iz = self.templates[i].zindex(z=z, redshift_type='nearest')
-            tempflux[i, :] = self.templates[i].flux_fnu(iz)
-            
-        templz = templ.wave*(1+z)
-        
-        if self.tempfilt.add_igm:
-            igmz = templ.wave*0.+1
-            lyman = templ.wave < 1300
-            igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
-        else:
-            igmz = 1.
-        
-        templf = np.dot(coeffs_i, tempflux)*igmz
-        return templz, templf
-                
+
+
     def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, show_redshift_draws=False, draws_cmap=None, zshow=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=0, show_upperlimits=True, snr_thresh=2., with_tef=True):
         """
         Make plot of SED and p(z) of a single object
@@ -1742,30 +1727,31 @@ class PhotoZ(object):
             efmodel = np.percentile(np.dot(draws, A), [16,84], axis=0)
             efmodel = np.squeeze(np.diff(efmodel, axis=0)/2.)
             
-        #templz, templf = self.full_sed(self.zbest[ix][0], coeffs_i)
-        if True:
-            templ = self.templates[0]
-            tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]),
-                                dtype=self.ARRAY_DTYPE)
-            for i in range(self.NTEMP):
-                iz = self.templates[i].zindex(z=z, redshift_type='nearest')
-                try:
-                    tempflux[i, :] = self.templates[i].flux_fnu(iz)#[iz,:]
-                except:
-                    tempflux[i, :] = np.interp(templ.wave, self.templates[i].wave, self.templates[i].flux_fnu(iz)) #[iz,:])
-                    
-            templz = templ.wave*(1+z)
+        ## Full SED
+        templ = self.templates[0]
+        tempflux = np.zeros((self.NTEMP, templ.wave.shape[0]),
+                            dtype=self.ARRAY_DTYPE)
+        for i in range(self.NTEMP):
+            zargs = {'z':z, 'redshift_type':TEMPLATE_REDSHIFT_TYPE}
+            fnu = self.templates[i].flux_fnu(**zargs)
+            try:
+                tempflux[i, :] = fnu
+            except:
+                tempflux[i, :] = np.interp(templ.wave,
+                                           self.templates[i].wave, fnu)
+                
+        templz = templ.wave*(1+z)
 
-            if self.tempfilt.add_igm:
-                igmz = templ.wave*0.+1
-                lyman = templ.wave < 1300
-                igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
-            else:
-                igmz = 1.
+        if self.tempfilt.add_igm:
+            igmz = templ.wave*0.+1
+            lyman = templ.wave < 1300
+            igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
+        else:
+            igmz = 1.
 
-            templf = np.dot(coeffs_i, tempflux)*igmz
-            if draws is not None:
-                templf_draws = np.dot(draws, tempflux)*igmz
+        templf = np.dot(coeffs_i, tempflux)*igmz
+        if draws is not None:
+            templf_draws = np.dot(draws, tempflux)*igmz
                 
         fnu_factor = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
         
@@ -1773,7 +1759,7 @@ class PhotoZ(object):
             if show_fnu == 2:
                 templz_power = -1
                 flam_spec = 1.e29/(templz/1.e4)
-                flam_sed = 1.e29/self.ext_corr/(self.lc/1.e4)
+                flam_sed = 1.e29/self.ext_corr/(self.pivot/1.e4)
                 ylabel = (r'$f_\nu / \lambda$ [$\mu$Jy / $\mu$m]')
                 flux_unit = u.uJy / u.micron
             else:
@@ -1786,14 +1772,14 @@ class PhotoZ(object):
         else:
             templz_power = -2
             flam_spec = utils.CLIGHT*1.e10/templz**2/1.e-19
-            flam_sed = utils.CLIGHT*1.e10/self.lc**2/self.ext_corr/1.e-19
+            flam_sed = utils.CLIGHT*1.e10/self.pivot**2/self.ext_corr/1.e-19
             ylabel = (r'$f_\lambda [10^{-19}$ erg/s/cm$^2$]')
             
             flux_unit = 1.e-19*u.erg/u.s/u.cm**2/u.AA
                         
         try:
             data = OrderedDict(ix=ix, id=self.cat['id'][ix], z=z,
-                           lc=self.lc, 
+                           pivot=self.pivot, 
                            model=fmodel*fnu_factor*flam_sed,
                            emodel=efmodel*fnu_factor*flam_sed,
                            fobs=fnu_i*fnu_factor*flam_sed, 
@@ -1828,15 +1814,15 @@ class PhotoZ(object):
             fig_axes = None
             ax = axes[0]
                         
-        ax.scatter(self.lc/1.e4, fmodel*fnu_factor*flam_sed, 
+        ax.scatter(self.pivot/1.e4, fmodel*fnu_factor*flam_sed, 
                    color='w', label=None, zorder=1, s=120, marker='o')
         
-        ax.scatter(self.lc/1.e4, fmodel*fnu_factor*flam_sed, marker='o',
+        ax.scatter(self.pivot/1.e4, fmodel*fnu_factor*flam_sed, marker='o',
                   color=template_color, label=None, zorder=2, s=50, 
                   alpha=0.8)
 
         if draws is not None:
-            ax.errorbar(self.lc/1.e4, fmodel*fnu_factor*flam_sed,
+            ax.errorbar(self.pivot/1.e4, fmodel*fnu_factor*flam_sed,
                         efmodel*fnu_factor*flam_sed, alpha=0.8,
                         color=template_color, zorder=2,
                         marker='None', linestyle='None', label=None)
@@ -1857,20 +1843,20 @@ class PhotoZ(object):
         else:
             err_tef = efnu_i*1
             
-        ax.errorbar(self.lc[sn2_detection]/1.e4, 
+        ax.errorbar(self.pivot[sn2_detection]/1.e4, 
                     (fnu_i*fnu_factor*flam_sed)[sn2_detection], 
                     (err_tef*fnu_factor*flam_sed)[sn2_detection], 
                     color='k', marker='s', linestyle='None', label=None, 
                     zorder=10)
 
         if show_upperlimits:
-            ax.errorbar(self.lc[sn2_not]/1.e4, 
+            ax.errorbar(self.pivot[sn2_not]/1.e4, 
                         (fnu_i*fnu_factor*flam_sed)[sn2_not], 
                         (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', 
                         marker='s', alpha=0.4, linestyle='None', label=None)
 
         if show_missing:
-            ax.errorbar(self.lc[missing]/1.e4, 
+            ax.errorbar(self.pivot[missing]/1.e4, 
                         (fnu_i*fnu_factor*flam_sed)[missing]*0, 
                         (efnu_i*fnu_factor*flam_sed)[missing], 
                         color='0.7', marker='x', linestyle='None', 
@@ -1960,7 +1946,7 @@ class PhotoZ(object):
                 # dummy for cycler
                 ax.plot(np.inf, np.inf)
                 star_models  = self.star_tnorm[ix,:] * self.star_flux
-                so = np.argsort(self.lc)
+                so = np.argsort(self.pivot)
                 order = np.where(good_stars)[0]
                 order = order[np.argsort(delta_chi2[order])]
             
@@ -1969,7 +1955,7 @@ class PhotoZ(object):
                     label = '{0} {1:5.1f}'.format(label.replace('_', ' '),
                                                  delta_chi2[si])
                     print(label)
-                    ax.plot(self.lc[so]/1.e4,
+                    ax.plot(self.pivot[so]/1.e4,
                             (star_models[:,si]*fnu_factor*flam_sed)[so], 
                             marker='o', alpha=0.5, label=label)
 
@@ -2017,7 +2003,9 @@ class PhotoZ(object):
             
             ax.semilogy()
             # Limits
-            ax.scatter(self.lc[sn2_not]/1.e4, ((3*efnu_i)*fnu_factor*flam_sed)[sn2_not], color='k', marker='v', alpha=0.4, label=None)
+            ax.scatter(self.pivot[sn2_not]/1.e4,
+                       ((3*efnu_i)*fnu_factor*flam_sed)[sn2_not], 
+                       color='k', marker='v', alpha=0.4, label=None)
             
             # Mag axes
             axm = ax.twinx()
@@ -2360,7 +2348,7 @@ class PhotoZ(object):
                     lc_i = rf_lc[i]
                 
                     # Normal in log wavelength
-                    x = np.log(lc_i/(self.lc/(1+z)))
+                    x = np.log(lc_i/(self.pivot/(1+z)))
                     grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
 
                     TEFz = (2/(1+grow/grow.max())-1)*max_err
@@ -2582,7 +2570,7 @@ class PhotoZ(object):
         if zbest is None:
             zbest = self.zbest
             
-        _lcz = np.dot(1/(1+zbest[:, np.newaxis]), self.lc[np.newaxis,:])
+        _lcz = np.dot(1/(1+zbest[:, np.newaxis]), self.pivot[np.newaxis,:])
         return _lcz
 
 
@@ -2995,7 +2983,7 @@ class PhotoZ(object):
                             iz = iz0
                             temp_matrix[:, _i] = temp_par[_i, iz]
                         elif TEMPLATE_REDSHIFT_TYPE == 'interp':
-                            par_int = np.interp(zb, templ.template_redshifts,
+                            par_int = np.interp(zb, templ.redshifts,
                                                 temp_par[_i, :])
                             temp_matrix[:, _i] = par_int
                         else:
@@ -3053,7 +3041,7 @@ class PhotoZ(object):
                             iz = iz0
                             temp_matrix[:, _i] = temp_par[_i, iz]
                         elif TEMPLATE_REDSHIFT_TYPE == 'interp':
-                            par_int = np.interp(zb, templ.template_redshifts,
+                            par_int = np.interp(zb, templ.redshifts,
                                                 temp_par[_i, :])
                             temp_matrix[:, _i] = par_int
                         else:
@@ -3384,7 +3372,7 @@ class PhotoZ(object):
             zlimits = np.zeros((self.NOBJ, 5), dtype=self.ARRAY_DTYPE) - 1
         
         # min/max observed wavelengths of valid data
-        lc_full = np.dot(np.ones((self.NOBJ, 1)), self.lc[np.newaxis,:])
+        lc_full = np.dot(np.ones((self.NOBJ, 1)), self.pivot[np.newaxis,:])
         tab['lc_min'] = (lc_full*(self.ok_data +
                                   1e10*(~self.ok_data))).min(axis=1)
         tab['lc_max'] = (lc_full*self.ok_data).max(axis=1)
@@ -3622,7 +3610,8 @@ class PhotoZ(object):
         
         output_data = {}
         
-        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]), self.lc[np.newaxis,:])[idx,:]
+        lcz = np.dot(1/(1+self.zbest[:, np.newaxis]),
+                     self.pivot[np.newaxis,:])[idx,:]
         
         clip = (self.efnu[idx,:] > 0) & (self.fnu[idx,:] > self.param['NOT_OBS_THRESHOLD']) & np.isfinite(self.fnu[idx,:]) & np.isfinite(self.efnu[idx,:])
         clip *= self.fnu[idx,:]/self.efnu[idx,:] > min_sn
@@ -3760,7 +3749,8 @@ class PhotoZ(object):
         
         band_indices : list of int, None
             Indices of the bands to process, in the order of the 
-            `self.lc`, `self.filters`, etc. lists.  If None, do all of them.
+            `self.pivot`, `self.filters`, etc. lists.  If None, do all of
+            them.
         
         statistic : str
             See `~scipy.stats.binned_statistic_2d`.
@@ -3922,7 +3912,7 @@ class PhotoZ(object):
             
         _wht[(~self.ok_data) | (self.efnu <= 0)] = 0
         
-        clip_filter = (self.lc < wave_lim[0]) | (self.lc > wave_lim[1])
+        clip_filter = (self.pivot < wave_lim[0]) | (self.pivot > wave_lim[1])
          
         _wht[:, clip_filter] = 0
             
@@ -4003,7 +3993,6 @@ class TemplateGrid(object):
             all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
             filters = [all_filters[fnum] for fnum in f_numbers]
         
-        #self.lc = np.array([f.pivot for f in filters])
         self.filter_names = np.array([f.name for f in filters])
         self.filters = filters
         #self.NFILT = len(self.filters)
@@ -4087,6 +4076,13 @@ class TemplateGrid(object):
 
     @property 
     def lc(self):
+        """
+        Filter pivot wavelengths (deprecated, use ``pivot``)
+        """     
+
+
+    @property
+    def pivot(self):
         """
         Filter pivot wavelengths
         """        

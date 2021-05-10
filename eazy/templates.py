@@ -12,7 +12,7 @@ __all__ = ["TemplateError", "Template", "Redden", "ModifiedBlackBody",
            "bspline_templates", "gaussian_templates"]
 
 class TemplateError():
-    def __init__(self, file='templates/TEMPLATE_ERROR.eazy_v1.0', arrays=None, lc=[5500.], scale=1.):
+    def __init__(self, file='templates/TEMPLATE_ERROR.eazy_v1.0', arrays=None, filter_wavelengths=[5500.], scale=1.):
         """
         Template error function with spline interpolation at arbitrary redshift.
         
@@ -25,7 +25,7 @@ class TemplateError():
         arrays: optional, (wave, TEF)
             Set from arrays rather than reading from ``file``.
         
-        lc: list
+        filter_wavelengths: list
             List of filter pivot wavelengths (observed-frame Angstroms).
         
         scale: float
@@ -39,8 +39,11 @@ class TemplateError():
         
         min_wavelength, min_wavelength: float
             Min/max of the wavelengths in ``te_x``.
-            
-        lc, scale: set from input params.
+        
+        clip_lo, clip_hi: float
+            Extrapolation limits to use if redshifted filters fall outside
+            defined ``te_x`` array
+
         """
 
         self.file = file
@@ -50,7 +53,7 @@ class TemplateError():
             self.te_x, self.te_y = arrays
                    
         self.scale = scale
-        self.lc = lc
+        self.filter_wavelengths = filter_wavelengths
         self._set_limits()
         self._init_spline()
 
@@ -62,7 +65,8 @@ class TemplateError():
         nonzero = self.te_y > 0
         self.min_wavelength = self.te_x[nonzero].min()
         self.max_wavelength = self.te_x[nonzero].max()
-
+        self.clip_lo = self.te_y[nonzero][0]
+        self.clip_hi = self.te_y[nonzero][-1]
 
     def _init_spline(self):
         """
@@ -81,17 +85,33 @@ class TemplateError():
         return self._spline(filter_wavelength/(1+z))*self.scale
 
 
-    def __call__(self, z):
+    def __call__(self, z, limits=None):
         """
-        Interpolate TEF arrays at a specific redshift"""
-        lcz = np.atleast_1d(self.lc)/(1+z)
-        tef_z = self._spline(np.atleast_1d(self.lc)/(1+z))*self.scale 
-        clip_lo = (lcz < self.min_wavelength) 
-        clip_hi = (lcz > self.max_wavelength)
-        tef_z[clip_lo] = self.te_y[0]
-        tef_z[clip_hi] = self.te_y[-1]
+        Interpolate TEF arrays at a specific redshift
         
-        return tef_z
+        Parameters
+        ----------
+        z: float
+            Redshift
+        
+        limits: None, (float, float)
+            Extrapolation limits.  If not specified, get from 
+            ``clip_lo`` and ``clip_hi`` attributes.
+            
+        """
+        lcz = np.atleast_1d(self.filter_wavelengths)/(1+z)
+        tef_z = self._spline(np.atleast_1d(self.filter_wavelengths)/(1+z))
+        
+        if limits is None:
+            limits = [self.clip_lo, self.clip_hi]
+            
+        clip_lo = (lcz < self.min_wavelength) 
+        tef_z[clip_lo] = limits[0]
+
+        clip_hi = (lcz > self.max_wavelength)
+        tef_z[clip_hi] = limits[1]
+        
+        return tef_z*self.scale 
 
 
 class Redden():
@@ -303,25 +323,67 @@ def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth
 
 
 class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), template_redshifts=[0], verbose=True):
+    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), redshifts=[0], verbose=True, flux_unit=(u.L_sun/u.Angstrom)):
         """
         Template object.
         
-        Attributes:
+        Parameters
+        ----------
+        sp: (array, array)
+            Object with ``wave``, ``flux`` attributes, e.g., from
+            ``prospector``.  Here ``flux`` is assumed to have units of f-nu.
         
-        wave = wavelength in `~astropy.units.Angstrom`
-        flux = flux density, f-lambda
-        name = str
-        meta = dict
-        redfunc = optional `Redden` object
+        file: str
+            Filename of ascii or FITS template
         
-        Properties: 
+        arrays: (array, array)
+            Tuple of ``wave``, ``flux`` arrays.  Here ``flux`` assumed to 
+            have units f-lambda.
         
-        flux_fnu = flux density, f-nu
+        to_angstrom: float
+            Scale factor such that ``wave * to_angstrom`` has units of 
+            `~astropy.units.Angstrom`
         
-        Can optionally specify a 2-dimensional flux array with the first
+        velocity_smooth: float
+            Velocity smooothing in km/s, applied if > 0
+        
+        resample_wave: array
+            Grid to resample the template wavelengths read from the input 
+        
+        fits_column: str
+            Column name of the flux column if arrays read from a ``file``
+        
+        redfunc: ``~eazy.templates.Redden``
+            Object to apply additional reddening.  
+        
+        redshifts: array-like
+            Redshift grid for redshift-dependent templates
+
+        flux_unit: `~astropy.units.core.Unit`
+            Units of ``flux`` array.
+        
+        Attributes
+        ----------
+        wave: array
+            wavelength in `~astropy.units.Angstrom`, dimensions ``[NWAVE]``.
+        
+        flux: array
+            Flux density f-lambda, can have redshift dependence, dimensions
+            ``[NZ, NWAVE]``.
+        
+        name: str
+            Label name
+            
+        meta: dict
+            Metadata
+            
+        redfunc: `~eazy.templates.Redden`, optional
+            Object for applying dust reddening.
+        
+        
+        Can optionally specify a 2D flux array with the first
         dimension indicating the template for the nearest redshift in the 
-        correspoinding ``template_redshifts`` list.  When integrating the 
+        corresponding ``redshifts`` list.  See When integrating the 
         filter fluxes with ``integrate_filter``, the template index with the 
         redshift nearest to the specified redshift will be used.
         
@@ -332,6 +394,7 @@ class Template():
         
         self.wave = None
         self.flux = None
+        self.flux_unit = flux_unit
         
         self.name = 'None'
         self.meta = copy.deepcopy(meta)
@@ -361,6 +424,10 @@ class Template():
                 self.flux = tab[fits_column].data.astype(float)
                 self.orig_table = tab
                 
+                if hasattr(tab[fits_column], 'unit'):
+                    if tab[fits_column].unit is not None:
+                        self.flux_unit = tab[fits_column].unit
+                        
                 # Transpose because FITS tables stored like NWAVE, NZ
                 if self.flux.ndim == 2:
                     self.flux = self.flux.T
@@ -374,6 +441,12 @@ class Template():
                         
         elif arrays is not None:
             self.wave, self.flux = arrays[0]*1., arrays[1]*1.
+            if hasattr(self.flux, 'unit'):
+                self.flux_unit = self.flux.unit
+                
+                if hasattr(self.flux, 'value'):
+                    self.flux = self.flux.value
+                
             #self.set_fnu()
         else:
             raise TypeError('Must specify either `sp`, `file` or `arrays`')
@@ -381,20 +454,20 @@ class Template():
         if self.flux.ndim == 1:
             # For redshift dependence
             self.flux = np.atleast_2d(self.flux)
-            self.template_redshifts = np.zeros(1)
+            self.redshifts = np.zeros(1)
             self.NZ, self.NWAVE = self.flux.shape
         else:
             self.NZ, self.NWAVE = self.flux.shape
             if 'NZ' in self.meta:
-                template_redshifts = [self.meta[f'Z{j}'] 
+                redshifts = [self.meta[f'Z{j}'] 
                                       for j in range(self.meta['NZ'])]
-            
-            if len(template_redshifts) != self.NZ:
-                msg = (f'template_redshifts ({len(template_redshifts)})'
+                
+            if len(redshifts) != self.NZ:
+                msg = (f'redshifts ({len(redshifts)})'
                        f' doesn\'t match flux dimension ({self.NZ})!')
                 raise ValueError(msg)
             
-            self.template_redshifts = np.array(template_redshifts)
+            self.redshifts = np.array(redshifts)
         
             # if verbose:
             #     print(f'Redshift dependent! (NZ={self.NZ})')
@@ -459,28 +532,100 @@ class Template():
             red = 1.
         
         return red
+
+
+    def flux_flam(self, iz=0, z=None, redshift_type='nearest'):
+        """
+        Get redshift-dependent template in units of f-lambda
         
-    #@property 
-    def flux_fnu(self, i=0):
+        Parameters
+        ----------
+        iz: int
+            Index of template to retrieve
+        
+        z: float, None
+            If specified, get the redshift index with 
+            ``~eazy.templates.Template.zindex``.
+        
+        redshift_type: 'nearest', 'interp'
+            See ``~eazy.templates.Template.zindex``.
+        
+        Returns
+        -------
+        flam: array
+            Template flux density in units of f-lambda, including any 
+            reddening specified in the ``redden`` attribute.
+            
         """
-        self.flux is flam.  Scale to fnu
+        if z is not None:
+            if redshift_type == 'interp':
+                iz, frac = self.zindex(z=z, redshift_type=redshift_type)
+                if frac == 1:
+                    flam = self.flux[iz,:]
+                else:
+                    flam = frac*self.flux[iz,:]
+                    flam += (1-frac)*self.flux[iz+1,:]
+            else:
+                iz = self.zindex(z=z, redshift_type=redshift_type)
+                flam = self.flux[iz,:]
+        else:
+            flam = self.flux[iz,:]
+
+        return flam * self.redden
+
+
+    def flux_fnu(self, iz=0, z=None, redshift_type='nearest'):
         """
-        return (self.flux[i,:] * 
-                self.wave**2 / (utils.CLIGHT*1.e10) * 
-                self.redden)
+        Get redshift-dependent template in units of f-nu
+        
+        Parameters
+        ----------
+        iz: int
+            Index of template to retrieve
+        
+        z: float, None
+            If specified, get the redshift index with 
+            ``~eazy.templates.Template.zindex``.
+        
+        redshift_type: str
+            See ``~eazy.templates.Template.zindex``.
+        
+        Returns
+        -------
+        fnu: array
+            Template flux density in units of f-nu, including any 
+            reddening specified in the ``redden`` attribute.
+            
+        """
+        flam = self.flux_flam(iz=iz, z=z, redshift_type=redshift_type)
+        return (flam * self.wave**2 / (utils.CLIGHT*1.e10))
 
 
     def set_fnu(self):
         """
-        Deprecated.  ``flux_fnu`` is now a `@property`.
+        Deprecated.  ``flux_fnu`` is now a more cmoplicated function.
         """
-        print('Deprecated.  ``flux_fnu`` is now a property')
+        print('Deprecated.  ``flux_fnu`` is now a function.')
         pass
 
 
     def smooth_velocity(self, velocity_smooth, in_place=True, raise_error=False):
         """
         Smooth template in velocity using ``astro-prospector``
+        
+        Parmeters
+        ---------
+        velocity_smooth: float
+            Velocity smoothing factor, in km/s.
+        
+        in_place: bool
+            Set internal ``flux`` array to the smoothed array.  If False, then
+            return a new `~eazy.templates.Template` object.
+        
+        raise_error: bool
+            If ``from prospect.utils.smoothing import smooth_vel`` fails, 
+            raise an exception or die quietly.
+            
         """
         try:
             from prospect.utils.smoothing import smooth_vel
@@ -497,7 +642,8 @@ class Template():
                 return self
                 
         sm_flux = np.array([smooth_vel(self.wave, self.flux[i,:], self.wave, 
-                             velocity_smooth) for i in range(self.NZ)])
+                                       velocity_smooth) 
+                             for i in range(self.NZ)])
                              
         sm_flux[~np.isfinite(sm_flux)] = 0.
         
@@ -509,12 +655,35 @@ class Template():
         else:
             return Template(arrays=(self.wave, sm_flux), 
                             name=self.name, meta=self.meta, 
-                            template_redshifts=self.template_redshifts)
+                            redshifts=self.redshifts)
 
 
-    def resample(self, new_wave, z=0, in_place=True, return_array=False, interp_func=utils.interp_conserve):
+    def resample(self, new_wave, z=0, in_place=True, return_array=False, interp_func=None):
         """
         Resample the template to a new wavelength grid
+        
+        Parameters
+        ----------
+        new_wave: array
+            New wavelength array, can have units.
+        
+        z: float
+            Redshift internal wavelength before resampling.  
+            (z=0 yields no shift).
+        
+        in_place: bool
+            Set internal ``wave`` and ``flux`` arrays to the resampled
+            values
+        
+        return_array: bool
+            Return the resampled ``flux`` array if true, else return a new
+            `~eazy.templates.Template` object.
+        
+        interp_func: None
+            Interpolation function.  If nothing specified, tries to use
+            `~grizli.utils_c.interp.interp_conserve_c` and falls back to 
+            `~eazy.utils.interp_conserve`.  
+        
         """
         import astropy.units as u
         
@@ -540,7 +709,13 @@ class Template():
                 
         if hasattr(new_wave, 'unit'):
             new_wave = new_wave.to(u.Angstrom).value
-            
+        
+        if interp_func is None:
+            try:
+                import grizli.utils_c.interp.interp_conserve_c as interp_func
+            except:
+                import utils.interp_conserve as interp_func    
+                
         new_flux = [interp_func(new_wave, self.wave*(1+z), self.flux[i,:])
                     for i in range(self.NZ)]
         new_flux = np.array(new_flux)
@@ -555,16 +730,36 @@ class Template():
             else:
                 return Template(arrays=(new_wave, new_flux), 
                                 name=self.name, meta=self.meta, 
-                                template_redshifts=self.template_redshifts)
+                                redshifts=self.redshifts)
 
 
     def zindex(self, z=0., redshift_type='nearest'):
         """
         Get the redshift index of a multi-dimensional template array
-        """
-        #dz = z - self.template_redshifts
         
-        zint = np.interp(z, self.template_redshifts, np.arange(self.NZ),
+        Parameters
+        ----------
+        z: float
+            Redshift to retrieve
+        
+        redshift_type: 'nearest', 'interp', 'floor'
+            Interpolation type:
+            
+            - 'nearest': nearest step in the template redshift grid
+            - 'interp': Returns index below ``z`` and interpolation fraction
+            - 'floor': last index where redshift grid < ``z``.
+        
+        Returns
+        -------
+        iz: int
+            Array index, i.e, ``self.flux[iz,:]``
+        
+        frac: float, optional
+            Fraction for interpolation, if ``redshift_type == 'interp'``.
+        
+        """
+        
+        zint = np.interp(z, self.redshifts, np.arange(self.NZ),
                          left=0, right=self.NZ-1)
                          
         if redshift_type == 'nearest':
@@ -572,16 +767,21 @@ class Template():
             
         elif redshift_type == 'interp':
             iz = int(np.floor(zint))
-            if iz < self.NZ-1:
-                frac = 1 - ( (z - self.template_redshifts[iz]) / 
-                          np.diff(self.template_redshifts)[iz] )
+            if z < self.redshifts[0]:
+                frac = 1.
+                
+            elif iz < self.NZ-1:
+                frac = 1. - ( (z - self.redshifts[iz]) / 
+                              np.diff(self.redshifts)[iz] )
             else:
                 frac = 1.
             
             return iz, frac
+        elif redshift_type == 'floor':
+            iz = int(np.floor(zint))
         else:
-            iz = zint.astype(int)
-                    
+            raise ValueError(f"redshift_type ({redshift_type}) must be " + 
+                             "'nearest', 'interp', or 'floor'.")
         return iz
 
 
@@ -589,8 +789,45 @@ class Template():
         """
         Integrate the template through a `FilterDefinition` filter object.
         
-        The `grizli` interpolation module should be used if possible: 
-        https://github.com/gbrammer/grizli/
+        .. note:: The `~grizli` interpolation function 
+                  `~grizli.utils_c.interp.interp_conserve_c` will be used if 
+                  available.
+        
+        Parameters
+        ----------
+        filt: `~eazy.filters.FilterDefinition` object or a list of them
+            Filter(s) to interpolate
+        
+        flam: bool
+            Return integrated fluxes in f-lambda, rather than f-nu
+        
+        scale: float, array
+            Scale factor applied to template before integrating.  If an 
+            array is specified, it must have the same size as the template
+            ``wave`` array.
+        
+        z: float
+            Redshift the template before integrating through the filter
+        
+        include_igm: bool
+            Include IGM absorption
+        
+        redshift_type: str
+            See ``~eazy.templates.Template.zindex``.
+        
+        iz: int
+            Evaluate for a specific index of the ``flux`` array rather than
+            calculating with ``zindex``
+            
+        Returns
+        -------
+        fnu: float, array
+            Template integrated through one or more filters from ``filt``.  By 
+            defaults has units of fnu
+            
+            .. note:: The interpolated fluxes *do not* include factors of 
+                      (1+z) from the redshifted templates.
+            
         """
         try:
             import grizli.utils_c
@@ -612,19 +849,12 @@ class Template():
         
         # Fnu flux density, with IGM and scaling
         if iz is None:
-            if redshift_type == 'interp':
-                iz, frac = self.zindex(z=z, redshift_type=redshift_type)
-                if frac == 1:
-                    fnu = self.flux_fnu(iz)*scale*igmz
-                else:
-                    fnu = frac*self.flux_fnu(iz)*scale*igmz
-                    fnu += (1-frac)*self.flux_fnu(iz+1)*scale*igmz
-            else:
-                iz = self.zindex(z=z, redshift_type=redshift_type)
-                fnu = self.flux_fnu(iz)*scale*igmz        
+            fnu = self.flux_fnu(z=z, redshift_type=redshift_type)
         else:
-            fnu = self.flux_fnu(iz)*scale*igmz
+            fnu = self.flux_fnu(iz=iz)
                         
+        fnu *= scale*igmz
+        
         fluxes = []
         for filt_i in filts:    
             templ_filt = interp(filt_i.wave, self.wave*(1+z),
@@ -649,9 +879,18 @@ class Template():
 
     def igm_absorption(self, z, scale_tau=1., pow=1):
         """
-        Compute IGM absorption.  
+        Compute IGM absorption with `~eazy.igm.Inoue14`.
         
-        `power` scales the absorption strength as `~eazy.igm.Inoue14()**pow`.
+        Parameters
+        ----------
+        z: float
+            Redshift to use for IGM absorption factors
+        
+        scale_tau: float
+            Scale factor multiplied to of IGM ``tau`` values
+        
+        pow: float 
+            Scale the absorption strength as ``eazy.igm.Inoue14()**pow``.
         """
         try:
             from . import igm as igm_module
@@ -684,6 +923,23 @@ class Template():
     def to_table(self, formats={'wave':'.5e', 'flux':'.5e'}, with_units=False, flatten=True):
         """
         Return template as an ``~astropy.table.Table``.
+        
+        Parameters
+        ----------
+        formats: dict
+            Set ``format`` attributes of table columns
+        
+        with_units: bool
+            Set ``unit`` attributes of table columns
+        
+        flatten: bool
+            If no redshift dependence (``NZ==0``), columns are 1D arrays.
+        
+        Returns
+        -------
+        tab: ``~astropy.table.Table``
+            Output table
+            
         """
         from astropy.table import Table
         import astropy.units as u
@@ -695,7 +951,7 @@ class Template():
         
         if with_units:
             tab['wave'].unit = u.Angstrom
-            tab['flux'].unit = u.erg/u.second/u.cm**2/u.Angstrom
+            tab['flux'].unit = self.flux_unit
 
         for c in tab.colnames:
             if c in formats:
@@ -705,7 +961,7 @@ class Template():
         if self.NZ > 1:
             tab.meta['NZ'] = self.NZ
             for j in range(self.NZ):
-                tab.meta[f'Z{j}'] = self.template_redshifts[j]
+                tab.meta[f'Z{j}'] = self.redshifts[j]
         else:
             if flatten:
                 tab['flux'] = self.flux[0,:]
@@ -714,11 +970,25 @@ class Template():
 
 
 class ModifiedBlackBody():
-    """
-    Modified black body: nu**beta * BB(nu) 
-    + FIR-radio correlation
-    """
     def __init__(self, Td=47, beta=1.6, q=2.34, alpha=-0.75):
+        """
+        Modified black body: nu**beta * BB(nu, Td) + FIR-radio correlation
+        
+        Parameters
+        ----------
+        Td: float
+            Dust temperature
+        
+        beta: float
+            Slope parameter
+        
+        q: float
+            FIR-radio normalization
+        
+        alpha: float
+            Radio spectral slope: ``fnu = (nu/1.4e9)**alpha``
+            
+        """
         self.Td = Td
         self.q = q
         self.beta = beta
@@ -726,12 +996,26 @@ class ModifiedBlackBody():
     
     @property 
     def bb(self):
+        """
+        `~astropy.modeling.models` function with ``self.Td`` dust temperature
+        """
         from astropy.modeling.models import BlackBody
         return BlackBody(temperature=self.Td*u.K)
         
     def __call__(self, wave, q=None):
         """
         Return modified BlackBody (fnu) as a function of wavelength
+        
+        Parameters
+        ----------
+        wave: array
+            Wavelength array.  If no ``unit`` attribute, assume 
+            `~astropy.units.micron`.
+        
+        q: float
+            Parameter of FIR-radio correlation.  If not specified, use 
+            internal ``self.q``.
+            
         """
         from astropy.constants import L_sun, h, k_B, c
         if not hasattr(wave, 'unit'):
@@ -836,125 +1120,7 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
                                name='carbon-lancon2002'))
 
     return tstars
-            
-# class TemplateInterpolator():
-#     """
-#     Class to use scipy spline interpolator to interpolate pre-computed eazy template 
-#     photometry at arbitrary redshift(s).
-#     """
-#     def __init__(self, bands=None, MAIN_OUTPUT_FILE='photz', OUTPUT_DIRECTORY='./OUTPUT', CACHE_FILE='Same', zout=None, f_lambda=True):
-#         from scipy import interpolate
-#         #import threedhst.eazyPy as eazy
-#         
-#         #### Read the files from the specified output
-#         tempfilt, coeffs, temp_seds, pz = eazy.readEazyBinary(MAIN_OUTPUT_FILE=MAIN_OUTPUT_FILE, OUTPUT_DIRECTORY=OUTPUT_DIRECTORY, CACHE_FILE = CACHE_FILE)
-#         
-#         if bands is None:
-#             self.bands = np.arange(tempfilt['NFILT'])
-#         else:
-#             self.bands = np.array(bands)
-#         
-#         self.band_names = ['' for b in self.bands]
-#         
-#         if zout is not None:
-#             param = eazy.EazyParam(PARAM_FILE=zout.filename.replace('.zout','.param'))
-#             self.band_names = [f.name for f in param.filters]
-#             self.bands = np.array([f.fnumber-1 for f in param.filters])
-#                         
-#         self.NFILT = len(self.bands)
-#         self.NTEMP = tempfilt['NTEMP']
-#         self.lc = tempfilt['lc'][self.bands]
-#         self.sed = temp_seds
-#         self.templam = self.sed['templam']
-#         self.temp_seds = self.sed['temp_seds']
-#         
-#         # if True:
-#         #     import threedhst
-#         #     import unicorn
-#         #     threedhst.showMessage('Conroy model', warn=True)
-#         #     cvd12 = np.loadtxt(unicorn.GRISM_HOME+'/templates/cvd12_t11_solar_Chabrier.dat')
-#         #     self.temp_seds[:,0] = np.interp(self.templam, cvd12[:,0], cvd12[:,1])
-#         
-#         self.in_zgrid = tempfilt['zgrid']
-#         self.tempfilt = tempfilt['tempfilt'][self.bands, :, :]
-#         if f_lambda:
-#             for i in range(self.NFILT):
-#                 self.tempfilt[i,:,:] /= (self.lc[i]/5500.)**2
-#                 
-#         ###### IGM absorption
-#         self.igm_wave = []
-#         self.igm_wave.append(self.templam < 912)
-#         self.igm_wave.append((self.templam >= 912) & (self.templam < 1026))
-#         self.igm_wave.append((self.templam >= 1026) & (self.templam < 1216))
-#         
-#         self._spline_da = interpolate.InterpolatedUnivariateSpline(self.in_zgrid, temp_seds['da'])
-#         self._spline_db = interpolate.InterpolatedUnivariateSpline(self.in_zgrid, temp_seds['db'])
-#         
-#         #### Make a 2D list of the spline interpolators
-#         self._interpolators = [range(self.NTEMP) for i in range(self.NFILT)]                
-#         for i in range(self.NFILT):
-#             for j in range(self.NTEMP):
-#                 self._interpolators[i][j] = interpolate.InterpolatedUnivariateSpline(self.in_zgrid, self.tempfilt[i, j, :])
-#         #
-#         self.output = None
-#         self.zout = None
-#     
-#     def interpolate_photometry(self, zout):
-#         """
-#         Interpolate the EAZY template photometry at `zout`, which can be a number or an 
-#         array.
-#         
-#         The result is returned from the function and also stored in `self.output`.
-#         """               
-#         output = [range(self.NTEMP) for i in range(self.NFILT)]                
-#         for i in range(self.NFILT):
-#             for j in range(self.NTEMP):
-#                 output[i][j] = self._interpolators[i][j](zout)
-#         
-#         self.zgrid = np.array(zout)
-#         self.output = np.array(output)
-#         return self.output
-#         
-#     def check_extrapolate(self):
-#         """
-#         Check if any interpolated values are extrapolated from the original redshift grid
-#         
-#         Result is both returned and stored in `self.extrapolated`
-#         """
-#         if self.zout is None:
-#             return False
-#         
-#         self.extrapolated = np.zeros(self.output.shape, dtype=np.bool) ## False
-# 
-#         bad = (self.zgrid < self.in_zgrid.min()) | (self.zgrid > self.in_zgrid.max())
-#         self.extrapolated[:, :, bad] = True
-#         
-#         return self.extrapolated
-#         
-#     def get_IGM(self, z, matrix=False, silent=False):
-#         """
-#         Retrieve the full SEDs with IGM absorption
-#         """
-#         ###### IGM absorption
-#         # lim1 = self.templam < 912
-#         # lim2 = (self.templam >= 912) & (self.templam < 1026)
-#         # lim3 = (self.templam >= 1026) & (self.templam < 1216)
-#         
-#         igm_factor = np.ones(self.templam.shape[0])
-#         igm_factor[self.igm_wave[0]] = 0.
-#         igm_factor[self.igm_wave[1]] = 1. - self._spline_db(z)
-#         igm_factor[self.igm_wave[1]] = 1. - self._spline_da(z)
-#         
-#         if matrix:
-#             self.igm_factor = np.dot(igm_factor.reshape(-1,1), np.ones((1, self.NTEMP)))
-#         else:
-#             self.igm_factor = igm_factor
-#             
-#         self.igm_z = z
-#         self.igm_lambda = self.templam*(1+z)
-#         
-#         if not silent:
-#             return self.igm_lambda, self.igm_factor
+
 
 def param_table(templates):
     """

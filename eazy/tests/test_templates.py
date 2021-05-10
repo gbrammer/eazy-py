@@ -5,6 +5,7 @@ import numpy as np
 
 from .. import utils
 from .. import templates
+from .. import filters
 
 def test_data_path():
     """
@@ -112,3 +113,105 @@ def test_bspline_templates():
         assert(np.allclose(templ.wave, wave))  
         assert(np.allclose(spl[:,i], np.squeeze(templ.flux)))
 
+
+def test_redshift_dependent():
+    """
+    Redshift-dependent templates
+    """
+    wave = np.arange(5000., 6000.)
+
+    # No dependence
+    flux = np.ones(len(wave))
+    templ = templates.Template(arrays=(wave, flux), redshifts=[0])
+    assert(templ.zindex(-0.1, redshift_type='nearest') == 0)
+    assert(templ.zindex(0.3, redshift_type='nearest') == 0)
+
+    
+    assert(templ.zindex(-0.1, redshift_type='floor') == 0)
+    assert(templ.zindex(0.3, redshift_type='floor') == 0)
+    
+    assert(np.allclose(templ.zindex(-0.1, redshift_type='interp'), (0, 1.0)))
+    assert(np.allclose(templ.zindex(0.1, redshift_type='interp'), (0, 1.0)))
+    
+    # Redshift-dependent
+    flux = np.ones((2, len(wave)))
+    flux[1,:] = 2
+    
+    templ = templates.Template(arrays=(wave, flux), redshifts=[0,1])
+    
+    assert(templ.zindex(-0.1, redshift_type='nearest') == 0)
+    assert(templ.zindex(0.3, redshift_type='nearest') == 0)
+    assert(templ.zindex(0.6, redshift_type='nearest') == 1)
+    assert(templ.zindex(2.6, redshift_type='nearest') == 1)
+    
+    assert(templ.zindex(-0.1, redshift_type='floor') == 0)
+    assert(templ.zindex(0.3, redshift_type='floor') == 0)
+    assert(templ.zindex(0.6, redshift_type='floor') == 0)
+    assert(templ.zindex(2.6, redshift_type='floor') == 1)
+    
+    assert(np.allclose(templ.zindex(-0.1, redshift_type='interp'), (0, 1.0)))
+    assert(np.allclose(templ.zindex(0.1, redshift_type='interp'), (0, 0.9)))
+    assert(np.allclose(templ.zindex(0.9, redshift_type='interp'), (0, 0.1)))
+    assert(np.allclose(templ.zindex(1.1, redshift_type='interp'), (1, 1.0)))
+    
+    assert(np.allclose(templ.flux_flam(iz=0, redshift_type='nearest'), 1.))
+    assert(np.allclose(templ.flux_flam(iz=1, redshift_type='nearest'), 2.))
+
+    assert(np.allclose(templ.flux_flam(z=-1., redshift_type='nearest'), 1.))
+    assert(np.allclose(templ.flux_flam(z=0.0, redshift_type='nearest'), 1.))
+    assert(np.allclose(templ.flux_flam(z=0.3, redshift_type='nearest'), 1.))
+    assert(np.allclose(templ.flux_flam(z=1.5, redshift_type='nearest'), 2.))
+    
+    assert(np.allclose(templ.flux_flam(z=-1., redshift_type='interp'), 1.))
+    assert(np.allclose(templ.flux_flam(z=0.0, redshift_type='interp'), 1.))
+    assert(np.allclose(templ.flux_flam(z=0.3, redshift_type='interp'), 1.3))
+    assert(np.allclose(templ.flux_flam(z=1.5, redshift_type='interp'), 2.))
+    
+    
+def test_integrate_filter():
+    """
+    Integrating templates through filter throughput
+    """
+    import astropy.units as u
+    
+    # Tophat filter
+    wx = np.arange(5400, 5600., 1)
+    wy = wx*0.
+    wy[10:-10] = 1
+    
+    f1 = filters.FilterDefinition(wave=wx, throughput=wy)
+    
+    # Flat-fnu spectrum
+    wave = np.arange(1000., 9000.)
+    fnu = np.ones((2, len(wave)))*u.microJansky
+    fnu[1,:] *= 2
+        
+    flam = fnu.to(utils.FLAM_CGS, 
+            equivalencies=u.equivalencies.spectral_density(wave*u.Angstrom))
+    
+    templ = templates.Template(arrays=(wave, flam), redshifts=[0,1])
+    
+    fnu_int = templ.integrate_filter(f1, z=0)
+    assert(np.allclose(fnu_int*utils.FNU_CGS, 1*u.microJansky))
+    
+    fnu_int = templ.integrate_filter(f1, z=0, scale=2.)
+    assert(np.allclose(fnu_int*utils.FNU_CGS, 2*u.microJansky))
+    
+    fnu_int = templ.integrate_filter(f1, z=0.3, redshift_type='nearest')
+    assert(np.allclose(fnu_int*utils.FNU_CGS, 1*u.microJansky))
+
+    fnu_int = templ.integrate_filter(f1, z=0.3, redshift_type='interp')                         
+    assert(np.allclose(fnu_int*utils.FNU_CGS, 1.3*u.microJansky))
+    
+    # Return f-lambda
+    for z in [0, 0.2]:
+        flam_interp = templ.integrate_filter(f1, z=z, flam=True, 
+                                         redshift_type='nearest')
+
+        wz = f1.pivot*(1+z)*u.Angstrom
+        flam_unit = (1*u.microJansky).to(utils.FLAM_CGS,
+                           equivalencies=u.equivalencies.spectral_density(wz))
+
+        assert(np.allclose(flam_interp*utils.FLAM_CGS, flam_unit))
+    
+    
