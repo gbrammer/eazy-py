@@ -105,7 +105,7 @@ class PhotoZ(object):
             
         cosmology : `astropy.cosmology` object
             If not specified, generate a flat cosmology with 
-            `params['H0', 'OM', 'OL']`.
+            `params['H0', 'OMEGA_M', 'OMEGA_L']`.
         
         Attributes
         ----------
@@ -253,6 +253,8 @@ class PhotoZ(object):
         
         for key in params:
             self.param.params[key] = params[key]
+        
+        self.param.verify_params()
         
         if 'IGM_SCALE_TAU' in self.param.params:
             IGM_OBJECT.scale_tau = self.param['IGM_SCALE_TAU']
@@ -622,7 +624,13 @@ class PhotoZ(object):
                                      self.filters[-1].name.split()[0]))
                         
         self.f_numbers = np.array(self.f_numbers)
-        
+        if len(self.f_numbers) == 0:
+            msg = ('No valid filters found in {0}!  Check that all flux ' +
+                  'and uncertainty columns are specified / translated ' +  
+                  'correctly.')
+                  
+            raise ValueError(msg.format(self.param['CATALOG_FILE']))
+            
         # Initialize flux arrays
         self.fnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)
         efnu = np.zeros((self.NOBJ, self.NFILT), dtype=self.ARRAY_DTYPE)

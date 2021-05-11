@@ -105,11 +105,6 @@ class EazyParam():
             fp = open(file,'w')
             for param in self.param_names:
                 fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
-                # if isinstance(self.params[param], str):
-                #     fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
-                # else:
-                #     fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
-                #     #str = '%-25s %'+self.formats[param]+'\n'
 
             fp.close()
 
@@ -130,13 +125,35 @@ class EazyParam():
         """
         Set item in ``params`` dict.
         """
-        # if param_name not in self.param_names:
-        #     print('xxx append param', param_name)
-        #     self.param_names.append(param_name)
-
         self.params[param_name.upper()] = value
 
-    
+
+    def verify_params(self):
+        """
+        Some checks on the parameters
+        """
+        
+        assert(self['Z_MAX'] > self['Z_MIN'])
+        
+        for k in ['TEMPLATES_FILE', 'TEMP_ERR_FILE', 'CATALOG_FILE', 
+                  'FILTERS_RES']:
+            if not os.path.exists(self[k]):
+                raise FileNotFoundError(f'{k} ({self[k]}) not found')        
+
+        assert(int(self['ARRAY_NBITS']) in [32,64])
+        
+        # Positive
+        for k in ['TEMP_ERR_A2', 'SYS_ERR', 'IGM_SCALE_TAU', 'MW_EBV', 
+                  'OMEGA_M', 'OMEGA_L']:
+            if self[k] < 0:
+                raise ValueError(f'{k} ({self[k]}) must be >= 0')
+        
+        # Positive nonzero
+        for k in ['Z_STEP','H0', 'RF_PADDING']:
+            if self[k] < 0:
+                raise ValueError(f'{k} ({self[k]}) must be > 0')
+
+
     @property 
     def kwargs(self):
         """
