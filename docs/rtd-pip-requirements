@@ -5,5 +5,7 @@ scikit-image
 scipy
 astropy
 sphinx_astropy
+tqdm
+
 git+https://github.com/karllark/dust_extinction
 git+https://github.com/karllark/dust_attenuation

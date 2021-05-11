@@ -113,13 +113,14 @@ class TemplateError(object):
 
 
 class Redden(object):
-    """
-    Wrapper function for `dust_attenuation` and `dust_extinction` 
-    reddening laws
-    """
     def __init__(self, model=None, Av=0., **kwargs):
         """
-        model: extinction/attenuation object or str
+        Wrapper function for `dust_attenuation` and `dust_extinction` 
+        reddening laws
+
+        Parameters
+        ----------
+        model : `extinction`/`attenuation` object or str
             
             Allowable string arguments:
                 
@@ -129,8 +130,8 @@ class Redden(object):
                 - 'calzetti00', 'c00': `dust_attenuation.averages.C00`
                 - 'wg00': `dust_attenuation.radiative_transfer.WG00`
         
-        Av: selective extinction/attenuation
-            (passed as tau_V for `WG00`)
+        Av : float
+            Selective extinction/attenuation (passed as `tau_V` for ``WG00``)
             
         """
         allowed = ['smc', 'lmc', 'mw', 'f99', 'c00', 'calzetti00', 'wg00',
@@ -182,6 +183,9 @@ class Redden(object):
     
     @property 
     def ebv(self):
+        """
+        E(B-V) for models that have ``Rv``
+        """
         if hasattr(self.model, 'Rv'):
             return self.Av/self.model.Rv
         else:
@@ -190,13 +194,28 @@ class Redden(object):
 
 
     def __repr__(self):
-        return '<Redden {0}, Av/tau_V={1}>'.format(self.model.__repr__(), self.Av)
+        msg = '<Redden {0}, Av/tau_V={1}>'
+        return msg.format(self.model.__repr__(), self.Av)
 
 
     def __call__(self, wave, left=0, right=1., **kwargs):
         """
-        Return reddening factor.  If input has no units, assume 
-        `astropy.units.Angstrom`.
+        Return reddening factor.  
+        
+        Parameters
+        ----------
+        wave : array (NW)
+            Wavelength array.  If has no units, assume 
+            `~astropy.units.Angstrom`.
+        
+        left, right : float
+            Extrapolation at short/long wavelengths
+        
+        Returns
+        -------
+        ext : array (NW)
+            Extinction / attenuation as a function of wavelength
+            
         """
                     
         if not hasattr(wave, 'unit'):
@@ -1057,6 +1076,9 @@ PHOENIX_ZMET = [-1.0, -0.5, -0.]
 def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list=PHOENIX_ZMET, add_carbon_star=True, file='bt-settl_t400-7000_g4.5.fits'):
     """
     Load Phoenix stellar templates
+    
+    `file` is available at
+    https://s3.amazonaws.com/grizli/CONF/bt-settl_t400-7000_g4.5.fits
     """
     try:
         from urllib.request import urlretrieve

@@ -530,14 +530,14 @@ class PhotoZ(object):
         If the catalog is in a format other than FITS, the file format passed
         to `astropy.table.Table.read` is indicated by the
         `params['CATALOG_FORMAT']` parameter, which defaults to
-        'ascii.commented_header'.
+        ``ascii.commented_header``.
         
-        All catalogs must have an `id` column, either explicity or 
+        All catalogs must have an ``id`` column, either explicity or 
         "translated" with the `~eazy.param.TranslateFile`.  
         
-        While not required, additional columns `z_spec`, `ra`, `dec`, `x`, `y` 
-        are used in some functions and should be included in the catalog or
-        translated.
+        While not required, additional columns ``z_spec``, ``ra``, ``dec``,
+        ``x``, ``y`` are used in some functions and should be included in the
+        catalog or translated.
         
         """
         if verbose:
