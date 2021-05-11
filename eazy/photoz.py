@@ -1369,7 +1369,7 @@ class PhotoZ(object):
             print(msg.format(t1-t0, np_check, len(idx_fit)))
 
 
-    def fit_at_redshift(self, iobj, z=None, fitter='nnls'):
+    def _fit_at_redshift(self, iobj, z=None, fitter='nnls'):
         """
         Fit template coefficeints at a single redshift
         
@@ -1392,7 +1392,7 @@ class PhotoZ(object):
         return chi2_i, coeffs_i, fmodel
 
 
-    def fit_on_zgrid(self, iobj, fitter='nnls'):
+    def _fit_on_zgrid(self, iobj, fitter='nnls'):
         """
         Fit a single object on the redshift grid
         
@@ -1566,11 +1566,10 @@ class PhotoZ(object):
         self.efnu[upd] = r[upd] #np.sqrt(var_new[upd])
 
 
-    def check_uncertainties(self, apply_correction=False):
+    def _check_uncertainties(self, apply_correction=False):
         """
-        *testing*
-        
-        Trying to recalibrate uncertainties based on full catalog fits
+        Trying to recalibrate uncertainties based on full catalog fits *testing*
+                
         """
         import astropy.stats
         from scipy.interpolate import UnivariateSpline, LSQUnivariateSpline
@@ -1620,7 +1619,7 @@ class PhotoZ(object):
                      self.pivot[np.newaxis,:])
 
 
-    def make_template_error_function(self, te_wave=None, log_wave=True, selection=None, optimizer=None, optimizer_args={}, in_place=False, sn_limits=[-2, 100], min_err=0.02, scale_errors=False):
+    def _make_template_error_function(self, te_wave=None, log_wave=True, selection=None, optimizer=None, optimizer_args={}, in_place=False, sn_limits=[-2, 100], min_err=0.02, scale_errors=False):
         """
         Generate a template error function based on template fit residuals
         
@@ -4477,7 +4476,7 @@ class PhotoZ(object):
         if rix is None:
             rix = self.zbest > 0
             
-        #r0 = np.mean(self.cat[self.fixed_cols['ra']][rix])
+        r0 = np.mean(self.cat[self.fixed_cols['ra']][rix])
         d0 = np.mean(self.cat[self.fixed_cols['dec']][rix])
         cosd = np.cos(d0/180*np.pi)
         r0 = (self.cat[self.fixed_cols['ra']][rix]-r0)*cosd*3600
