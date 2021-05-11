@@ -573,7 +573,7 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
             return True
             
     if zlimits is not None:
-        yerr = np.abs(zlimits.T-zphot)#/(1+self.cat['z_spec'])
+        yerr = np.abs(zlimits.T-zphot)
         ax.errorbar(np.log10(1+zspec[clip & ~clip_cat]), dz[clip & ~clip_cat], 
                     yerr=yerr[:,clip & ~clip_cat], 
                     marker='.', alpha=alpha, color='r', linestyle='None')

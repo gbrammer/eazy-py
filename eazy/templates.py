@@ -5,8 +5,6 @@ import astropy.units as u
 
 from . import utils
 
-#import unicorn
-
 __all__ = ["TemplateError", "Template", "Redden", "ModifiedBlackBody", 
            "read_templates_file", "load_phoenix_stars", 
            "bspline_templates", "gaussian_templates"]
@@ -253,7 +251,7 @@ class Redden(object):
             
             ext[xr] = self.model.attenuate(xu[xr])
         else:
-            msg = ('Dust model must have either `attenuate` or `extinguish`'
+            msg = ('Dust model must have either `attenuate` or `extinguish`' +
                   ' method.')
             raise IOError(msg)
         

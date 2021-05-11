@@ -25,3 +25,9 @@ def test_param_file():
     pfile2 = param.EazyParam(PARAM_FILE=param_file)
     
     assert(pfile1['Z_MIN'] == pfile2['Z_MIN'])
+    
+    # Set new parameter
+    pfile1['XPARAM'] = 1.
+    assert('XPARAM' in pfile1.param_names)
+    assert(pfile1['XPARAM'] == 1)
+    

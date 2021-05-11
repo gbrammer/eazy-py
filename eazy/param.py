@@ -104,12 +104,13 @@ class EazyParam():
         else:
             fp = open(file,'w')
             for param in self.param_names:
-                if isinstance(self.params[param], str):
-                    fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
-                else:
-                    fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
-                    #str = '%-25s %'+self.formats[param]+'\n'
-            #
+                fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
+                # if isinstance(self.params[param], str):
+                #     fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
+                # else:
+                #     fp.write('{0:25s} {1}\n'.format(param, self.params[param]))
+                #     #str = '%-25s %'+self.formats[param]+'\n'
+
             fp.close()
 
 
@@ -117,12 +118,12 @@ class EazyParam():
         """
         Get item from ``params`` dict and return None if parameter not found.
         """
-        if param_name not in self.param_names:
+        if param_name.upper() not in self.param_names:
             print(f'Parameter {param_name} not found.  Check `param_names`'              
                     ' attribute.')
             return None
         else:
-            return self.params[param_name]
+            return self.params[param_name.upper()]
 
 
     def __setitem__(self, param_name, value):
@@ -133,13 +134,51 @@ class EazyParam():
         #     print('xxx append param', param_name)
         #     self.param_names.append(param_name)
 
-        self.params[param_name] = value
+        self.params[param_name.upper()] = value
 
-
+    
+    @property 
+    def kwargs(self):
+        """
+        Dictionary with lower-case parameter names for passing as ``**kwargs``
+        """
+        kws = collections.OrderedDict()
+        for k in self.param_names:
+            kws[k.lower()] = self.params[k]
+        
+        return kws
+        
+        
 class TranslateFile():
     def __init__(self, file='zphot.translate'):
         """
-        File for translating filter columns for parsing as 
+        File for translating catalog columns to associate bandbasses to them
+        
+        The `file` has format
+                
+        .. code-block::
+
+            flux_irac_ch1  F18
+            err_irac_ch1   E18
+            ...
+            
+        where `flux_irac_ch1` is a column in the catalog table corresponding 
+        to the IRAC 3.6 µm flux density. ``F18`` indicates that this is a 
+        *flux density* column and is associated with filter number 18 in the 
+        `~eazy.params.filters.FilterFile`.
+        
+        ``E18`` indicates an uncertainty column, and filters must have both 
+        flux density and uncertainty columns to be considered.
+        
+        The original catalog could have had column names ``F18`` and ``E18``
+        and not needed a translate file but it is generally preferable to have
+        more descriptive column names that aren't necessarily tied to a
+        particular `eazy` filter file.
+        
+        Note, similarly, that columns like `F{N}` and `E{N}` are treated as 
+        these types of flux and uncertainty columns.  If they correspond to 
+        something else, they should be "translated" to avoid confusion
+        
         """
         self.file=file
         self.ordered_keys = []
