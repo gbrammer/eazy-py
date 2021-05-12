@@ -604,18 +604,18 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
         return True
 
 
-def query_html(ra, dec):
+def query_html(ra, dec, **kwargs):
     """
     Return HTML string of queries at a position
     """
     html = f"({ra:.6f}, {dec:.6f}) "
     for func, name in zip([cds_query, eso_query, mast_query, alma_query, show_legacysurvey, hscmap_query], ['CDS','ESO','MAST','ALMA', 'LEG','HSC']):
-        url = func(ra, dec)
+        url = func(ra, dec, **kwargs)
         html += f' <a href="{url}">{name}</a>'
     
     return html
     
-def cds_query(ra, dec, radius=1.):
+def cds_query(ra, dec, radius=1., **kwargs):
     """
     Open browswer with CDS catalog query around central position
     """
@@ -628,7 +628,7 @@ def cds_query(ra, dec, radius=1.):
     #os.system(f'open {url}')
     return url
 
-def eso_query(ra, dec, radius=1., dp_types=['CUBE','IMAGE'], extra=''):
+def eso_query(ra, dec, radius=1., dp_types=['CUBE','IMAGE'], extra='', **kwargs):
     """
     Open browser with ESO archive query around central position.
     
@@ -644,7 +644,7 @@ def eso_query(ra, dec, radius=1., dp_types=['CUBE','IMAGE'], extra=''):
     #os.system(f'open {url}')
     return url
 
-def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], max=1000):
+def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], max=1000, **kwargs):
     """
     Open browser with MAST archive query around central position
     """
@@ -661,7 +661,7 @@ def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], max=1000):
     #os.system(f'open {url}')
     return url
 
-def alma_query(ra, dec, mirror="almascience.eso.org", radius=1, extra=''):
+def alma_query(ra, dec, mirror="almascience.eso.org", radius=1, extra='', **kwargs):
     """
     Open browser with ALMA archive query around central position
     """
@@ -673,7 +673,7 @@ def alma_query(ra, dec, mirror="almascience.eso.org", radius=1, extra=''):
     return url
 
 
-def hscmap_query(ra, dec, open=True):
+def hscmap_query(ra, dec, open=True, **kwargs):
     """
     Function to open HSC explorer in browser centered on target coordinates
     """
@@ -692,7 +692,7 @@ def hscmap_query(ra, dec, open=True):
     return url
 
 
-def show_legacysurvey(ra, dec, layer='dr8', zoom=14):
+def show_legacysurvey(ra, dec, layer='dr8', zoom=17, **kwargs):
     """
     Open browser with legacysurvey.org panner around central position
     """
