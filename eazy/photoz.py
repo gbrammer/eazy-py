@@ -32,7 +32,7 @@ from . import utils
 
 IGM_OBJECT = igm_module.Inoue14()
 
-__all__ = ["PhotoZ", "TemplateGrid", "template_lsq"]
+__all__ = ["PhotoZ", "TemplateGrid", "template_lsq", "fit_by_redshift"]
 
 DEFAULT_UBVJ_FILTERS = [153,154,155,161] # Maiz-Appellaniz & 2MASS
 
@@ -55,7 +55,7 @@ class PhotoZ(object):
     ZPHOT_AT_ZSPEC = None
     ZPHOT_USER = None
     
-    def __init__(self, param_file=None, translate_file=None, zeropoint_file=None, load_prior=True, load_products=False, params={}, random_seed=0, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, **kwargs):
+    def __init__(self, param_file=None, translate_file=None, zeropoint_file=None, load_prior=True, load_products=False, params={}, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, random_seed=0, random_draws=100, **kwargs):
         """
         Main object for fitting templates / photometric redshifts
         
@@ -88,13 +88,13 @@ class PhotoZ(object):
                ``eazy/data/zphot.param.default``
             3. Override from `params`
         
-        random_seed : int
-            Random number seed for e.g., random draws from parameter 
-            covariances
-        
         n_proc : int
             Number of processes to use for `multiprocessing`-enabled 
-            functions.  If 0, then get from `multiprocessing.cpu_count`.
+            functions.  If < 0, then get from `multiprocessing.cpu_count`.
+        
+        cosmology : `astropy.cosmology` object
+            If not specified, generate a flat cosmology with 
+            `params['H0', 'OMEGA_M', 'OMEGA_L']`.
         
         compute_tef_lnp : bool
             Precompute likelihood normalization correction for the 
@@ -102,11 +102,18 @@ class PhotoZ(object):
         
         tempfilt : `~eazy.photoz.TemplateGrid` or None
             Precomputed template grid.
-            
-        cosmology : `astropy.cosmology` object
-            If not specified, generate a flat cosmology with 
-            `params['H0', 'OMEGA_M', 'OMEGA_L']`.
+
+        random_seed : int
+            Random number seed for e.g., random draws from parameter 
+            covariances
         
+        random_draws : int
+            Number of random draws from fit coefficients used for analytic
+            uncertainties.  
+            
+            .. note:: This can create a very large ``coeffs_draws`` array 
+                      with dimensions ``(NOBJ, random_draws, NTEMP)``.
+                    
         Attributes
         ----------
         NOBJ
@@ -128,7 +135,9 @@ class PhotoZ(object):
         
         OBJID
         ZSPEC
-            
+        RA
+        DEC
+        
         templates : list
             List of `~eazy.templates.Template` objects from 
             `params['TEMPLATES_FILE']`
@@ -165,7 +174,7 @@ class PhotoZ(object):
             
         zp : array (NFILT)
             Multiplicative "zeropoint correction" scaled factors, applied to 
-            `fnu`, `efnu`.
+            `fnu`, `efnu` before fitting with the template photometry.
         
         ext_redden : array (NFILT)
             Values needed to **remove** MW redenning if it has been included
@@ -234,8 +243,8 @@ class PhotoZ(object):
         efmodel : array (NOBJ, NFILT)
             Uncertainties on `fmodel` from covariance matrix
             
-        coeffs_draws : array (NOBJ, 100, NTEMP)
-            100 random draws from the template fit covariance matrix
+        coeffs_draws : array (NOBJ, `random_draws`, NTEMP)
+            Random draws from the template fit covariance matrix
             
         """
         from astropy.cosmology import LambdaCDM
@@ -293,10 +302,7 @@ class PhotoZ(object):
             self.cosmology = cosmology
             
         ### Read catalog and filters
-        self.fixed_cols = {'id':'id', 'z_spec':'z_spec', 
-                           'ra':'ra', 'dec':'dec', 
-                           'x':'x_image', 'y':'y_image'}
-        
+        self.fixed_cols = {}        
         self.read_catalog()
         if self.NFILT < 1:
             print('\n!! No filters found, maybe a problem with'
@@ -332,7 +338,7 @@ class PhotoZ(object):
         self.fit_coeffs = np.zeros((self.NOBJ, self.NZ, self.NTEMP),
                                    dtype=self.ARRAY_DTYPE)
         
-        self.coeffs_draws = np.zeros((self.NOBJ, 100, self.NTEMP), 
+        self.coeffs_draws = np.zeros((self.NOBJ, random_draws, self.NTEMP), 
                                      dtype=self.ARRAY_DTYPE)
         self.get_err = False
         
@@ -446,22 +452,61 @@ class PhotoZ(object):
             return 0
 
 
+    @property
+    def NDRAWS(self):
+        """
+        Number of random draws, taken from `coeffs_draws` attribute
+        """
+        return self.coeffs_draws.shape[1]
+
+
     @property 
     def OBJID(self):
         """
         ``id`` column data from the (translated) catalog with size `NOBJ`
         """
+        # No test on validity because `read_catalog` should have failed
         return self.cat[self.fixed_cols['id']]
 
 
     @property
     def ZSPEC(self):
         """
-        ``z_spec`` column data from the (translated) catalog (or -1.) with size `NOBJ`
+        ``z_spec`` column data from the (translated) catalog (or -1.) 
+        with size `NOBJ`
         """
         try:
             return self.cat[self.fixed_cols['z_spec']]
         except:
+            msg = f"ZSPEC column {self.fixed_cols['z_spec']} not found in catalog"
+            warnings.warn(msg, AstropyUserWarning)
+            return np.full(self.NOBJ, -1, dtype=self.ARRAY_DTYPE)
+
+    @property
+    def RA(self):
+        """
+        ``ra`` Right Ascension column data from the (translated) catalog 
+        (or -1.) with size `NOBJ`
+        """
+        try:
+            return self.cat[self.fixed_cols['ra']]
+        except:
+            msg = f"RA column {self.fixed_cols['ra']} not found in catalog"
+            warnings.warn(msg, AstropyUserWarning)
+            return np.full(self.NOBJ, -1, dtype=self.ARRAY_DTYPE)
+
+
+    @property
+    def DEC(self):
+        """
+        ``dec`` Declination column data from the (translated) catalog 
+        (or -1.) with size `NOBJ`
+        """
+        try:
+            return self.cat[self.fixed_cols['dec']]
+        except:
+            msg = f"DEC column {self.fixed_cols['dec']} not found in catalog"
+            warnings.warn(msg, AstropyUserWarning)
             return np.full(self.NOBJ, -1, dtype=self.ARRAY_DTYPE)
 
 
@@ -476,10 +521,13 @@ class PhotoZ(object):
             Run `~eazy.photoz.PhotoZ.error_residuals` after reading data
         
         fitter : str
-            Fitting method passed to `eazy.photoz.template_lsq`. The only
-            stable option so far is 'nnls' for non-negative least squares with
-            `scipy.optimize.nnls`, other options under development.
-            
+            Least-squares method for template fits.  See
+            `~eazy.photoz.template_lsq`. 
+        
+        Returns
+        -------
+        Sets various internal attributes
+        
         """
         zout_file = '{0}.zout.fits'.format(self.param['MAIN_OUTPUT_FILE'])
         if os.path.exists(zout_file):
@@ -564,7 +612,17 @@ class PhotoZ(object):
         self.err_columns = []
         self.f_numbers = []
         
-        required = ['id']
+        # Some specific columns
+        self.fixed_cols = {'id':'id', 
+                           'z_spec':'z_spec', 
+                           'ra':'ra',
+                           'dec':'dec', 
+                           'x':'x_image', 
+                           'y':'y_image'}
+        
+        required_cols = ['id']
+        warn_cols = ['z_spec','ra','dec']
+        
         for k in ['id', 'z_spec', 'ra', 'dec', 'x', 'y']:
             if k in self.cat.colnames:
                 self.fixed_cols[k] = k
@@ -574,11 +632,35 @@ class PhotoZ(object):
                     if self.translate.trans[ke] == k:
                         new = ke
                 
-                if (new is None) & (k in required):
-                    raise ValueError('Catalog or translate_file must have a' +
-                                     f' {k} column')
-                else:
-                    self.fixed_cols[k] = new
+                if (new is None) | (new not in self.cat.colnames):
+                    col_options = {'id':['ID','OBJID','NUMBER'], 
+                                'ra':['RA', 'X_WORLD', 'ALPHA_J2000','ALPHA'],
+                                'dec':['DEC', 'Y_WORLD', 'DELTA_J2000', 
+                                       'DELTA'],
+                                'z_spec':['Z_SPEC','ZSPEC','ZSP'],
+                                'x':['X','X_IMAGE'], 
+                                'y':['Y','Y_IMAGE']}
+                    
+                    if k in col_options:
+                        for ke in col_options[k]:
+                            for str_method in [str.upper, str.lower, 
+                                               str.title]:
+                                if str_method(ke) in self.cat.colnames:
+                                    new = str_method(ke)
+                                    break
+                            
+                if (new is None) | (new not in self.cat.colnames): 
+                    if (k in required_cols):
+                        msg = (f'Catalog or translate_file must have a {k} ' +
+                               f'column')
+                        raise ValueError(msg)
+                        
+                    elif k in warn_cols:
+                        msg = (f'No {k} column found in catalog.  Some ' 
+                                'functionality might not be available.')
+                        warnings.warn(msg, AstropyUserWarning)
+                        
+                self.fixed_cols[k] = new
                     
         for k in self.cat.colnames:
             if k.startswith('F'):
@@ -772,15 +854,15 @@ class PhotoZ(object):
         
         Parameters
         ----------
-        positive: bool
+        positive : bool
             Only apply for positive fluxes in `fnu` attribute.
         
-        in_place: bool
+        in_place : bool
             Set `efnu` attribute.  Or if False, return array as below.
             
         Returns
         -------
-        efnu: array            
+        efnu : array            
             Full uncertainty: 
             :math:`\mathrm{efnu}^2 = \mathrm{efnu\_orig}^2 + (\mathrm{SYS\_ERR}*\mathrm{fnu})^2`
         
@@ -1036,7 +1118,7 @@ class PhotoZ(object):
         
         Returns
         -------
-        prior: array-like
+        prior : array-like
             Evaluated prior
             
         """
@@ -1272,7 +1354,18 @@ class PhotoZ(object):
         return ampl, chi2, logpz
 
 
-    def fit_parallel(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls', timeout=60):
+    def fit_parallel(self, **kwargs):
+        """
+        Back-compatibility, the new function is `~eazy.photoz.PhotoZ.fit_catalog`
+        
+        """
+        warnings.warn(f'fit_parallel is deprecated, use fit_catalog',
+                      AstropyUserWarning)
+        
+        self.fit_catalog(**kwargs)
+
+
+    def fit_catalog(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls', timeout=60, **kwargs):
         """
         This is the main function for fitting redshifts for a full catalog
         and is parallelized by fitting each redshift grid step separately.
@@ -1284,7 +1377,13 @@ class PhotoZ(object):
             to fit the full catalog.
         
         n_proc : int
-            Number of parallel processes to use
+            The catalog fit is parallelized by precomputing the 
+            `~eazy.photoz.TemplateGrid` photometry and 
+            `~eazy.templates.TemplateError` function at each redshift in the 
+            and deriving the fit coefficients and chi2 for all objects at that
+            redshift.
+            Number of parallel processes to use.  If 0, then run in serial
+            mode.  
             
         verbose : bool
             Some control of status messages
@@ -1300,12 +1399,15 @@ class PhotoZ(object):
             Apply UV slope beta priorr
         
         fitter : str
-            Fitting method passed to `eazy.photoz.template_lsq`. The only
-            stable option so far is 'nnls' for non-negative least squares with
-            `scipy.optimize.nnls`, other options under development.
-        
+            Least-squares method for template fits.  See
+            `~eazy.photoz.template_lsq`.        
+            
         timeout : int
             Timeout for parallel processes
+        
+        Returns
+        -------
+        Updates various attributes, like `chi2_fit`, `fit_coeffs`.
         
         """
         import numpy as np
@@ -1332,27 +1434,52 @@ class PhotoZ(object):
         efnu_corr[missing] = self.param['NOT_OBS_THRESHOLD'] - 9.
         
         t0 = time.time()
-        if n_proc <= 0:
-            np_check = mp.cpu_count()
+        if (n_proc == 0) | (mp.cpu_count() == 1):
+            # Serial by redshift
+            np_check = 1
+            for iz, z in tqdm(enumerate(range(self.NZ))):
+                _res = fit_by_redshift(iz,
+                                       self.zgrid[iz],
+                                       self.tempfilt(self.zgrid[iz]),
+                                       fnu_corr,
+                                       efnu_corr,
+                                       self.TEF(z),
+                                       self.zp, 
+                                       self.param.params['VERBOSITY'], 
+                                       fitter)
+                
+                self.chi2_fit[idx_fit,iz] = _res[1]
+                self.fit_coeffs[idx_fit,iz,:] = _res[2]
+                
         else:
-            np_check = np.minimum(mp.cpu_count(), n_proc)
+            # With multiprocessing
+            if n_proc < 0:
+                np_check = mp.cpu_count()
+            else:
+                np_check = np.minimum(mp.cpu_count(), n_proc)
         
-        pool = mp.Pool(processes=np_check)
+            pool = mp.Pool(processes=np_check)
         
-        jobs = [pool.apply_async(_fit_vertical, 
-                         (iz, self.zgrid[iz],  self.tempfilt(self.zgrid[iz]),
-                          fnu_corr, efnu_corr, self.TEF, self.zp, 
-                          self.param.params['VERBOSITY'], fitter)) 
-                   for iz in range(self.NZ)]
+            jobs = [pool.apply_async(fit_by_redshift,
+                                      (iz,
+                                       z,
+                                       self.tempfilt(self.zgrid[iz]),
+                                       fnu_corr,
+                                       efnu_corr,
+                                       self.TEF(z),
+                                       self.zp,
+                                       self.param.params['VERBOSITY'],
+                                       fitter)
+                                      ) 
+                       for iz, z in enumerate(range(self.NZ))]
 
-        pool.close()
-        #pool.join()
+            pool.close()
         
-        # Gather results
-        for res in tqdm(jobs):
-            iz, chi2, coeffs = res.get(timeout=timeout)
-            self.chi2_fit[idx_fit,iz] = chi2
-            self.fit_coeffs[idx_fit,iz,:] = coeffs
+            # Gather results
+            for res in tqdm(jobs):
+                iz, chi2, coeffs = res.get(timeout=timeout)
+                self.chi2_fit[idx_fit,iz] = chi2
+                self.fit_coeffs[idx_fit,iz,:] = coeffs
         
         # Compute maximum likelihood redshift zml
         if get_best_fit:
@@ -1517,28 +1644,55 @@ class PhotoZ(object):
         skip = np.maximum(len(idx)//par_skip, 1)
         np_check = np.minimum(np_check, skip)
         
-        pool = mp.Pool(processes=np_check)
-        jobs = [pool.apply_async(_fit_at_zbest_group, 
-                                      (idx[i::skip], 
-                                       fnu_corr[idx[i::skip],:], 
-                                       efnu_corr[idx[i::skip],:], 
-                                       self.zbest[idx[i::skip]], 
-                                       self.zp*1, get_err, 
-                                       fitter, self.tempfilt, self.TEF,
-                                       self.ARRAY_DTYPE, None)) 
-                    for i in range(skip)]
+        if get_err:
+            get_err = self.NDRAWS
+            
+        if skip == 1:
+            # Serial (pass self at end to update arrays in place)
+            _ = _fit_at_zbest_group(idx, 
+                                fnu_corr[idx,:], 
+                                efnu_corr[idx,:], 
+                                self.zbest[idx], 
+                                self.zp*1, 
+                                get_err, 
+                                fitter, 
+                                self.tempfilt, 
+                                self.TEF,
+                                self.ARRAY_DTYPE, 
+                                self)
 
-        pool.close()
-        pool.join()
+            # _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _cdraws = _
+            # self.coeffs_best[_ix,:] = _coeffs_best
+            # self.fmodel[_ix,:] = _fmodel
+            # self.efmodel[_ix,:] = _efmodel
+            # self.chi2_best[_ix] = _chi2_best
+            # self.coeffs_draws[_ix,:,:] = _cdraws
+            
+        else:
+            # Multiprocessing
+            pool = mp.Pool(processes=np_check)
+            jobs = [pool.apply_async(_fit_at_zbest_group, 
+                                          (idx[i::skip], 
+                                           fnu_corr[idx[i::skip],:], 
+                                           efnu_corr[idx[i::skip],:], 
+                                           self.zbest[idx[i::skip]], 
+                                           self.zp*1, get_err, 
+                                           fitter, self.tempfilt, self.TEF,
+                                           self.ARRAY_DTYPE, None)) 
+                        for i in range(skip)]
 
-        for res in jobs:
-            _ = res.get(timeout=1)
-            _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _coeffs_draws = _
-            self.coeffs_best[_ix,:] = _coeffs_best
-            self.fmodel[_ix,:] = _fmodel
-            self.efmodel[_ix,:] = _efmodel
-            self.chi2_best[_ix] = _chi2_best
-            self.coeffs_draws[_ix,:,:] = _coeffs_draws
+            pool.close()
+            pool.join()
+
+            for res in jobs:
+                _ = res.get(timeout=1)
+                _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _cdraws = _
+                self.coeffs_best[_ix,:] = _coeffs_best
+                self.fmodel[_ix,:] = _fmodel
+                self.efmodel[_ix,:] = _efmodel
+                self.chi2_best[_ix] = _chi2_best
+                if get_err:
+                    self.coeffs_draws[_ix,:,:] = _cdraws
         
         t1 = time.time()
         print(f'fit_best: {t1-t0:.1f} s (n_proc={np_check}, '
@@ -2127,7 +2281,7 @@ class PhotoZ(object):
         fp.close()
 
 
-    def show_fit(self, id, show_fnu=False, xlim=[0.3, 9], get_spec=False, id_is_idx=False, show_components=False, show_redshift_draws=False, draws_cmap=None, zshow=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], NDRAW=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=0, show_upperlimits=True, snr_thresh=2., with_tef=True):
+    def show_fit(self, id, id_is_idx=False, zshow=None, show_fnu=0, get_spec=False, xlim=[0.3, 9], show_components=False, show_redshift_draws=False, draws_cmap=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], ndraws=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=-20, max_stars=3, show_upperlimits=True, snr_thresh=2., with_tef=True):
         """
         Make plot of SED and p(z) of a single object
         
@@ -2138,41 +2292,42 @@ class PhotoZ(object):
             `id_is_idx` is set to True, then is zero-index of the desired 
             object in the catalog array.
         
-        show_fnu : bool, int
-            If False, then make plots in f-lambda units of 1e-19 erg/s/cm2/A.
-            
-            If `show_fnu == 1`, then plot f-nu units of uJy
-            
-            If `show_fnu == 2`, then plot "nu-Fnu" units of uJy/micron.
-        
-        xlim : list
-            Wavelength limits to plot
-        
-        get_spec : bool
-            If True, return the SED data rather than make a plot
-        
         id_is_idx : bool
             See `id`.
+
+        zshow : None, float
+            If a value is supplied, compute the best-fit SED at this redshift,
+            rather than the value in the `self.zbest` array attribute.
+
+        show_fnu : bool, int
+             - 0: make plots in f-lambda units of 1e-19 erg/s/cm2/A.
+             - 1: plot f-nu units of uJy
+             - 2: plot "nu-Fnu" units of uJy/micron.
+        
+        get_spec : bool
+            If True, just return the SED data rather than make a plot
+
+        xlim : list
+            Wavelength limits to plot, in microns.
         
         show_components : bool
             Show all of the individual SED components, along with their 
             combination.
         
-        show_redshift_draws: bool
+        show_redshift_draws : bool
             Show templates at different redshifts drawn from the PDF
         
-        draws_cmap: color map
+        draws_cmap : color map
             Color map for `show_reshift_draws=True`, defaults to 
             `matplotlib.pyplot.cm.rainbow`.
-            
-        zshow : None, float
-            If a value is supplied, compute the best-fit SED at this redshift,
-            rather than the value in the `self.zbest` array.
-        
+                
         showpz : bool, float
             Include p(z) panel.  If a float, then scale the p(z) panel by 
             a factor of `showpz` relative to half of the full plot width.
         
+        logpz : bool
+            Logarithmic p(z) plot
+            
         zr : None or [z0, z1]
             Range of redshifts to show in p(z) panel.  If None, then show
             the full range in `self.zgrid`.
@@ -2181,14 +2336,50 @@ class PhotoZ(object):
             If provided, draw the SED and p(z) panels into the provided axes.
             If just one axis is provided, then just plot the SED.
 
-        show_upper_limits: bool
+        template_color : color
+            Something `matplotlib` recognizes as a color
+        
+        figsize : (float, float)
+            Figure size
+        
+        ndraws : int
+            Number of random draws for template coefficient uncertainties
+        
+        fitter : str
+            Least-squares method for template fits.  See
+            `~eazy.photoz.template_lsq`.        
+        
+        show_missing : bool
+            Show points for "missing" data
+        
+        maglim : (float, float)
+            AB magnitude limits for second axis if ``show_fnu=1``.
+        
+        show_prior : bool
+            Show the apparent magnitude prior on the p(z) panel
+        
+        show_stars : bool
+            Show stellar template fits given `delta_chi2_stars`
+        
+        delta_chi2_stars : float
+            Show stellar templates where 
+            ``star_chi2 - gal_chi2 < delta_chi2_stars`` where ``gal_chi2`` 
+            is the chi-squared value from the galaxy template fit at the 
+            plotted redshift.
+        
+        max_stars : int
+            Maximum number of stars to show that satisfy `delta_chi2_stars`
+            threshold
+            
+        show_upper_limits : bool
             If False, the upper limit errorbar measurements will not be shown.
 
-        snr_thresh: float
-            Sets the threshold in SNR required for a detection.
-            Default is 2.
+        snr_thresh : float
+            Sets the threshold in SNR required for a detection.  This doesn't 
+            affect anything related to the fits but non-detections are plotted
+            in a lighter color.
         
-        with_tef: bool
+        with_tef : bool
             Plot uncertainties including template error function at z.
             
         Returns
@@ -2197,8 +2388,45 @@ class PhotoZ(object):
             Figure object
         
         data : dict
-            Dictionary of fit data (photometry, best-fit template, etc.).
+            Dictionary of fit data (photometry, best-fit template, etc.)
             
+            +---------------+----------------------------------------------+
+            | Key           | Description                                  |
+            +===============+==============================================+
+            | ix            | catalog index                                |
+            +---------------+----------------------------------------------+
+            | id            | object id                                    |
+            +---------------+----------------------------------------------+
+            | z             | redshift (see `zshow`)                       |
+            +---------------+----------------------------------------------+
+            | pivot         | pivot wavelengths of filter bandpasses       |
+            +---------------+----------------------------------------------+
+            | model         | best-fit template flux densities             |
+            +---------------+----------------------------------------------+
+            | emodel        | uncertainties on model from fit covariance   |
+            +---------------+----------------------------------------------+
+            | fobs          | observed photometry                          |
+            +---------------+----------------------------------------------+
+            | efobs         | observed uncertainties (sys_err but not TEF) |
+            +---------------+----------------------------------------------+
+            | tef           | TEF evaluated at `z`                         |
+            +---------------+----------------------------------------------+
+            | templz        | observed-frame wavelength of full template   |
+            |               | spectrum                                     |
+            +---------------+----------------------------------------------+
+            | templf        | flux density of best-fit template            |
+            +---------------+----------------------------------------------+
+            | show_fnu      | `show_fnu` as passed                         |
+            +---------------+----------------------------------------------+
+            | flux_unit     | units of flux density data                   |
+            +---------------+----------------------------------------------+
+            | wave_unit     | units of wavelength data                     |
+            +---------------+----------------------------------------------+
+            | chi2          | :math:`\chi^2` of the best-fit template      |
+            +---------------+----------------------------------------------+
+            | coeffs        | template coefficients                        |
+            +---------------+----------------------------------------------+
+                                    
         """
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
@@ -2227,8 +2455,7 @@ class PhotoZ(object):
             if ds9_sky:
                 #for c in ['ra','RA','x_world']:
                 pan = 'pan to {0} {1} fk5'
-                ds9.set(pan.format(self.cat[self.fixed_cols['ra']][ix],
-                                   self.cat[self.fixed_cols['dec']][ix]))
+                ds9.set(pan.format(self.RA[ix], self.DEC[ix]))
             else:
                 pan = 'pan to {0} {1}'
                 ds9.set(pan.format(self.cat[self.fixed_cols['x']][ix], 
@@ -2246,7 +2473,7 @@ class PhotoZ(object):
         A = np.squeeze(self.tempfilt(z))
         chi2_i, coeffs_i, fmodel, draws = template_lsq(fnu_i, efnu_i, A, 
                                                    tef_i, self.zp, 
-                                                   NDRAW, fitter)
+                                                   ndraws, fitter)
         if draws is None:
             efmodel = 0
         else:
@@ -2313,7 +2540,7 @@ class PhotoZ(object):
                            tef=tef_i,
                            templz=templz,
                            templf=templf*fnu_factor*flam_spec,
-                           unit=show_fnu*1,
+                           show_fnu=show_fnu*1,
                            flux_unit=flux_unit,
                            wave_unit=u.AA, 
                            chi2=chi2_i, 
@@ -2478,7 +2705,7 @@ class PhotoZ(object):
                 order = np.where(good_stars)[0]
                 order = order[np.argsort(delta_chi2[order])]
             
-                for si in order:
+                for si in order[:max_stars]:
                     label = self.star_templates[si].name.strip('bt-settl_')
                     label = '{0} {1:5.1f}'.format(label.replace('_', ' '),
                                                  delta_chi2[si])
@@ -2680,16 +2907,19 @@ class PhotoZ(object):
                 draws_i = (draws_resh*templ_fluxes[:,:,i]).sum(axis=2) 
                 perc = np.percentile(draws_i, percentiles, axis=0)
                 tab['obs{0}_p'.format(f_numbers[i])] = perc.T
+                del(draws_i)
                 
             key = 'name{0}'.format(f_numbers[i])
             tab.meta[key] = _tempfilt.filter_names[i]
             key = 'pivw{0}'.format(f_numbers[i])
             tab.meta[key] = _tempfilt.lc[i]
         
+        del(draws_resh)
+        
         return tab
 
 
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000, par_timeout=600, **kwargs):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, ndraws=1000, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000, par_timeout=600, **kwargs):
         """
         Rest-frame fluxes, refit by down-weighting bands far away from 
         the desired RF band.
@@ -2735,7 +2965,14 @@ class PhotoZ(object):
                 _ = plt.plot(lc_obs[so], TEFz[so])
                 _ = plt.xlabel('rest wavelength')
                 _ = plt.ylabel('Fractional uncertainty')
-            
+        
+        
+        ndraws : int
+            Number of random draws for ``simple=False`` fits, which does 
+            not have to be the same as that used for `coeffs_draws` attribute
+            since the template coefficients are recalculated for every object.
+            If ``simple=True``, then draws are fixed in the stored 
+            `coeffs_draws` attribute.
             
         percentiles : list
             Percentiles to return of the computed rest-frame fluxes drawn 
@@ -2746,10 +2983,17 @@ class PhotoZ(object):
             best fits rather than doing the filter reweighting.
         
         fitter : str
-            Fitting method passed to `eazy.photoz.template_lsq`. The only
-            stable option so far is 'nnls' for non-negative least squares with
-            `scipy.optimize.nnls`, other options under development.
-            
+            Least-squares method for template fits.  See
+            `~eazy.photoz.template_lsq`.
+                
+        n_proc, par_skip : int, int
+            Number of processes to use.  If zero, then run in serial mode.  
+            Otherwise, will run in parallel threads splitting the catalog into 
+            ``NOBJ/par_skip`` pieces.
+        
+        par_timeout : scalar
+            Timeout for `multiprocessing` threads.
+        
         Returns
         -------
         rf_tempfilt : array (NZGRID, NTEMP, len(`f_numbers`))
@@ -2812,6 +3056,9 @@ class PhotoZ(object):
                 f_vals = (coeffsT*rf_iz[:,:,i]).sum(axis=2)
                 f_rest[:,i,:] = np.percentile(f_vals, percentiles, axis=0).T
             
+            del(coeffsT)
+            del(f_vals)
+            
             return rf_tempfilt, rf_lc, f_rest  
                         
         fnu_corr = self.fnu*self.ext_redden*self.zp
@@ -2823,8 +3070,31 @@ class PhotoZ(object):
         # Set seed
         np.random.seed(self.random_seed)
         
-        if (n_proc >= 0) & (len(idx) > par_skip):            
-            if n_proc == 0:
+        if (n_proc == 0) | (len(idx) <= par_skip):  
+            # Serial
+            _ = _fit_rest_group(idx, 
+                                fnu_corr[idx,:], 
+                                efnu_corr[idx,:], 
+                                izbest[idx], 
+                                self.zbest[idx], 
+                                self.zp*1, 
+                                ndraws, 
+                                fitter, 
+                                self.tempfilt,
+                                self.ARRAY_DTYPE, 
+                                rf_tempfilt, 
+                                percentiles, 
+                                rf_lc,
+                                pad_width,
+                                max_err,
+                                0)
+            
+            _ix, _frest = _                
+            f_rest[_ix,:,:] = _frest
+            
+        else:     
+            # Threaded     
+            if n_proc < 0:
                 n_proc = np.maximum(mp.cpu_count() - 2, 1)
             
             skip = np.maximum(len(idx)//par_skip+1, 1)
@@ -2841,11 +3111,17 @@ class PhotoZ(object):
                                            efnu_corr[idx[i::skip],:], 
                                            izbest[idx[i::skip]], 
                                            self.zbest[idx[i::skip]], 
-                                           self.zp*1, True, 
-                                           fitter, self.tempfilt,
+                                           self.zp*1, 
+                                           ndraws, 
+                                           fitter,
+                                           self.tempfilt,
                                            self.ARRAY_DTYPE, 
-                                           rf_tempfilt, percentiles, 
-                                           rf_lc, pad_width, max_err))
+                                           rf_tempfilt,
+                                           percentiles, 
+                                           rf_lc,
+                                           pad_width,
+                                           max_err,
+                                           skip))
                         for i in range(skip)]
 
             pool.close()
@@ -2859,44 +3135,7 @@ class PhotoZ(object):
             t1 = time.time()
             print(f' ... rest-frame flux: {t1-t0:.1f} s (n_proc={np_check}, '
                   f' NOBJ={len(idx)})')
-            
-        else:            
-            for ix in tqdm(idx):
 
-                fnu_i = fnu_corr[ix,:]*1
-                efnu_i = efnu_corr[ix,:]*1
-                z = self.zbest[ix]
-                if (z < 0) | (~np.isfinite(z)):
-                    continue
-            
-                A = self.tempfilt(z)   
-                iz = izbest[ix]
-            
-                for i in range(NREST):
-                    ## Grow uncertainties away from RF band
-                    #lc_i = rf_tempfilt.lc[i]
-                    lc_i = rf_lc[i]
-                
-                    # Normal in log wavelength
-                    x = np.log(lc_i/(self.pivot/(1+z)))
-                    grow = np.exp(-x**2/2/np.log(1/(1+pad_width))**2)
-
-                    TEFz = (2/(1+grow/grow.max())-1)*max_err
-            
-                    _ = template_lsq(fnu_i, efnu_i, A, TEFz, self.zp, 100, 
-                                     fitter)
-                                     
-                    chi2_i, coeffs_i, fmodel_i, draws = _
-                
-                    if draws is None:
-                        f_rest[ix,i,:] = np.zeros(len(percentiles),
-                                                  dtype=self.ARRAY_DTYPE) - 1
-                    else:
-                        dval = np.dot(draws, rf_tempfilt[iz,:,i])
-                        f_rest[ix,i,:] = np.percentile(dval, percentiles,
-                                                       axis=0)
-                        del(dval)
-                    
         return rf_tempfilt, rf_lc, f_rest  
 
 
@@ -3021,12 +3260,19 @@ class PhotoZ(object):
     def get_maxlnp_redshift(self, prior=False, beta_prior=False, clip_wavelength=1100):
         """Fit parabola to `lnp` to get continuous max(lnp) redshift.
         
+        Parameters
+        ----------
+        prior : bool
+        beta_prior : bool
+        clip_wavelength : float
+            Parameters passed to `~eazy.photoz.PhotoZ.compute_lnp`
+            
         Returns
         -------
-        zml: array (NOBJ)
+        zml : array (NOBJ)
             Redshift where lnp is maximized
         
-        maxlnp: array (NOBJ) 
+        maxlnp : array (NOBJ) 
             Maximum of lnp
             
         """
@@ -3265,7 +3511,7 @@ class PhotoZ(object):
 
     def find_peaks(self, thres=0.8, min_dist_dz=0.1):
         """
-        Find discrete peaks in `lnp` with `peakutils` module.
+        Find discrete peaks in `lnp` with `peakutils <https://peakutils.readthedocs.io/en/latest/index.html>`_ module.
         
         Parameters
         ----------
@@ -3296,7 +3542,7 @@ class PhotoZ(object):
 
     def abs_mag(self, f_numbers=[271, 272, 274], cosmology=None, rest_kwargs={'percentiles':[2.5,16,50,84,97.5], 'pad_width':0.5, 'max_err':0.5, 'verbose':False, 'simple':False}):
         """
-        Get absolute mags (e.g., UV).
+        Get absolute mags (e.g., M_UV tophat filters).
         
         Parameters
         ----------
@@ -3347,13 +3593,40 @@ class PhotoZ(object):
         return tab
 
 
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, LIR_wave=[8,1000], cosmology=None, extra_rf_filters=DEFAULT_RF_FILTERS, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), simple=False, n_proc=-1, **kwargs):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, LIR_wave=[8,1000], cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), n_proc=-1, **kwargs):
         """
         Rest-frame colors and population parameters
         
-        template_fnu_units: Units of templates when converted to `flux_fnu`, 
-                            e.g., L_sun / Hz for FSPS templates.
+        Parameters
+        ----------
+        UBVJ : (int, int, int, int)
+            Filter indices of U, B, V, J filters in `params['FILTER_FILE']`.
         
+        extra_rf_filters : list
+            If specified, additional filters to calculate rest-frame fluxes
+        
+        LIR_wave : (min_wave, max_wave)
+            Limits in microns to integrate the far-IR SED to calculate LIR.
+    
+        cosmology : `astropy.cosmology`
+            Cosmology for calculating luminosity distances, etc.  Defaults to
+            flat cosmology with H0, OMEGA_M, OMEGA_L from the parameter file.
+
+        simple, rf_pad_width, rf_max_err : bool, float, float
+            See `~eazy.photoz.PhotoZ.rest_frame_fluxes`.
+                
+        template_fnu_units : `astropy.units.Unit`
+            Units of templates when converted to ``flux_fnu``, e.g., 
+            :math:`L_\odot / Hz` for FSPS templates.
+        
+        n_proc : int
+            Number of parrallel processes 
+        
+        Returns
+        -------
+        tab: `astropy.table.Table`
+            Table with rest-frame fluxes and population synthesis parameters
+            
         """   
         if cosmology is None:
             #from astropy.cosmology import WMAP9 as cosmology
@@ -3808,7 +4081,7 @@ class PhotoZ(object):
 
     def standard_output(self, zbest=None, prior=False, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], simple=False, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, **kwargs):#
         """
-        Full output to `zout.fits` file.  
+        Full output to ``zout.fits`` file.  
         
         First refits the coefficients at `zml` and optionally `zbest`.
         
@@ -3818,50 +4091,61 @@ class PhotoZ(object):
         
         Parameters
         ----------
-        zbest: array-like, None
+        zbest : array (NOBJ), None
             If provided, derive properties at this specified redshift.  
             Otherwise, defaults in internal `zml` maximum-likelihood 
             redshift.
         
-        prior: bool
+        prior : bool
             Include the apparent magnitude prior in `lnp`.
         
-        beta_prior: bool
+        beta_prior : bool
             Include the UV slope prior in `lnp` 
             (`~eazy.photoz.PhotoZ.prior_beta`).
         
-        UBVJ: list of 4 ints
+        UBVJ : list of 4 ints
             Filter indices of U, B, V, J filters in `params['FILTER_FILE']`.
         
-        extra_rf_filters: list
+        extra_rf_filters : list
             If specified, additional filters to calculate rest-frame fluxes
         
-        cosmology: `astropy.cosmology` object
+        cosmology : `astropy.cosmology` object
             Cosmology for calculating luminosity distances, etc.  Defaults to
             flat cosmology with H0, OM, OL from the parameter file.
             
-        LIR_wave: [min_wave, max_wave]
-            Limits in microns to integrate the far-IR SED to calculate LIR.
+        LIR_wave : (min_wave, max_wave)
+            Limits in `microns` to integrate the far-IR SED to calculate LIR.
         
-        simple, rf_pad_width, rf_max_err: bool, float, float
+        simple, rf_pad_width, rf_max_err : bool, float, float
             See `~eazy.photoz.PhotoZ.rest_frame_fluxes`.
             
-        save_fits: bool / int 
-            0. Return just the parameter table
-            1. Return the parameter table and data HDU and write 
-               '.data.fits'
-            2. Same as above, but also include template coeffs at all
-               redshifts, which can be a very large array with 
-               dimensions (NOBJ, NZ, NFILT).
+        save_fits : bool / int 
+            - 0: Return just the parameter table
+            - 1: Return the parameter table and data HDU and write 
+              '.data.fits' file
+            - 2: Same as above, but also include template coeffs at all
+              redshifts, which can be a very large array with 
+              dimensions (NOBJ, NZ, NFILT).
         
-        get_err: bool
+        get_err : bool
             Get parameter percentiles at `percentile_limits`.
         
-        fitter: 'nnls', 'bounded'
-            least-squares method for template fits.
+        fitter : 'nnls', 'bounded'
+            Least-squares method for template fits.  See
+            `~eazy.photoz.template_lsq`.
         
-        absmag_filters: list
+        absmag_filters : list
             Optional list of filters to compute absolute (AB) magnitudes
+        
+        Returns
+        -------
+        tab : `astropy.table.Table`
+            Table object. Output columns described 
+            `here <../eazy/zout_columns.html>`_.
+        
+        hdu : `astropy.io.fits.HDUList` or None
+            More fit data (coeffs, zgrid) needed for recreating fit state
+            with `~eazy.photoz.PhotoZ.load_products`.  See `save_fits`.
             
         """
         import astropy.io.fits as pyfits
@@ -3872,11 +4156,10 @@ class PhotoZ(object):
                         
         tab = Table()
         tab['id'] = self.OBJID
-        for col in ['ra', 'dec']:
-            if col in self.cat.colnames:
-                tab[col] = self.cat[col]
+        for col in ['ra', 'dec', 'z_spec']:
+            if self.fixed_cols[col] in self.cat.colnames:
+                tab[col] = self.cat[self.fixed_cols[col]]
                 
-        tab['z_spec'] = self.ZSPEC
         tab['nusefilt'] = self.nusefilt
 
         # Fit at max-lnp (default if zbest = None) first and record this 
@@ -4028,7 +4311,9 @@ class PhotoZ(object):
             return ix
         
         # From RA / DEC
-        idx, dr = self.cat.match_to_catalog_sky([rd[0]*u.deg, rd[1]*u.deg])
+        idx, dr = self.cat.match_to_catalog_sky([rd[0]*u.deg, rd[1]*u.deg], 
+                                          self_radec=(self.fixed_cols['ra'],
+                                                      self.fixed_cols['dec']))
         if verbose:
             msg = 'ID={0}, idx={1}, dr={2:.3f}'
             print(msg.format(self.OBJID[idx[0]], idx[0], dr[0]))
@@ -4091,7 +4376,9 @@ class PhotoZ(object):
             ti['ra'] = [rd[0]]
             ti['dec'] = [rd[1]]
             
-            idx, dr = self.cat.match_to_catalog_sky(ti)
+            idx, dr = self.cat.match_to_catalog_sky(ti,
+                                          self_radec=(self.fixed_cols['ra'],
+                                                      self.fixed_cols['dec']))
             idx = idx[0]
             dr = dr[0]
         else:
@@ -4275,10 +4562,12 @@ class PhotoZ(object):
         #fig.savefig('gs_eazypy.RF_{0}.png'.format(label))
 
 
-    def spatial_statistics(self, band_indices=None, xycols=('ra','dec'), is_sky=True, nbin=(50,50), bins=None, apply=False, min_sn=10, catalog_mask=None, statistic='median', zrange=[0.05, 4], verbose=True, vm=(0.92, 1.08), output_suffix='', save_results=True, make_plot=True, cmap='plasma', figsize=5, plot_format='png', close=True, scale_by_uncertainties=False):
+    def spatial_statistics(self, band_indices=None, xycols=None, is_sky=True, nbin=(50,50), bins=None, apply=False, min_sn=10, catalog_mask=None, statistic='median', zrange=[0.05, 4], verbose=True, vm=(0.92, 1.08), output_suffix='', save_results=True, make_plot=True, cmap='plasma', figsize=5, plot_format='png', close=True, scale_by_uncertainties=False):
         """
         Show statistics as a function of position
         
+        Parameters
+        ----------
         band_indices : list of int, None
             Indices of the bands to process, in the order of the 
             `self.pivot`, `self.filters`, etc. lists.  If None, do all of
@@ -4294,6 +4583,9 @@ class PhotoZ(object):
         import astropy.stats
         
         # Coordinate things
+        if xycols is None:
+            xycols = (self.fixed_cols['ra'], self.fixed_cols['dec'])
+            
         xc = self.cat[xycols[0]]
         yc = self.cat[xycols[1]]
         
@@ -4376,12 +4668,16 @@ class PhotoZ(object):
                 fig.savefig(fig_file)
                 if close:
                     plt.close()
-        
-    def apply_spatial_offset(self, f_ix, bin2d, xycols=('ra','dec')):
+
+
+    def apply_spatial_offset(self, f_ix, bin2d, xycols=None):
         """
         Apply a spatial zeropoint offset determined from    
         spatial_statistics.
         """
+        if xycols is None:
+            xycols = (self.fixed_cols['ra'], self.fixed_cols['dec'])
+        
         xc = self.cat[xycols[0]]
         yc = self.cat[xycols[1]]
         
@@ -4476,11 +4772,11 @@ class PhotoZ(object):
         if rix is None:
             rix = self.zbest > 0
             
-        r0 = np.mean(self.cat[self.fixed_cols['ra']][rix])
-        d0 = np.mean(self.cat[self.fixed_cols['dec']][rix])
+        r0 = np.mean(self.RA[rix])
+        d0 = np.mean(self.DEC[rix])
         cosd = np.cos(d0/180*np.pi)
-        r0 = (self.cat[self.fixed_cols['ra']][rix]-r0)*cosd*3600
-        d0 = (self.cat[self.fixed_cols['dec']][rix]-d0)*3600
+        r0 = (self.RA[rix]-r0)*cosd*3600
+        d0 = (self.DEC[rix]-d0)*3600
         zix = self.zbest[rix]
 
         pair_inds = np.array(list(itertools.combinations(range(rix.sum()),2)))
@@ -4721,7 +5017,7 @@ class TemplateGrid(object):
         
         Parameters
         ----------
-        interpolator: None or a `scipy.interpolate` class.
+        interpolator : None or a `scipy.interpolate` class.
             Defaults to `scipy.interpolate.Akima1DInterpolator` which has 
             desirable smooth behavior robust to large curvature in the 
             interpolated data.
@@ -4845,15 +5141,55 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     return itemp, tempfilt
 
 
-def _fit_vertical(iz, z, A, fnu_corr, efnu_corr, TEF, zp, verbose, fitter):
+def fit_by_redshift(iz, z, A, fnu_corr, efnu_corr, TEFz, zp, verbose, fitter):
     """
-    Fit all objects at a given reshift for redshift-fit parallelization
+    Fit all objects in the catalog at a given reshift for parallelization
+    
+    Parameters
+    ----------
+    iz : int
+        Index of the redshift grid
+    
+    z : float
+        Redshift value
+    
+    A : array (NTEMP, NFILT)
+        `~eazy.photoz.TemplateGrid` photometry evaluated at redshift `z`.
+    
+    fnu_corr, efnu_corr : array (NOBJ, NFILT)
+        Flux densities and uncertainties *without* MW extinction and *with*
+        `~eazy.photoz.PhotoZ.zp` zeropoint corrections
+    
+    TEFz : array (NFILT)
+        `~eazy.templates.TemplateError` evaluated at redshift `z`.
+    
+    zp : array (NFILT)
+        Zeropoint corrections needed to back out of `efnu_corr`
+        
+    verbose : int
+        Prints status message if ``verbose > 2``.
+    
+    fitter : str
+        Least-squares method for template fits.  See
+        `~eazy.photoz.template_lsq`.    
+        
+    Returns
+    -------
+    iz : int
+        Same as input, used for collecting results from parallel threads
+    
+    chi2 : array (NOBJ)
+        :math:`\chi^2` of the template fits
+    
+    coeffs : array (NOBJ, NTEMP)
+        Template normalization coefficients
+        
     """
     NOBJ, NFILT = fnu_corr.shape#[0]
     NTEMP = A.shape[0]
-    chi2 = np.zeros(NOBJ)
-    coeffs = np.zeros((NOBJ, NTEMP))
-    TEFz = TEF(z)
+    chi2 = np.zeros(NOBJ, dtype=fnu_corr.dtype)
+    coeffs = np.zeros((NOBJ, NTEMP), dtype=fnu_corr.dtype)
+    #TEFz = TEF(z)
     
     if verbose > 2:
         print('z={0:7.3f}'.format(z))
@@ -4882,12 +5218,20 @@ def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, tem
     NOBJ = len(ix)
     
     NTEMP = tempfilt.NTEMP
+    
+    NDRAWS = 100
+    if get_err > 1:
+        NDRAWS = int(get_err)
+    else:
+        coeffs_draws = None
+            
     if _self is None:
         coeffs_best = np.zeros((NOBJ, tempfilt.NTEMP), dtype=ARRAY_DTYPE)
         fmodel = np.zeros((NOBJ, tempfilt.NFILT), dtype=ARRAY_DTYPE)
         efmodel = np.zeros((NOBJ, tempfilt.NFILT), dtype=ARRAY_DTYPE)
         chi2_best = np.zeros(NOBJ, dtype=ARRAY_DTYPE)
-        coeffs_draws = np.zeros((NOBJ, 100, tempfilt.NTEMP),
+        if get_err:
+            coeffs_draws = np.zeros((NOBJ, NDRAWS, tempfilt.NTEMP),
                                 dtype=ARRAY_DTYPE)
     else:
         # In place, avoid making copies
@@ -4895,7 +5239,8 @@ def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, tem
         fmodel = _self.fmodel
         efmodel = _self.efmodel
         chi2_best = _self.chi2_best
-        coeffs_draws = _self.coeffs_draws
+        if get_err:
+            coeffs_draws = _self.coeffs_draws
         
     idx = np.where((zbest > tempfilt.zgrid[0]) & 
                    (zbest < tempfilt.zgrid[-1]))[0]
@@ -4909,7 +5254,7 @@ def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, tem
         fnu_i = fnu_corr[iobj, :]
         efnu_i = efnu_corr[iobj,:]
         if get_err:
-            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, 100, fitter)
+            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, NDRAWS, fitter)
             chi2, coeffs_best[iobj,:], fmodel[iobj,:], draws = _
             if draws is None:
                 efmodel[iobj,:] = -1
@@ -4931,10 +5276,12 @@ def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, tem
         return True
 
 
-def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter, tempfilt, ARRAY_DTYPE, rf_tempfilt, percentiles, rf_lc, pad_width, max_err):
+def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter, tempfilt, ARRAY_DTYPE, rf_tempfilt, percentiles, rf_lc, pad_width, max_err, threads):
     """
     Standalone function for fitting rest-frame fluxes for individual objects
     """
+    from tqdm import tqdm
+    
     #TEF, tempfilt = np.load(savefile, allow_pickle=True)
     NOBJ = len(ix)
     NTEMP = tempfilt.NTEMP    
@@ -4944,8 +5291,17 @@ def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter,
     
     idx = np.where((zbest > tempfilt.zgrid[0]) & 
                    (zbest < tempfilt.zgrid[-1]))[0]
-                
-    for iobj in idx:
+    
+    if threads == 0:
+        iters = tqdm(idx)
+    else:
+        iters = idx  
+    
+    NDRAWS = 100
+    if get_err > 1:
+        NDRAWS = get_err
+                      
+    for iobj in iters:
 
         fnu_i = fnu_corr[iobj,:]*1
         efnu_i = efnu_corr[iobj,:]*1
@@ -4967,7 +5323,7 @@ def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter,
 
             TEFz = (2/(1+grow/grow.max())-1)*max_err
         
-            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, 100, fitter)
+            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, NDRAWS, fitter)
             chi2_i, coeffs_i, fmodel_i, draws = _
             
             if draws is None:
@@ -4983,16 +5339,17 @@ def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter,
 #BOUNDED_DEFAULTS = {'bounds':(1.e3, 1.e18), 'method': 'bvls', 'tol': 1.e-8, 'verbose': 0}
 BOUNDED_DEFAULTS = {'bound_range':[0.05, 20], 'method': 'trf', 'tol': 1.e-8, 'verbose': 0, 'normalize_type':0}
 
-def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
+def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter):
     """
     Wrapper for back-compatibility
     """
     warnings.warn(f'_fit_obj is deprecated, use template_lsq',
                   AstropyUserWarning)
     
-    return template_lsq(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter)
-    
-def template_lsq(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
+    return template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter)
+
+
+def template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter):
     """
     This is the main least-squares function for fitting templates to 
     photometry at a given redshift
@@ -5007,17 +5364,17 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     
     A : array (NTEMP, NFILT)
         Design matrix of templates integrated through filter bandpasses at
-        a particular redshift
+        a particular redshift, z (not specified but implicit)
     
     TEFz : array (NFILT)
-        Template error function
+        `~eazy.templates.TemplateError` evaluated at same redshift as `A`.
     
     zp : array (NFILT)
         Multiplicative zeropoint corrections needed to back out from `efnu_i`
         and test for valid data
     
-    get_err : int
-        If > 0, take `get_err` random coefficient draws from fit covariance 
+    ndraws : int
+        If > 0, take `ndraws` random coefficient draws from fit covariance 
         matrix
     
     fitter : str
@@ -5036,8 +5393,8 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     fmodel : array (NFILT)
         Flux densities of the best-fit model
     
-    coeffs_draw : array (`get_err`, NTEMP)
-        Random draws from covariance matrix, if `get_err` > 0
+    coeffs_draw : array (`ndraws`, NTEMP)
+        Random draws from covariance matrix, if `ndraws` > 0
 
     """
     from scipy.optimize import nnls
@@ -5168,7 +5525,7 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
     chi2_i = np.sum((fnu_i-fmodel)**2/var*ok_band)
     
     coeffs_draw = None
-    if get_err > 0:
+    if ndraws > 0:
         if fitter == 'nnls':
             ok_temp = coeffs_i > 0
             LHS = Ax[:,ok_temp]*1
@@ -5176,12 +5533,12 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, get_err, fitter):
         else:
             ok_temp = coeffs_i != 0
         
-        coeffs_draw = np.zeros((get_err, A.shape[0]))
+        coeffs_draw = np.zeros((ndraws, A.shape[0]))
         try:
-            #covar = np.matrix(np.dot(LHS.T, LHS)).I/An**2
             covar = utils.safe_invert(np.dot(LHS.T, LHS))/An**2
-            #covar = np.matrix(np.dot(Ax[:,ok_temp].T, Ax[:,ok_temp])).I
-            coeffs_draw[:, ok_temp] = np.random.multivariate_normal(coeffs_i[ok_temp], covar, size=get_err)
+            draws = np.random.multivariate_normal(coeffs_i[ok_temp], covar, 
+                                                  size=ndraws)
+            coeffs_draw[:, ok_temp] = draws
         except:
             coeffs_draw = None
             

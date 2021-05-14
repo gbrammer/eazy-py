@@ -98,7 +98,7 @@ def test_full_photoz():
     
     data_path = test_filters.test_data_path()
     os.chdir(data_path)
-        
+    
     ### Parameters
     params = {}
     params['CATALOG_FILE'] = cat_file
@@ -141,13 +141,22 @@ def test_photoz_methods():
     global ez
     
     ### Catalog subset
-    ez.fit_parallel(idx=np.where(ez.cat['id'] < 2)[0], fitter='nnls')
+    ez.fit_catalog(idx=np.where(ez.cat['id'] < 2)[0], fitter='nnls')
     
     ### Full catalog, fitting methods
-    ez.fit_parallel(fitter='lstsq')
-    ez.fit_parallel(fitter='bounded')
-    ez.fit_parallel(fitter='nnls')
-        
+    ez.fit_catalog(fitter='lstsq')
+    ez.fit_catalog(fitter='bounded')
+    
+    # Serial
+    ez.fit_catalog(fitter='nnls', n_proc=0)
+    chi2_serial = ez.chi2_fit
+    coeffs_serial = ez.fit_coeffs
+    
+    # Parallel
+    ez.fit_catalog(fitter='nnls', n_proc=4)
+    assert(np.allclose(ez.chi2_fit, chi2_serial))
+    assert(np.allclose(ez.fit_coeffs, coeffs_serial))
+      
     ###### Methods
     
     # Specified zbest
@@ -183,7 +192,7 @@ def test_sps_parameters():
     global ez
     
     ### Run all photo-zs
-    ez.fit_parallel(fitter='nnls')
+    ez.fit_catalog(fitter='nnls')
         
     ### SPS parameters
     # Full RF-colors with filter weighting

@@ -21,19 +21,38 @@ def read_param_file(param_file=None, verbose=True):
     return param
 
 
-class EazyParam():
-    """
-    Read an Eazy zphot.param file.
-    
-    Example: 
-    
-        >>> if os.path.exists('zphot.param'):
-        ...     params = EazyParam(PARAM_FILE='zphot.param')
-        ...     print(params['Z_STEP'])
-
-    """    
+class EazyParam(object):
     def __init__(self, PARAM_FILE=None, verbose=True):
+        """
+        Read an Eazy zphot.param file.
+
+        Example: 
+
+            >>> if os.path.exists('zphot.param'):
+            ...     params = EazyParam(PARAM_FILE='zphot.param')
+            ...     print(params['Z_STEP'])
+
+        Defaults are in `eazy/data/zphot.param.default <https://github.com/gbrammer/eazy-py/blob/master/eazy/data/zphot.param.default>`_
         
+        Parameters
+        ----------
+        param_file : str
+            Name of parameter file.  If None, then will get 
+            `data/zphot.param.default` from within the module.
+        
+        Attributes
+        ----------
+        params : `collections.OrderedDict`
+            Parameter dictionary.  Don't modify this directly but rather use
+            `__getitem__` and `__setitem__` methods.
+        
+        param_names
+        
+        formats : list
+            List indicating if parameters are interpreted as string ('s') or 
+            scalar ('f') values.  
+            
+        """
         if PARAM_FILE is None:
             PARAM_FILE = os.path.join(os.path.dirname(__file__), 
                                       'data/zphot.param.default')
@@ -57,7 +76,7 @@ class EazyParam():
     @property 
     def param_names(self):
         """
-        Keywords of the ``param`` dictionary
+        Keywords of the `params` dictionary
         """
         return list(self.params.keys())
 

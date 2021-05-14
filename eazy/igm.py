@@ -9,10 +9,18 @@ class Inoue14(object):
     def __init__(self, scale_tau=1.):
         """
         IGM absorption from Inoue et al. (2014)
+        
+        Parameters
+        ----------
+        scale_tau : float
+            Parameter multiplied to the IGM :math:`\tau` values (exponential 
+            in the linear absorption fraction).  
+            I.e., :math:`f_\mathrm{igm} = e^{-\mathrm{scale\_tau} \tau}`.
         """
         self._load_data()
         self.scale_tau = scale_tau
-        
+
+
     def _load_data(self):
         path = os.path.join(os.path.dirname(filepath),'data')
         #print path
@@ -29,7 +37,8 @@ class Inoue14(object):
         self.NA = len(self.lam)
         
         return True
-    
+
+
     def tLSLAF(self, zS, lobs):
         z1LAF = 1.2
         z2LAF = 4.7
@@ -47,7 +56,8 @@ class Inoue14(object):
         tLSLAF_value += self.ALAF3*(((lobs/l2)*(match0 & match3))**5.5).T
         
         return tLSLAF_value.sum(axis=1)
-    
+
+
     def tLSDLA(self, zS, lobs):
         """
         Lyman Series, DLA
@@ -64,7 +74,8 @@ class Inoue14(object):
         tLSDLA_value += self.ADLA2*((lobs/l2*(match0 & ~match1))**3.0).T
                 
         return tLSDLA_value.sum(axis=1)
-    
+
+
     def _tLSLAF(self, zS, lobs):
         """
         Lyman series, Lyman-alpha forest
@@ -100,7 +111,8 @@ class Inoue14(object):
             tLSDLA_value[match0 & ~match1] += self.ADLA2[j]*(lobs[match0 & ~match1]/self.lam[j])**3.0
         
         return tLSDLA_value
-    
+
+
     def tLCDLA(self, zS, lobs):
         """
         Lyman continuum, DLA
@@ -120,7 +132,8 @@ class Inoue14(object):
             tLCDLA_value[match0 & ~match1] =0.6340 + 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[match0 & ~match1]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[match0 & ~match1]/lamL, 2) - 0.2905 * _pow(lobs[match0 & ~match1]/lamL, (-3e-1))
         
         return tLCDLA_value
-        
+
+
     def tLCLAF(self, zS, lobs):
         """
         Lyman continuum, LAF
@@ -149,21 +162,23 @@ class Inoue14(object):
             tLCLAF_value[match0 & match3] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[match0 & match3]/lamL, 2.1) + 0.3248 * _pow(lobs[match0 & match3]/lamL, 1.2) - 3.140e-2 * _pow(lobs[match0 & match3]/lamL, 2.1)
             
         return tLCLAF_value
-        
+
+
     def full_IGM(self, z, lobs):
         """Get full Inoue IGM absorption
         
         Parameters
         ----------
-        z: float
+        z : float
             Redshift to evaluate IGM absorption
         
-        lobs: array
-            Observed-frame wavelength(s).
+        lobs : array
+            Observed-frame wavelength(s) in Angstroms.
         
         Returns
         -------
-        abs: IGM absorption
+        abs : array
+            IGM absorption
         
         """
         tau_LS = self.tLSLAF(z, lobs) + self.tLSDLA(z, lobs)
@@ -177,7 +192,8 @@ class Inoue14(object):
         tau_clip = 0.
         
         return np.exp(-self.scale_tau*(tau_LC + tau_LS + tau_clip))
-    
+
+
     def build_grid(self, zgrid, lrest):
         """Build a spline interpolation object for fast IGM models
         
@@ -190,7 +206,8 @@ class Inoue14(object):
             igm_grid[iz,:] = self.full_IGM(zgrid[iz], lrest*(1+zgrid[iz]))
         
         self.interpolate = CubicSpline(zgrid, igm_grid)
-        
+
+
 def _pow(a, b):
     """C-like power, a**b
     """

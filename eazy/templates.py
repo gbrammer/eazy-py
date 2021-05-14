@@ -16,29 +16,29 @@ class TemplateError(object):
         
         Parameters
         ----------
-        file: str
+        file : str
             File containing the template error function definition 
             (columns of wavelength in Angstroms and the TEF).
         
-        arrays: optional, (wave, TEF)
+        arrays : optional, (wave, TEF)
             Set from arrays rather than reading from ``file``.
         
-        filter_wavelengths: list
+        filter_wavelengths : list
             List of filter pivot wavelengths (observed-frame Angstroms).
         
-        scale: float
+        scale : float
             Scale factor multiplied to TEF array, e.g., the ``TEMP_ERR_A2`` 
             parameter.
         
         Attributes
         ----------
-        te_x, te_y: arrays
+        te_x, te_y : arrays
             The input wavelength and TEF arrays.
         
-        min_wavelength, min_wavelength: float
+        min_wavelength, min_wavelength : float
             Min/max of the wavelengths in ``te_x``.
         
-        clip_lo, clip_hi: float
+        clip_lo, clip_hi : float
             Extrapolation limits to use if redshifted filters fall outside
             defined ``te_x`` array
 
@@ -89,10 +89,10 @@ class TemplateError(object):
         
         Parameters
         ----------
-        z: float
+        z : float
             Redshift
         
-        limits: None, (float, float)
+        limits : None, (float, float)
             Extrapolation limits.  If not specified, get from 
             ``clip_lo`` and ``clip_hi`` attributes.
             
@@ -290,7 +290,7 @@ def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth
         
     Parameters
     ----------
-    templates_file: str
+    templates_file : str
         Filename of the ascii file containing the templates list.  Has format
         like
         
@@ -304,15 +304,15 @@ def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth
         where ``scale`` is the factor needed to scale the template wavelength 
         array to units of Angstroms.
     
-    resample_wave: array, optional
+    resample_wave : array, optional
         Resample templates to a common wavelength array
     
-    velocity_smooth: float
+    velocity_smooth : float
         If non-zero, smooth all templates with a gaussian in velocity space
         
     Returns
     -------
-    templates: list
+    templates : list
         List of `eazy.templates.Template` objects.
         
     """
@@ -340,7 +340,7 @@ def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth
 
 
 class Template():
-    def __init__(self, sp=None, file=None, name=None, arrays=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), redshifts=[0], verbose=True, flux_unit=(u.L_sun/u.Angstrom)):
+    def __init__(self, file=None, name=None, arrays=None, sp=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), redshifts=[0], verbose=True, flux_unit=(u.L_sun/u.Angstrom)):
         """
         Template object.
         
@@ -352,55 +352,55 @@ class Template():
         
         Parameters
         ----------
-        sp: obj
-            Object with ``wave``, ``flux`` attributes, e.g., from
-            ``prospector``.  Here ``flux`` is assumed to have units of f-nu.
-        
-        file: str
+        file : str
             Filename of ascii or FITS template
         
-        arrays: (array, array)
+        arrays : (array, array)
             Tuple of ``wave``, ``flux`` arrays.  Here ``flux`` assumed to 
             have units f-lambda.
         
-        to_angstrom: float
+        sp : object
+            Object with ``wave``, ``flux`` attributes, e.g., from
+            ``prospector``.  Here ``flux`` is assumed to have units of f-nu.
+
+        to_angstrom : float
             Scale factor such that ``wave * to_angstrom`` has units of 
             `astropy.units.Angstrom`
         
-        velocity_smooth: float
+        velocity_smooth : float
             Velocity smooothing in km/s, applied if > 0
         
-        resample_wave: `numpy.ndarray`
+        resample_wave : array
             Grid to resample the template wavelengths read from the input 
         
-        fits_column: str
+        fits_column : str
             Column name of the flux column if arrays read from a ``file``
         
-        redfunc: `eazy.templates.Redden`
+        redfunc : `eazy.templates.Redden`
             Object to apply additional reddening.  
         
-        redshifts: array-like
+        redshifts : array-like
             Redshift grid for redshift-dependent templates
 
-        flux_unit: `astropy.units.core.Unit`
+        flux_unit : `astropy.units.core.Unit`
             Units of ``flux`` array.
         
         Attributes
         ----------
-        wave: array
+        wave : array
             wavelength in `astropy.units.Angstrom`, dimensions ``[NWAVE]``.
         
-        flux: array
+        flux : array
             Flux density f-lambda, can have redshift dependence, dimensions
             ``[NZ, NWAVE]``.
         
-        name: str
+        name : str
             Label name
             
-        meta: dict
+        meta : dict
             Metadata
             
-        redfunc: `eazy.templates.Redden`, optional
+        redfunc : `eazy.templates.Redden`, optional
             Object for applying dust reddening.
         
             
@@ -557,19 +557,19 @@ class Template():
         
         Parameters
         ----------
-        iz: int
+        iz : int
             Index of template to retrieve
         
-        z: float, None
+        z : float, None
             If specified, get the redshift index with 
             `~eazy.templates.Template.zindex`.
         
-        redshift_type: 'nearest', 'interp'
+        redshift_type : 'nearest', 'interp'
             See `~eazy.templates.Template.zindex`.
         
         Returns
         -------
-        flam: array
+        flam : array
             Template flux density in units of f-lambda, including any 
             reddening specified in the ``redden`` attribute.
             
@@ -597,19 +597,19 @@ class Template():
         
         Parameters
         ----------
-        iz: int
+        iz : int
             Index of template to retrieve
         
-        z: float, None
+        z : float, None
             If specified, get the redshift index with 
             `~eazy.templates.Template.zindex`.
         
-        redshift_type: str
+        redshift_type : str
             See `~eazy.templates.Template.zindex`.
         
         Returns
         -------
-        fnu: array
+        fnu : array
             Template flux density in units of f-nu, including any 
             reddening specified in the ``redden`` attribute.
             
@@ -635,11 +635,11 @@ class Template():
         velocity_smooth: float
             Velocity smoothing factor, in km/s.
         
-        in_place: bool
+        in_place : bool
             Set internal ``flux`` array to the smoothed array.  If False, then
             return a new `~eazy.templates.Template` object.
         
-        raise_error: bool
+        raise_error : bool
             If ``from prospect.utils.smoothing import smooth_vel`` fails, 
             raise an exception or die quietly.
             
@@ -681,22 +681,22 @@ class Template():
         
         Parameters
         ----------
-        new_wave: array
+        new_wave : array
             New wavelength array, can have units.
         
-        z: float
+        z : float
             Redshift internal wavelength before resampling.  
             (z=0 yields no shift).
         
-        in_place: bool
+        in_place : bool
             Set internal ``wave`` and ``flux`` arrays to the resampled
             values
         
-        return_array: bool
+        return_array : bool
             Return the resampled ``flux`` array if true, else return a new
             `~eazy.templates.Template` object.
         
-        interp_func: None
+        interp_func : None
             Interpolation function.  If nothing specified, tries to use
             `grizli.utils_c.interp.interp_conserve_c` and falls back to 
             `eazy.utils.interp_conserve`.  
@@ -756,10 +756,10 @@ class Template():
         
         Parameters
         ----------
-        z: float
+        z : float
             Redshift to retrieve
         
-        redshift_type: 'nearest', 'interp', 'floor'
+        redshift_type : 'nearest', 'interp', 'floor'
             Interpolation type:
             
             - 'nearest': nearest step in the template redshift grid
@@ -768,10 +768,10 @@ class Template():
         
         Returns
         -------
-        iz: int
+        iz : int
             Array index, i.e, ``self.flux[iz,:]``
         
-        frac: float, optional
+        frac : float, optional
             Fraction for interpolation, if ``redshift_type == 'interp'``.
         
         """
@@ -812,33 +812,33 @@ class Template():
         
         Parameters
         ----------
-        filt: `~eazy.filters.FilterDefinition` object or a list of them
+        filt : `~eazy.filters.FilterDefinition` object or a list of them
             Filter(s) to interpolate
         
-        flam: bool
+        flam : bool
             Return integrated fluxes in f-lambda, rather than f-nu
         
-        scale: float, array
+        scale : float, array
             Scale factor applied to template before integrating.  If an 
             array is specified, it must have the same size as the template
             ``wave`` array.
         
-        z: float
+        z : float
             Redshift the template before integrating through the filter
         
-        include_igm: bool
+        include_igm : bool
             Include IGM absorption
         
-        redshift_type: str
+        redshift_type : str
             See `~eazy.templates.Template.zindex`.
         
-        iz: int
+        iz : int
             Evaluate for a specific index of the ``flux`` array rather than
             calculating with ``zindex``
             
         Returns
         -------
-        fnu: float, array
+        fnu : float or array
             Template integrated through one or more filters from ``filt``.  By 
             defaults has units of fnu
             
@@ -900,13 +900,13 @@ class Template():
         
         Parameters
         ----------
-        z: float
+        z : float
             Redshift to use for IGM absorption factors
         
-        scale_tau: float
+        scale_tau : float
             Scale factor multiplied to of IGM ``tau`` values
         
-        pow: float 
+        pow : float 
             Scale the absorption strength as ``eazy.igm.Inoue14()**pow``.
         """
         try:
@@ -943,18 +943,18 @@ class Template():
         
         Parameters
         ----------
-        formats: dict
+        formats : dict
             Set ``format`` attributes of table columns
         
-        with_units: bool
+        with_units : bool
             Set ``unit`` attributes of table columns
         
-        flatten: bool
+        flatten : bool
             If no redshift dependence (``NZ==0``), columns are 1D arrays.
         
         Returns
         -------
-        tab: `astropy.table.Table`
+        tab : `astropy.table.Table`
             Output table
             
         """
@@ -993,16 +993,16 @@ class ModifiedBlackBody(object):
         
         Parameters
         ----------
-        Td: float
+        Td : float
             Dust temperature
         
-        beta: float
+        beta : float
             Slope parameter
         
-        q: float
+        q : float
             FIR-radio normalization
         
-        alpha: float
+        alpha : float
             Radio spectral slope: ``fnu = (nu/1.4e9)**alpha``
             
         """
@@ -1025,11 +1025,11 @@ class ModifiedBlackBody(object):
         
         Parameters
         ----------
-        wave: array
+        wave : array
             Wavelength array.  If no ``unit`` attribute, assume 
             `astropy.units.micron`.
         
-        q: float
+        q : float
             Parameter of FIR-radio correlation.  If not specified, use 
             internal ``self.q``.
             
@@ -1154,7 +1154,7 @@ def param_table(templates):
 
 def bspline_templates(wave, degree=3, df=6, get_matrix=True, log=False, clip=1.e-4, minmax=None):
     """
-    B-spline basis functions, modeled after `patsy.splines`
+    B-spline basis functions, modeled after `patsy.splines <https://patsy.readthedocs.io/en/latest/spline-regression.html>`_
     """
     from collections import OrderedDict
     from scipy.interpolate import splev
