@@ -15,7 +15,7 @@ Installation instructions
     pip install . -r requirements.txt
 
     
-Demo
-~~~~
+Binder Demo
+~~~~~~~~~~~
 .. image:: https://mybinder.org/badge_logo.svg
  :target: https://mybinder.org/v2/gh/gbrammer/eazy-py/HEAD?filepath=docs%2Fexamples%2FHDFN-demo.ipynb

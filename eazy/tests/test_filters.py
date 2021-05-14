@@ -17,7 +17,7 @@ def test_array_filter():
     wy = wx*0.
     wy[10:-10] = 1
     
-    f1 = filters.FilterDefinition(wave=wx, throughput=wy)
+    f1 = filters.FilterDefinition(wave=wx, throughput=wy, name='Tophat 5500')
     print('xxx', f1.pivot)
     assert(np.allclose(f1.pivot, 5500, rtol=1.e-3))
     assert(np.allclose(f1.ABVega, 0.016, atol=0.03))
