@@ -145,7 +145,7 @@ class Redden(object):
             
             ax.grid()
             ax.set_xlabel('wavelength, microns')
-            ax.set_ylabel('Attenuation / extinction (linear)\n' + r'$A_V=1$')
+            ax.set_ylabel('Attenuation / extinction (Av=1 mag)'
             
             fig.tight_layout(pad=0.5)
             
