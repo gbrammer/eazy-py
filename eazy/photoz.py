@@ -1201,7 +1201,7 @@ class PhotoZ(object):
         """
         Iterative detemination of zeropoint corrections
         """
-        self.fit_parallel(idx=idx, n_proc=n_proc, prior=prior)        
+        self.fit_catalog(idx=idx, n_proc=n_proc, prior=prior)        
         if error_residuals:
             self.error_residuals()
         
