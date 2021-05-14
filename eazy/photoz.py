@@ -1354,7 +1354,7 @@ class PhotoZ(object):
         return ampl, chi2, logpz
 
 
-    def fit_parallel(self, **kwargs):
+    def fit_parallel(self, *args, **kwargs):
         """
         Back-compatibility, the new function is `~eazy.photoz.PhotoZ.fit_catalog`
         
@@ -1362,7 +1362,7 @@ class PhotoZ(object):
         warnings.warn(f'fit_parallel is deprecated, use fit_catalog',
                       AstropyUserWarning)
         
-        self.fit_catalog(**kwargs)
+        self.fit_catalog(*args, **kwargs)
 
 
     def fit_catalog(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls', timeout=60, **kwargs):
@@ -1659,14 +1659,15 @@ class PhotoZ(object):
                                 self.tempfilt, 
                                 self.TEF,
                                 self.ARRAY_DTYPE, 
-                                self)
+                                None)
 
-            # _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _cdraws = _
-            # self.coeffs_best[_ix,:] = _coeffs_best
-            # self.fmodel[_ix,:] = _fmodel
-            # self.efmodel[_ix,:] = _efmodel
-            # self.chi2_best[_ix] = _chi2_best
-            # self.coeffs_draws[_ix,:,:] = _cdraws
+            _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _cdraws = _
+            self.coeffs_best[_ix,:] = _coeffs_best
+            self.fmodel[_ix,:] = _fmodel
+            self.efmodel[_ix,:] = _efmodel
+            self.chi2_best[_ix] = _chi2_best
+            if get_err:
+                self.coeffs_draws[_ix,:,:] = _cdraws
             
         else:
             # Multiprocessing
