@@ -874,6 +874,9 @@ class PhotoZ(object):
             efnu = np.sqrt(self.efnu_orig**2 + 
                             (self.param['SYS_ERR']*self.fnu)**2)
         
+        if self.param['VERBOSITY'] > 0:
+            print(f"Set sys_err = {self.param['SYS_ERR']:.02f} (positive={positive})")
+            
         if in_place:
             self.efnu = efnu.astype(self.ARRAY_DTYPE)
         else:
