@@ -160,6 +160,9 @@ class Redden(object):
                 - 'mw','f99': `dust_extinction.parameter_averages.F99`
                 - 'calzetti00', 'c00': `dust_attenuation.averages.C00`
                 - 'wg00': `dust_attenuation.radiative_transfer.WG00`
+                - 'kc13': Calzetti with modified slope and dust bump from 
+                  Kriek & Conroy (2013)
+                - 'reddy15': Reddy et al. (2015)
         
         Av : float
             Selective extinction/attenuation (passed as `tau_V` for ``WG00``)
