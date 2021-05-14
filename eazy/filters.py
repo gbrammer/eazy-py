@@ -222,12 +222,16 @@ class FilterFile:
             bp = res[205]
             print(bp)
             
-            plt.plot(bp.wave, bp.throughput, label=bp.name.split()[0])
-            plt.xlabel('wavelength, Angstroms')
-            plt.ylabel('throughput')
-            plt.legend()
+            fig, ax = plt.subplots(1,1,figsize=(6,4))
             
-            plt.tight_layout(pad=0.5)
+            ax.plot(bp.wave, bp.throughput, label=bp.name.split()[0])
+            
+            ax.set_xlabel('wavelength, Angstroms')
+            ax.set_ylabel('throughput')
+            ax.legend()
+            ax.grid()
+            
+            fig.tight_layout(pad=0.5)
             
         
         """
