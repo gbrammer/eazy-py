@@ -554,14 +554,15 @@ class Template():
         # Reddening function
         self.redfunc = redfunc
         _red = self.redden # test to break at init if fails
-            
+
+
     def __repr__(self):
         if self.name is None:
             return self.__class__
         else:
             return '{0}: {1}'.format(self.__class__, self.name)
-    
-    #@property
+
+
     def absorbed_energy(self, i=0):
         diff = self.flux[i,:]*(1-self.redden)*(self.redden > 0)
         absorbed = np.trapz(diff, self.wave)
@@ -570,7 +571,8 @@ class Template():
         #     return absorbed[0]
         # else:
         #     return absorbed
-               
+
+
     @property
     def redden(self):
         """
@@ -585,6 +587,14 @@ class Template():
         return red
 
 
+    @property
+    def shape(self):
+        """
+        Shape of flux attribute
+        """
+        return self.flux.shape
+    
+    
     def flux_flam(self, iz=0, z=None, redshift_type='nearest'):
         """
         Get redshift-dependent template in units of f-lambda
@@ -834,6 +844,33 @@ class Template():
             raise ValueError(f"redshift_type ({redshift_type}) must be " + 
                              "'nearest', 'interp', or 'floor'.")
         return iz
+
+
+    def zscale(self, z, scalar=1, apply_igm=True):
+        """Redshift the template and multiply by a scalar.
+
+        Parameters
+        ----------
+        z : float
+            Redshift to use.
+
+        scalar : float or array
+            Multiplicative factor.  Additional factor of 1./(1+z) is implicit.
+
+        Returns
+        -------
+        ztemp : `~eazy.templates.Template`
+            Redshifted and scaled spectrum.
+
+        """
+        if apply_igm:
+            igmz = self.igm_absorption(z, pow=apply_igm)
+        else:
+            igmz = 1.
+
+        return Template(arrays=(self.wave*(1+z),
+                                self.flux_flam(z=z)*scalar/(1+z)*igmz), 
+                        name=f'{self.name} z={z}')
 
 
     def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, redshift_type='nearest', iz=None):

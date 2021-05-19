@@ -52,6 +52,37 @@ def test_read_template_fits():
     return templ
 
 
+def test_zscale():
+    """
+    Test zscale method
+    """
+    wave = np.arange(5000., 6000.)
+    flux = np.zeros_like(wave)
+    flux[500] = 1.
+    
+    templ = templates.Template(arrays=(wave, flux))
+    
+    z = 1.
+    zsc = templ.zscale(z=z, scalar=1.)
+    
+    # wave = wave*(1+z)
+    assert(np.allclose(zsc.wave, templ.wave*(1+z)))
+    
+    # max index unchanged
+    assert(np.argmax(zsc.flux.flatten()) == 500)
+    
+    # Still just one non-zero value
+    assert((zsc.flux > 0).sum() == (flux > 0).sum())
+    
+    # Flux scaled by 1/(1+z)
+    assert(zsc.flux.max() == 1/(1+z))
+    
+    # Float and array scale
+    for scalar in [2, wave*0.+2]:
+        zsc = templ.zscale(z=z, scalar=scalar)
+        assert(zsc.flux.max() == np.max(scalar)/(1+z))
+
+
 def test_gaussian_templates():
     """
     Test templates.gaussian_templates
