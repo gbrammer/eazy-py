@@ -3597,9 +3597,9 @@ class PhotoZ(object):
         return tab
 
 
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, LIR_wave=[8,1000], cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), n_proc=-1, **kwargs):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), n_proc=-1, **kwargs):
         """
-        Rest-frame colors and population parameters
+        Rest-frame colors and population parameters at redshift in ``self.zbest`` attribute
         
         Parameters
         ----------
@@ -3611,7 +3611,8 @@ class PhotoZ(object):
         
         LIR_wave : (min_wave, max_wave)
             Limits in microns to integrate the far-IR SED to calculate LIR.
-    
+            (**removed to always use tabulated in ``param.fits`` file**)
+            
         cosmology : `astropy.cosmology`
             Cosmology for calculating luminosity distances, etc.  Defaults to
             flat cosmology with H0, OMEGA_M, OMEGA_L from the parameter file.
@@ -3635,7 +3636,12 @@ class PhotoZ(object):
         if cosmology is None:
             #from astropy.cosmology import WMAP9 as cosmology
             cosmology = self.cosmology
-            
+        
+        if 'LIR_wave' in kwargs:
+            warnings.warn('LIR_wave parameter is deprecated.'+
+                          '  Include LIR in ``param.fits`` table',
+                          AstropyUserWarning)
+                
         _ubvj = self.rest_frame_fluxes(f_numbers=UBVJ, pad_width=rf_pad_width, 
                                        max_err=rf_max_err, 
                                        percentiles=[2.5,16,50,84,97.5], 
@@ -3687,9 +3693,9 @@ class PhotoZ(object):
                 tab_temp[c] = np.ones(self.NTEMP)*np.nan
                 
         # Normalize fit coefficients to template V-band
-        iz = np.argmin(np.abs(self.zgrid[:,None] - self.zbest[None,:]), 
-                       axis=0)
-        
+        # iz = np.argmin(np.abs(self.zgrid[:,None] - self.zbest[None,:]), 
+        #                axis=0)
+        iz = self.izbest
         coeffs_norm = self.coeffs_best*self.ubvj_tempfilt[iz,:,2]        
         
         # Normalize fit coefficients to unity sum
@@ -3733,28 +3739,58 @@ class PhotoZ(object):
         else:
             draws_norm = None
             coeffs_draws = None
+        
+        ##### Redshift-dependent templates / parameters
+        iz0 = np.zeros(self.NOBJ, dtype=int)
+        zb = self.zbest*1
+        zb[~np.isfinite(zb)] = -1.
+        
+        temp_par_zdep = {}
+        for par in ['mass', 'sfr', 'Lv', 'LIR', 'energy_abs', 
+                    'Lu', 'Lj', 'L1400', 'L2800', 
+                    'LHa', 'LOIII', 'LHb', 'LOII',
+                    'Av', 'dust1', 'dust2', 'lwAgeV', 'lw_Age_V']:
+            
+            if par not in tab_temp.colnames:
+                #par_table[par] = np.zeros(self.NOBJ) - 99.
+                continue
+                
+            temp_par = tab_temp[par]
+                            
+            if temp_par.ndim == 1:
+                temp_par_zdep[par] = temp_par
+            else:
+                # Redshift-dependent parameters
+                temp_matrix = np.zeros_like(self.coeffs_best)
+                zb = self.zbest*1
+                zb[~np.isfinite(zb)] = -1.
+                
+                for _i, templ in enumerate(self.templates):
+                    if templ.NZ == 0:
+                        iz = iz0
+                        temp_matrix[:, _i] = temp_par[_i, iz]
+                    elif TEMPLATE_REDSHIFT_TYPE == 'interp':
+                        par_int = np.interp(zb, templ.redshifts,
+                                            temp_par[_i, :])
+                        temp_matrix[:, _i] = par_int
+                    else:
+                        iz = templ.zindex(zb)
+                        temp_matrix[:, _i] = temp_par[_i, iz]
+                
+                temp_par_zdep[par] = temp_matrix        
                               
         ##### Use physical units
         if to_physical is not None:
             
             if self.param['VERBOSITY'] >= 2:
-                print(f' ... Physical quantities directly from coeffs and templates ({template_fnu_units})')
+                print(f' ... Physical quantities directly from coeffs and'+ 
+                      f' templates ({template_fnu_units})')
             
+            # Coefficients with units
             coeffs_rest = (self.coeffs_best.T*to_physical).T
-            
             # Remove unit (which should be null)
             coeffs_rest = np.array(coeffs_rest)
 
-            # mass = coeffs_rest.dot(tab_temp['mass'])*u.solMass
-            # SFR = coeffs_rest.dot(tab_temp['sfr'])*u.solMass/u.yr
-            # Lv = coeffs_rest.dot(tab_temp['Lv'])*u.solLum
-            # LIR = coeffs_rest.dot(tab_temp['LIR'])*u.solLum
-            # energy_abs = coeffs_rest.dot(tab_temp['energy_abs'])*u.solLum
-            
-            iz0 = np.zeros(mask.sum(), dtype=int)
-            
-            #par_table = {}
-            
             table_units = {'mass':u.solMass, 'sfr':u.solMass/u.yr,
                            'Lv':u.solLum, 'LIR':u.solLum, 
                            'energy_abs':u.solLum, 
@@ -3769,39 +3805,14 @@ class PhotoZ(object):
                         'Lu', 'Lj', 'L1400', 'L2800', 
                         'LHa', 'LOIII', 'LHb', 'LOII']:
                 
-                if par not in tab_temp.colnames:
+                if par not in temp_par_zdep:
                     #par_table[par] = np.zeros(self.NOBJ) - 99.
                     continue
                     
-                temp_par = tab_temp[par]
-                                
-                if temp_par.ndim == 1:
-                    par_value = coeffs_rest.dot(temp_par)
-                    
-                    if self.get_err:
-                        par_draws = rest_draws.dot(temp_par)
-                        
-                else:
-                    # Redshift-dependent parameters
-                    temp_matrix = np.zeros_like(coeffs_rest)
-                    zb = self.zbest*1
-                    zb[~np.isfinite(zb)] = -1.
-                    
-                    for _i, templ in enumerate(self.templates):
-                        if templ.NZ == 0:
-                            iz = iz0
-                            temp_matrix[:, _i] = temp_par[_i, iz]
-                        elif TEMPLATE_REDSHIFT_TYPE == 'interp':
-                            par_int = np.interp(zb, templ.redshifts,
-                                                temp_par[_i, :])
-                            temp_matrix[:, _i] = par_int
-                        else:
-                            iz = templ.zindex(zb)
-                            temp_matrix[:, _i] = temp_par[_i, iz]
-                            
-                    par_value = (coeffs_rest*temp_matrix).sum(axis=1)
-                    if self.get_err:
-                        par_draws = (rest_draws*temp_matrix).sum(axis=2)
+                temp_par = temp_par_zdep[par]
+                par_value = (coeffs_rest*temp_par).sum(axis=1)
+                if self.get_err:
+                    par_draws = (rest_draws*temp_par).sum(axis=2)
                                 
                 par_table[par] = par_value
                 if par in table_units:
@@ -3818,50 +3829,27 @@ class PhotoZ(object):
             # Light-weighted (V) parameters
             for par in ['Av', 'dust1', 'dust2', 'lwAgeV', 'lw_Age_V']:
                 
-                if par not in tab_temp.colnames:
+                if par not in temp_par_zdep:
                     continue
                 
                 if par in ['Av', 'dust1', 'dust2']:
+                    # Dust calculated as tau = Sum(tau*coeff) / Sum(1*coeff)
                     if par == 'Av':
                         Av_tau = 0.4*np.log(10)
                     else:
                         Av_tau = 1.
                         
-                    temp_par = np.exp(tab_temp[par]*Av_tau)
+                    temp_par = np.exp(temp_par_zdep[par]*Av_tau)
                     is_dust = True
                 else:
                     is_dust = False
-                    temp_par = tab_temp[par]
+                    temp_par = temp_par_zdep[par]
                                 
-                if temp_par.ndim == 1:
-                    par_value = coeffs_norm.dot(temp_par) 
-                    if is_dust:
-                        par_denom = coeffs_norm.dot(temp_par*0+1) 
-                        par_value = np.log(par_value/par_denom) / Av_tau
-                        
-                else:
-                    # Redshift-dependent parameters
-                    temp_matrix = np.zeros_like(coeffs_rest)
-                    zb = self.zbest*1
-                    zb[~np.isfinite(zb)] = -1.
-                
-                    for _i, templ in enumerate(self.templates):
-                        if templ.NZ == 0:
-                            iz = iz0
-                            temp_matrix[:, _i] = temp_par[_i, iz]
-                        elif TEMPLATE_REDSHIFT_TYPE == 'interp':
-                            par_int = np.interp(zb, templ.redshifts,
-                                                temp_par[_i, :])
-                            temp_matrix[:, _i] = par_int
-                        else:
-                            iz = templ.zindex(zb)
-                            temp_matrix[:, _i] = temp_par[_i, iz]
-
-                    par_value = (coeffs_norm*temp_matrix).sum(axis=1)
-                    if is_dust:
-                        temp_ones = np.ones_like(temp_matrix)
-                        par_denom = (coeffs_norm*temp_ones).sum(axis=1)
-                        par_value = np.log(par_value/par_denom) / Av_tau
+                par_value = (coeffs_norm*temp_par).sum(axis=1)
+                if is_dust:
+                    temp_ones = np.ones_like(temp_par)
+                    par_denom = (coeffs_norm*temp_ones).sum(axis=1)
+                    par_value = np.log(par_value/par_denom) / Av_tau
                         
                 par_table[par] = par_value
                 if par in table_units:
@@ -3871,35 +3859,46 @@ class PhotoZ(object):
                 del(rest_draws)
         else:
             
-            # Mass & SFR, normalize to V band and then scale by V luminosity
-            #MLv = (coeffs_norm*temp_MLv).sum(axis=1)*u.solMass/u.solLum
-            mass_norm = (coeffs_norm*tab_temp['mass']).sum(axis=1)*u.solMass
-            Lv_norm = (coeffs_norm*tab_temp['Lv']).sum(axis=1)*u.solLum
-            MLv = mass_norm / Lv_norm
+            ### Mass & SFR, normalize to V band and then scale by V luminosity
+            
+            #Lv_norm = (coeffs_norm*temp_par_zdep['Lv']).sum(axis=1)
+            #Lv_norm *= u.solLum
+            
+            # Fixed eazy-0.4.dev120
+            # Have to normalize *parameters* by tabulated Lv here!
+            Lvt = temp_par_zdep['Lv']
+            
+            MLv = (coeffs_norm*temp_par_zdep['mass']/Lvt).sum(axis=1)
+            MLv *= u.solMass / u.solLum
+            #MLv = mass_norm / Lv_norm
 
-            LIR_norm = (coeffs_norm*tab_temp['LIR']).sum(axis=1)*u.solLum
-            LIRv = LIR_norm / Lv_norm
+            LIRv = (coeffs_norm*temp_par_zdep['LIR']/Lvt).sum(axis=1)
+            #LIRv = LIR_norm / Lv_norm
 
             # Absorbed energy 
             if 'energy_abs' in tab_temp.colnames:
-                energy_abs_norm = (coeffs_norm*tab_temp['energy_abs']).sum(axis=1)*u.solLum
-                energy_abs_v = energy_abs_norm / Lv_norm
+                energy_abs_v = (coeffs_norm * 
+                                temp_par_zdep['energy_abs']/Lvt).sum(axis=1)
+                #energy_abs_v = energy_abs_norm / Lv_norm
             else:
                 energy_abs_v = LIRv*0.
 
-            # Comute LIR directly from templates as tab_temp['LIR']
-            templ_LIR = np.zeros(self.NTEMP)
-            for j in range(self.NTEMP):
-                templ = self.templates[j]
-                clip = (templ.wave > LIR_wave[0]*1e4) & (templ.wave < LIR_wave[1]*1e4)
-                templ_LIR[j] = np.trapz(templ.flux[0,clip], templ.wave[clip])
+            # # Comute LIR directly from templates as tab_temp['LIR']
+            # templ_LIR = np.zeros(self.NTEMP)
+            # for j in range(self.NTEMP):
+            #     templ = self.templates[j]
+            #     clip = (templ.wave > LIR_wave[0]*1e4) 
+            #     clip &= (templ.wave < LIR_wave[1]*1e4)
+            #     templ_LIR[j] = np.trapz(templ.flux[0,clip], templ.wave[clip])
+            # 
+            # LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
+            # LIRv = LIR_norm / Lv_norm
 
-            LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
-            LIRv = LIR_norm / Lv_norm
-
-            SFR_norm = (coeffs_norm*tab_temp['sfr']).sum(axis=1)*u.solMass/u.yr
-            SFRv = SFR_norm / Lv_norm
+            SFRv = (coeffs_norm*temp_par_zdep['sfr']/Lvt).sum(axis=1)
+            SFRv *= u.solMass / u.yr / u.solLum
+            #SFRv = SFR_norm / Lv_norm
             
+            # Now compute Lv from rest-frame V flux
             fnu = restV*fnu_scl*(fnu_units)
             Lnu = fnu*4*np.pi*dL**2
             pivotV = self.ubvj_lc[2]*u.Angstrom*(1+self.zbest)
@@ -3907,38 +3906,42 @@ class PhotoZ(object):
             Lv = (nuV*Lnu).to(u.L_sun)
 
             # Av, compute based on linearized extinction corrections
-            # NB: dust1 is tau, not Av, which differ by a factor of log(10)/2.5
+            # NB: dust1 is tau, not Av, which differ by a factor of 
+            # log(10)/2.5
             Av_tau = 0.4*np.log(10)
-            if 'dust1' in tab_temp.colnames:
-                tau_corr = np.exp(tab_temp['dust1'])
-            elif 'dust2' in tab_temp.colnames:
-                tau_corr = np.exp(tab_temp['dust2'])
+            if 'dust1' in temp_par_zdep:
+                tau_corr = np.exp(temp_par_zdep['dust1'])
+            elif 'dust2' in temp_par_zdep:
+                tau_corr = np.exp(temp_par_zdep['dust2'])
             else:
                 tau_corr = 1.
 
             # Force use Av if available
-            if 'Av' in tab_temp.colnames:
-                tau_corr = np.exp(tab_temp['Av']*Av_tau)
-
-            tau_num = np.dot(coeffs_norm, tau_corr)
-            tau_den = np.dot(coeffs_norm, tau_corr*0+1)
+            if 'Av' in temp_par_zdep:
+                tau_corr = np.exp(temp_par_zdep['Av']*Av_tau)
+            
+            tau_num = (coeffs_norm*tau_corr).sum(axis=1)
+            tau_den = (coeffs_norm*(tau_corr*0+1)).sum(axis=1)
             tau_dust = np.log(tau_num/tau_den)
             Av = tau_dust / Av_tau
+            
+            lw_age_V = -99*u.Gyr
+            for k in ['ageV', 'lwAgeV', 'lw_Age_V']:
+                if 'ageV' in temp_par_zdep:
+                    age_norm = (coeffs_norm*temp_par_zdep['ageV']).sum(axis=1)
+                    age_norm *= u.Gyr
+                    lw_age_V = age_norm
+                    break
 
-            if 'ageV' in tab_temp.colnames:
-                age_norm = (coeffs_norm*tab_temp['ageV']).sum(axis=1)*u.Gyr
-                lw_age_V = age_norm
-            else:
-                lw_age_V = -99*u.Gyr
-
+            par_table['Lv'] = Lv
             par_table['mass'] = MLv*Lv
-            par_table['SFR'] = SFRv*Lv
+            par_table['sfr'] = SFRv*Lv
             par_table['LIR'] = LIRv*Lv
             par_table['energy_abs'] = energy_abs_v*Lv
             par_table['Av'] = Av
             par_table['lw_age_V'] = lw_age_V
             par_table['MLv'] = MLv
-        
+            
         # Make the full table
         tab = Table()
         
@@ -3982,6 +3985,7 @@ class PhotoZ(object):
             else:
                 tab[col].format = '.3f'
         
+        # Add percentile columns from coefficient draws
         if self.get_err:
             # Propagate coeff covariance to parameters
             if self.param['VERBOSITY'] >= 2:
@@ -3989,19 +3993,26 @@ class PhotoZ(object):
             
             if to_physical is None:
         
-                massv_draws = (draws_norm*tab_temp['mass']).sum(axis=2)*u.solMass
-                Lv_draws= (draws_norm*tab_temp['Lv']).sum(axis=2)*u.solLum
-                LIR_draws = (draws_norm*templ_LIR).sum(axis=2)*u.solLum
-                SFR_draws = (draws_norm*tab_temp['sfr']).sum(axis=2)*u.solMass/u.yr
+                Lv_draws= (draws_norm*temp_par_zdep['Lv']).sum(axis=2)
+                Lv_draws *= u.solLum
                 
+                massv_draws = (draws_norm*temp_par_zdep['mass']).sum(axis=2)
+                massv_draws *= u.solMass
+
+                SFR_draws = (draws_norm*temp_par_zdep['sfr']).sum(axis=2)
+                SFR_draws *= u.solMass/u.yr
+
+                LIR_draws = (draws_norm*temp_par_zdep['LIR']).sum(axis=2)
+                LIR_draws *= u.solLum
+                                
                 par_draws_table['Lv'] = Lv_draws
-                par_draws_table['mass'] = ((massv_draws / Lv_draws).T*Lv).T
-                par_draws_table['LIR'] = ((LIR_draws / Lv_draws).T*Lv).T
-                par_draws_table['sfr'] = ((massv_draws / Lv_draws).T*Lv).T
+                par_draws_table['mass'] = (massv_draws / Lv_draws)*Lv
+                par_draws_table['LIR'] = (LIR_draws / Lv_draws)*Lv
+                par_draws_table['sfr'] = (massv_draws / Lv_draws)*Lv
             
             else:
+                # Computed earlier with units
                 pass
-                # Computed earlier
                     
             par_draws_table['ssfr'] = (par_draws_table['sfr'] / 
                                        par_draws_table['mass'])
@@ -4023,7 +4034,7 @@ class PhotoZ(object):
         if 'LIR' in tab.colnames:
             tab['LIR'].description = 'IR luminosity = energy_abs'
 
-        for c in ['lw_Age_V', 'lwAgeV']:
+        for c in ['lw_Age_V', 'lwAgeV', 'AgeV']:
             if c in tab.colnames:
                 tab[c].description = 'Light-weighted age (V band)'
 
@@ -4063,15 +4074,26 @@ class PhotoZ(object):
         
         # Additional Rest-frame filters
         if len(extra_rf_filters) > 0:
-            extra_tempfilt, extra_lc, extra_rest = self.rest_frame_fluxes(f_numbers=extra_rf_filters, pad_width=rf_pad_width, max_err=rf_max_err, percentiles=[16,50,84], verbose=False, simple=simple) 
+            _ex = self.rest_frame_fluxes(f_numbers=extra_rf_filters,
+                                         pad_width=rf_pad_width, 
+                                         max_err=rf_max_err, 
+                                         percentiles=[16,50,84], 
+                                         verbose=False, simple=simple) 
+            
+            extra_tempfilt, extra_lc, extra_rest = _ex
+            
             for ir, f_n in enumerate(extra_rf_filters):
                 tab['rest{0}'.format(f_n)] = extra_rest[:,ir,1]
-                tab['rest{0}_err'.format(f_n)] = (extra_rest[:,ir,2]-extra_rest[:,ir,0])/2.
                 tab['rest{0}'.format(f_n)].format = '.3f'
+                
+                rwidth = (extra_rest[:,ir,2]-extra_rest[:,ir,0])/2.
+                tab['rest{0}_err'.format(f_n)] = rwidth                
                 tab['rest{0}_err'.format(f_n)].format = '.3f'
                 
-                tab.meta['name{0}'.format(f_n)] = (self.RES[f_n].name.split(' lambda_c')[0], 'Filter name')
-                tab.meta['pivot{0}'.format(f_n)] = (self.RES[f_n].pivot, 'Pivot wavelength, Angstrom')
+                fname = self.RES[f_n].name.split(' lambda_c')[0]
+                tab.meta['name{0}'.format(f_n)] = (fname, 'Filter name')
+                tab.meta['pivot{0}'.format(f_n)] = (self.RES[f_n].pivot,
+                                                 'Pivot wavelength, Angstrom')
             
             del(extra_tempfilt)
             del(extra_rest)
@@ -4083,7 +4105,7 @@ class PhotoZ(object):
         return tab
 
 
-    def standard_output(self, zbest=None, prior=False, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, LIR_wave=[8,1000], simple=False, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, **kwargs):#
+    def standard_output(self, zbest=None, prior=False, beta_prior=False, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, save_fits=True, get_err=True, percentile_limits=[2.5, 16, 50, 84, 97.5], fitter='nnls', n_proc=0, clip_wavelength=1100, absmag_filters=[271, 272, 274], run_find_peaks=False, **kwargs):#
         """
         Full output to ``zout.fits`` file.  
         
@@ -4119,7 +4141,8 @@ class PhotoZ(object):
             
         LIR_wave : (min_wave, max_wave)
             Limits in `microns` to integrate the far-IR SED to calculate LIR.
-        
+            **removed to always use LIR in ``param.fits`` file**
+            
         simple, rf_pad_width, rf_max_err : bool, float, float
             See `~eazy.photoz.PhotoZ.rest_frame_fluxes`.
             
@@ -4227,11 +4250,11 @@ class PhotoZ(object):
         tab.meta['fitter'] = (fitter, 'Optimization method for template fits')
         
         if self.param['VERBOSITY'] >= 1:
-            print('Get parameters (UBVJ={0}, LIR={1})'.format(UBVJ, LIR_wave))
+            print(f'Get parameters (UBVJ={UBVJ}, simple={simple})')
             
         sps_tab = self.sps_parameters(UBVJ=UBVJ, 
                           extra_rf_filters=extra_rf_filters, 
-                          cosmology=cosmology, LIR_wave=LIR_wave, 
+                          cosmology=cosmology,
                           rf_pad_width=rf_pad_width, rf_max_err=rf_max_err, 
                           percentile_limits=percentile_limits, 
                           simple=simple, n_proc=n_proc, **kwargs)
