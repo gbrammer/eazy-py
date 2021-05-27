@@ -191,10 +191,18 @@ def test_sps_parameters():
     """
     global ez
     
+    import astropy.units as u
+    
     ### Run all photo-zs
     ez.fit_catalog(fitter='nnls')
         
     ### SPS parameters
+    
+    # Parameters normalized by V band
+    sps = ez.sps_parameters(template_fnu_units=None, simple=True)
+    fnu = template_fnu_units=(1*u.solLum / u.Hz)
+    sps = ez.sps_parameters(template_fnu_units=fnu, simple=True)
+    
     # Full RF-colors with filter weighting
     zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, rf_max_err=2, 
                                    prior=True, beta_prior=True, simple=False,
