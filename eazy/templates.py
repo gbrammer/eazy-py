@@ -319,16 +319,14 @@ class Redden(object):
 def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth=0):
     """
     Read templates listed in ``templates_file``.
-    
-    The file has a format like 
-        
+            
     Parameters
     ----------
     templates_file : str
         Filename of the ascii file containing the templates list.  Has format
         like
         
-        .. code-block::
+        .. code::
 
             1 templates/fsps_full/tweak_fsps_QSF_12_v3_001.dat 1.0
             2 templates/fsps_full/tweak_fsps_QSF_12_v3_002.dat 1.0
