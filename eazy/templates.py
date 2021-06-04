@@ -1,4 +1,5 @@
 import os
+from collections import OrderedDict
 import numpy as np
 
 import astropy.units as u
@@ -316,7 +317,7 @@ class Redden(object):
             return ext
 
 
-def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth=0):
+def read_templates_file(templates_file=None, as_dict=False, **kwargs):
     """
     Read templates listed in ``templates_file``.
             
@@ -336,16 +337,17 @@ def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth
         where ``scale`` is the factor needed to scale the template wavelength 
         array to units of Angstroms.
     
-    resample_wave : array, optional
-        Resample templates to a common wavelength array
-    
-    velocity_smooth : float
-        If non-zero, smooth all templates with a gaussian in velocity space
+    as_dict : bool
+        Return dictionary rather than a list (e.g., for `grizli`).
+        
+    kwargs : dict
+        Extra keyword arguments are passed to `~eazy.templates.Template` 
+        with ``file`` and ``to_angstrom`` keywords set automatically.
         
     Returns
     -------
     templates : list
-        List of `eazy.templates.Template` objects.
+        List of `eazy.templates.Template` objects (`dict` if ``as_dict``)
         
     """
     lines = open(templates_file).readlines()
@@ -363,16 +365,21 @@ def read_templates_file(templates_file=None, resample_wave=None, velocity_smooth
             to_angstrom = 1.
             
         templ = Template(file=template_file, to_angstrom=to_angstrom, 
-                         resample_wave=resample_wave,
-                         velocity_smooth=velocity_smooth)
+                         **kwargs)
         
         templates.append(templ)
     
-    return templates
+    if as_dict:
+        tdict = OrderedDict()
+        for t in templates:
+            tdict[t.name] = t
+        return tdict
+    else:
+        return templates
 
 
 class Template():
-    def __init__(self, file=None, name=None, arrays=None, sp=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), redshifts=[0], verbose=True, flux_unit=(u.L_sun/u.Angstrom)):
+    def __init__(self, file=None, name=None, arrays=None, sp=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), redshifts=[0], verbose=True, flux_unit=(u.L_sun/u.Angstrom), **kwargs):
         """
         Template object.
         
@@ -470,6 +477,11 @@ class Template():
             if file.split('.')[-1] in ['fits','csv','ecsv']:
                 tab = Table.read(file)
                 self.wave = tab['wave'].data.astype(float)
+                if fits_column not in tab.colnames:
+                    msg = (f"'{fits_column}' not in {file}; " +
+                           f"available columns are {tab.colnames}.")
+                    raise ValueError(msg)
+
                 self.flux = tab[fits_column].data.astype(float)
                 self.orig_table = tab
                 
@@ -771,9 +783,10 @@ class Template():
         
         if interp_func is None:
             try:
-                import grizli.utils_c.interp.interp_conserve_c as interp_func
+                from grizli.utils_c import interp
+                interp_func = interp_conserve_c
             except:
-                import utils.interp_conserve as interp_func    
+                interp_func = utils.interp_conserve
                 
         new_flux = [interp_func(new_wave, self.wave*(1+z), self.flux[i,:])
                     for i in range(self.NZ)]
