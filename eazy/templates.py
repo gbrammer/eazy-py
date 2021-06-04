@@ -784,7 +784,7 @@ class Template():
         if interp_func is None:
             try:
                 from grizli.utils_c import interp
-                interp_func = interp_conserve_c
+                interp_func = interp.interp_conserve_c
             except:
                 interp_func = utils.interp_conserve
                 
