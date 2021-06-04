@@ -29,33 +29,49 @@ class Inoue14(object):
         DLA_file = os.path.join(path, 'DLAcoeff.txt')
     
         data = np.loadtxt(LAF_file, unpack=True)
-        ix, self.lam, self.ALAF1, self.ALAF2, self.ALAF3 = data
+        ix, lam, ALAF1, ALAF2, ALAF3 = data
+        self.lam = lam[:,np.newaxis]
+        self.ALAF1 = ALAF1[:,np.newaxis]
+        self.ALAF2 = ALAF2[:,np.newaxis]
+        self.ALAF3 = ALAF3[:,np.newaxis]
         
         data = np.loadtxt(DLA_file, unpack=True)
-        ix, self.lam, self.ADLA1, self.ADLA2 = data
-        
-        self.NA = len(self.lam)
-        
+        ix, lam, ADLA1, ADLA2 = data
+        self.ADLA1 = ADLA1[:,np.newaxis]
+        self.ADLA2 = ADLA2[:,np.newaxis]
+                
         return True
 
 
+    @property
+    def NA(self):
+        """
+        Number of Lyman-series lines
+        """
+        return self.lam.shape[0]
+
+
     def tLSLAF(self, zS, lobs):
+        """
+        Lyman series, Lyman-alpha forest
+        """
         z1LAF = 1.2
         z2LAF = 4.7
 
-        l2 = np.dot(self.lam[:, np.newaxis], np.ones((1, lobs.shape[0])))
-        tLSLAF_value = l2.T*0
+        l2 = self.lam #[:, np.newaxis]
+        tLSLAF_value = np.zeros_like(lobs*l2).T
         
-        match0 = (lobs < l2*(1+zS))
-        match1 = lobs < l2*(1+z1LAF)
-        match2 = (lobs >= l2*(1+z1LAF)) & (lobs < l2*(1+z2LAF))
-        match3 = lobs >= l2*(1+z2LAF)
+        x0 = (lobs < l2*(1+zS))
+        x1 = x0 & (lobs < l2*(1+z1LAF))
+        x2 = x0 & ((lobs >= l2*(1+z1LAF)) & (lobs < l2*(1+z2LAF)))
+        x3 = x0 & (lobs >= l2*(1+z2LAF))
         
-        tLSLAF_value += self.ALAF1*(((lobs/l2)*(match0 & match1))**1.2).T
-        tLSLAF_value += self.ALAF2*(((lobs/l2)*(match0 & match2))**3.7).T
-        tLSLAF_value += self.ALAF3*(((lobs/l2)*(match0 & match3))**5.5).T
-        
-        return tLSLAF_value.sum(axis=1)
+        tLSLAF_value = np.zeros_like(lobs*l2)
+        tLSLAF_value[x1] += ((self.ALAF1/l2**1.2)*lobs**1.2)[x1]
+        tLSLAF_value[x2] += ((self.ALAF2/l2**3.7)*lobs**3.7)[x2]
+        tLSLAF_value[x3] += ((self.ALAF3/l2**5.5)*lobs**5.5)[x3]
+
+        return tLSLAF_value.sum(axis=0)
 
 
     def tLSDLA(self, zS, lobs):
@@ -64,53 +80,16 @@ class Inoue14(object):
         """
         z1DLA = 2.0
         
-        l2 = np.dot(self.lam[:, np.newaxis], np.ones((1, lobs.shape[0])))
-        tLSDLA_value = l2.T*0
+        l2 = self.lam #[:, np.newaxis]
+        tLSDLA_value = np.zeros_like(lobs*l2)
         
-        match0 = (lobs < l2*(1+zS)) 
-        match1 = lobs < l2*(1.+z1DLA)
+        x0 = (lobs < l2*(1+zS)) & (lobs < l2*(1.+z1DLA))
+        x1 = (lobs < l2*(1+zS)) & ~(lobs < l2*(1.+z1DLA))
         
-        tLSDLA_value += self.ADLA1*((lobs/l2*(match0 & match1))**2.0).T
-        tLSDLA_value += self.ADLA2*((lobs/l2*(match0 & ~match1))**3.0).T
+        tLSDLA_value[x0] += ((self.ADLA1/l2**2)*lobs**2)[x0]
+        tLSDLA_value[x1] += ((self.ADLA2/l2**3)*lobs**3)[x1]
                 
-        return tLSDLA_value.sum(axis=1)
-
-
-    def _tLSLAF(self, zS, lobs):
-        """
-        Lyman series, Lyman-alpha forest
-        """
-        z1LAF = 1.2
-        z2LAF = 4.7
-        
-        tLSLAF_value = lobs*0.
-                
-        for j in range(self.NA):
-            match0 = (lobs < self.lam[j]*(1+zS)) #& (lobs > self.lam[j])
-            match1 = lobs < self.lam[j]*(1+z1LAF)
-            match2 = (lobs >= self.lam[j]*(1+z1LAF)) & (lobs < self.lam[j]*(1+z2LAF))
-            match3 = lobs >= self.lam[j]*(1+z2LAF)
-            
-            tLSLAF_value[match0 & match1] += self.ALAF1[j]*(lobs[match0 & match1]/self.lam[j])**1.2
-            tLSLAF_value[match0 & match2] += self.ALAF2[j]*(lobs[match0 & match2]/self.lam[j])**3.7
-            tLSLAF_value[match0 & match3] += self.ALAF3[j]*(lobs[match0 & match3]/self.lam[j])**5.5
-        
-        return tLSLAF_value
-        
-    def _tLSDLA(self, zS, lobs):
-        """
-        Lyman Series, DLA
-        """
-        z1DLA = 2.0
-        tLSDLA_value = lobs*0.
-        
-        for j in range(self.NA):
-            match0 = (lobs < self.lam[j]*(1+zS)) #& (lobs > self.lam[j])
-            match1 = lobs < self.lam[j]*(1.+z1DLA)
-            tLSDLA_value[match0 & match1] += self.ADLA1[j]*(lobs[match0 & match1]/self.lam[j])**2.0
-            tLSDLA_value[match0 & ~match1] += self.ADLA2[j]*(lobs[match0 & ~match1]/self.lam[j])**3.0
-        
-        return tLSDLA_value
+        return tLSDLA_value.sum(axis=0)
 
 
     def tLCDLA(self, zS, lobs):
@@ -120,16 +99,16 @@ class Inoue14(object):
         z1DLA = 2.0
         lamL = 911.8
         
-        tLCDLA_value = lobs*0.
+        tLCDLA_value = np.zeros_like(lobs)
         
-        match0 = lobs < lamL*(1.+zS)
+        x0 = lobs < lamL*(1.+zS)
         if zS < z1DLA:
-            tLCDLA_value[match0] = 0.2113 * _pow(1.0+zS, 2) - 0.07661 * _pow(1.0+zS, 2.3) * _pow(lobs[match0]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[match0]/lamL, 2)
+            tLCDLA_value[x0] = 0.2113 * _pow(1.0+zS, 2) - 0.07661 * _pow(1.0+zS, 2.3) * _pow(lobs[x0]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[x0]/lamL, 2)
         else:
-            match1 = lobs >= lamL*(1.+z1DLA)
+            x1 = lobs >= lamL*(1.+z1DLA)
             
-            tLCDLA_value[match0 & match1] = 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[match0 & match1]/lamL, (-3e-1)) - 0.02916 * _pow(lobs[match0 & match1]/lamL, 3)
-            tLCDLA_value[match0 & ~match1] =0.6340 + 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[match0 & ~match1]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[match0 & ~match1]/lamL, 2) - 0.2905 * _pow(lobs[match0 & ~match1]/lamL, (-3e-1))
+            tLCDLA_value[x0 & x1] = 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[x0 & x1]/lamL, (-3e-1)) - 0.02916 * _pow(lobs[x0 & x1]/lamL, 3)
+            tLCDLA_value[x0 & ~x1] =0.6340 + 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[x0 & ~x1]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[x0 & ~x1]/lamL, 2) - 0.2905 * _pow(lobs[x0 & ~x1]/lamL, (-3e-1))
         
         return tLCDLA_value
 
@@ -142,24 +121,24 @@ class Inoue14(object):
         z2LAF = 4.7
         lamL = 911.8
 
-        tLCLAF_value = lobs*0.
+        tLCLAF_value = np.zeros_like(lobs)
         
-        match0 = lobs < lamL*(1.+zS)
+        x0 = lobs < lamL*(1.+zS)
         
         if zS < z1LAF:
-            tLCLAF_value[match0] = 0.3248 * (_pow(lobs[match0]/lamL, 1.2) - _pow(1.0+zS, -9e-1) * _pow(lobs[match0]/lamL, 2.1))
+            tLCLAF_value[x0] = 0.3248 * (_pow(lobs[x0]/lamL, 1.2) - _pow(1.0+zS, -9e-1) * _pow(lobs[x0]/lamL, 2.1))
         elif zS < z2LAF:
-            match1 = lobs >= lamL*(1+z1LAF)
-            tLCLAF_value[match0 & match1] = 2.545e-2 * (_pow(1.0+zS, 1.6) * _pow(lobs[match0 & match1]/lamL, 2.1) - _pow(lobs[match0 & match1]/lamL, 3.7))
-            tLCLAF_value[match0 & ~match1] = 2.545e-2 * _pow(1.0+zS, 1.6) * _pow(lobs[match0 & ~match1]/lamL, 2.1) + 0.3248 * _pow(lobs[match0 & ~match1]/lamL, 1.2) - 0.2496 * _pow(lobs[match0 & ~match1]/lamL, 2.1)
+            x1 = lobs >= lamL*(1+z1LAF)
+            tLCLAF_value[x0 & x1] = 2.545e-2 * (_pow(1.0+zS, 1.6) * _pow(lobs[x0 & x1]/lamL, 2.1) - _pow(lobs[x0 & x1]/lamL, 3.7))
+            tLCLAF_value[x0 & ~x1] = 2.545e-2 * _pow(1.0+zS, 1.6) * _pow(lobs[x0 & ~x1]/lamL, 2.1) + 0.3248 * _pow(lobs[x0 & ~x1]/lamL, 1.2) - 0.2496 * _pow(lobs[x0 & ~x1]/lamL, 2.1)
         else:
-            match1 = lobs > lamL*(1.+z2LAF)
-            match2 = (lobs >= lamL*(1.+z1LAF)) & (lobs < lamL*(1.+z2LAF))
-            match3 = lobs < lamL*(1.+z1LAF)
+            x1 = lobs > lamL*(1.+z2LAF)
+            x2 = (lobs >= lamL*(1.+z1LAF)) & (lobs < lamL*(1.+z2LAF))
+            x3 = lobs < lamL*(1.+z1LAF)
             
-            tLCLAF_value[match0 & match1] = 5.221e-4 * (_pow(1.0+zS, 3.4) * _pow(lobs[match0 & match1]/lamL, 2.1) - _pow(lobs[match0 & match1]/lamL, 5.5))
-            tLCLAF_value[match0 & match2] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[match0 & match2]/lamL, 2.1) + 0.2182 * _pow(lobs[match0 & match2]/lamL, 2.1) - 2.545e-2 * _pow(lobs[match0 & match2]/lamL, 3.7)
-            tLCLAF_value[match0 & match3] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[match0 & match3]/lamL, 2.1) + 0.3248 * _pow(lobs[match0 & match3]/lamL, 1.2) - 3.140e-2 * _pow(lobs[match0 & match3]/lamL, 2.1)
+            tLCLAF_value[x0 & x1] = 5.221e-4 * (_pow(1.0+zS, 3.4) * _pow(lobs[x0 & x1]/lamL, 2.1) - _pow(lobs[x0 & x1]/lamL, 5.5))
+            tLCLAF_value[x0 & x2] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[x0 & x2]/lamL, 2.1) + 0.2182 * _pow(lobs[x0 & x2]/lamL, 2.1) - 2.545e-2 * _pow(lobs[x0 & x2]/lamL, 3.7)
+            tLCLAF_value[x0 & x3] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[x0 & x3]/lamL, 2.1) + 0.3248 * _pow(lobs[x0 & x3]/lamL, 1.2) - 3.140e-2 * _pow(lobs[x0 & x3]/lamL, 2.1)
             
         return tLCLAF_value
 
