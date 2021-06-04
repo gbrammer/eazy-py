@@ -3860,26 +3860,25 @@ class PhotoZ(object):
         else:
             
             ### Mass & SFR, normalize to V band and then scale by V luminosity
+            ## For use with fsps_QSF_12 templates
+            Lv_norm = (coeffs_norm*temp_par_zdep['Lv']).sum(axis=1)
+            Lv_norm *= u.solLum
             
-            #Lv_norm = (coeffs_norm*temp_par_zdep['Lv']).sum(axis=1)
-            #Lv_norm *= u.solLum
-            
-            # Fixed eazy-0.4.dev120
-            # Have to normalize *parameters* by tabulated Lv here!
-            Lvt = temp_par_zdep['Lv']
-            
-            MLv = (coeffs_norm*temp_par_zdep['mass']/Lvt).sum(axis=1)
-            MLv *= u.solMass / u.solLum
-            #MLv = mass_norm / Lv_norm
+            MLv = (coeffs_norm*temp_par_zdep['mass']).sum(axis=1)
+            #MLv *= u.solMass #/ u.solLum
+            MLv *= u.solMass 
+            MLv *= 1./Lv_norm
 
-            LIRv = (coeffs_norm*temp_par_zdep['LIR']/Lvt).sum(axis=1)
-            #LIRv = LIR_norm / Lv_norm
+            LIRv = (coeffs_norm*temp_par_zdep['LIR']).sum(axis=1)
+            LIRv *= u.solLum
+            LIRv *= 1./Lv_norm
 
             # Absorbed energy 
             if 'energy_abs' in tab_temp.colnames:
                 energy_abs_v = (coeffs_norm * 
-                                temp_par_zdep['energy_abs']/Lvt).sum(axis=1)
-                #energy_abs_v = energy_abs_norm / Lv_norm
+                                temp_par_zdep['energy_abs']).sum(axis=1)
+                energy_abs_v *= u.solLum 
+                energy_abs_v *= 1./Lv_norm
             else:
                 energy_abs_v = LIRv*0.
 
@@ -3894,9 +3893,10 @@ class PhotoZ(object):
             # LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
             # LIRv = LIR_norm / Lv_norm
 
-            SFRv = (coeffs_norm*temp_par_zdep['sfr']/Lvt).sum(axis=1)
-            SFRv *= u.solMass / u.yr / u.solLum
-            #SFRv = SFR_norm / Lv_norm
+            SFRv = (coeffs_norm*temp_par_zdep['sfr']).sum(axis=1)
+            #SFRv *= u.solMass / u.yr / u.solLum
+            SFRv *= u.solMass / u.yr 
+            SFRv *= 1./Lv_norm
             
             # Now compute Lv from rest-frame V flux
             fnu = restV*fnu_scl*(fnu_units)
@@ -4251,6 +4251,12 @@ class PhotoZ(object):
         
         if self.param['VERBOSITY'] >= 1:
             print(f'Get parameters (UBVJ={UBVJ}, simple={simple})')
+        
+        if (('template_fnu_units' not in kwargs) & 
+            ('fsps_QSF_12' in self.param['TEMPLATES_FILE'])):
+            warnings.warn(f"Setting template_fnu_units=None for {self.param['TEMPLATES_FILE']} templates",
+                          AstropyUserWarning)
+            kwargs['template_fnu_units'] = None
             
         sps_tab = self.sps_parameters(UBVJ=UBVJ, 
                           extra_rf_filters=extra_rf_filters, 
