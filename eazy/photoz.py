@@ -3758,20 +3758,20 @@ class PhotoZ(object):
             par_draws_table = {}
         
             coeffs_draws = np.maximum(self.coeffs_draws, 0)
+            #  Renorm in rest V band
+            _draws = np.transpose(coeffs_draws, axes=(1,0,2)) 
+            draws_norm = np.transpose(_draws*self.ubvj_tempfilt[iz,:,2],
+                                        axes=(0,1,2))
+            draws_norm = (draws_norm.T/draws_norm.sum(axis=2).T).T
+            del(_draws)
+            
             if to_physical is not None:
                 rest_draws = np.transpose((coeffs_draws.T*to_physical).T, 
                                           axes=(1,0,2))
                                      
                 # Remove unit (which should be null)
                 rest_draws = np.array(rest_draws)
-                draws_norm = None
                 
-            else:
-                #  Renorm in rest V band
-                _draws = np.transpose(coeffs_draws, axes=(1,0,2)) 
-                coeffs_draws = np.transpose(_draws*self.ubvj_tempfilt[iz,:,2],
-                                            axes=(0,1,2))
-                draws_norm = (coeffs_draws.T/coeffs_draws.sum(axis=2).T).T
         else:
             draws_norm = None
             coeffs_draws = None
@@ -3890,7 +3890,19 @@ class PhotoZ(object):
                 par_table[par] = par_value
                 if par in table_units:
                     par_table[par] *= table_units[par]
-            
+                
+                if self.get_err & is_dust:
+                    
+                    # Light-weighted params
+                    tau_num = (draws_norm*temp_par).sum(axis=2)
+                    tau_den = (draws_norm*(temp_par*0+1)).sum(axis=2)
+                    tau_dust = np.log(tau_num/tau_den) / Av_tau
+                    par_draws_table[par] = tau_dust
+
+                    del(tau_num)
+                    del(tau_den)
+                    del(tau_dust)
+                    
             if self.get_err:
                 del(rest_draws)
         else:
@@ -4037,23 +4049,43 @@ class PhotoZ(object):
             
             if to_physical is None:
         
-                Lv_draws= (draws_norm*temp_par_zdep['Lv']).sum(axis=2)
-                Lv_draws *= u.solLum
-                
-                massv_draws = (draws_norm*temp_par_zdep['mass']).sum(axis=2)
+                if vnorm_type == 1:
+                    # For use with fsps_QSF_12 templates            
+                    # Why is this required????
+                    Lv_draws = (draws_norm*temp_par_zdep['Lv']).sum(axis=2)
+                    Lv_draws *= u.solLum
+                    vdenom = 1.
+                else:
+                    # The "correct" way, parameters have to be normalized
+                    # to V-band, also
+                    arr = (draws_norm*temp_par_zdep['Lv']).sum(axis=2)
+                    Lv_draws = np.ones_like(arr)*u.solLum
+                    vdenom = temp_par_zdep['Lv']
+        
+                massv_draws = (draws_norm*temp_par_zdep['mass']/vdenom).sum(axis=2)
                 massv_draws *= u.solMass
 
-                SFR_draws = (draws_norm*temp_par_zdep['sfr']).sum(axis=2)
+                SFR_draws = (draws_norm*temp_par_zdep['sfr']/vdenom).sum(axis=2)
                 SFR_draws *= u.solMass/u.yr
 
-                LIR_draws = (draws_norm*temp_par_zdep['LIR']).sum(axis=2)
+                LIR_draws = (draws_norm*temp_par_zdep['LIR']/vdenom).sum(axis=2)
                 LIR_draws *= u.solLum
                                 
                 par_draws_table['Lv'] = Lv_draws
                 par_draws_table['mass'] = (massv_draws / Lv_draws)*Lv
                 par_draws_table['LIR'] = (LIR_draws / Lv_draws)*Lv
-                par_draws_table['sfr'] = (massv_draws / Lv_draws)*Lv
-            
+                par_draws_table['sfr'] = (SFR_draws / Lv_draws)*Lv
+                
+                # Light-weighted params
+                tau_num = (draws_norm*tau_corr).sum(axis=2)
+                tau_den = (draws_norm*(tau_corr*0+1)).sum(axis=2)
+                tau_dust = np.log(tau_num/tau_den) / Av_tau
+                par_draws_table['Av'] = tau_dust
+                
+                del(tau_num)
+                del(tau_den)
+                del(tau_dust)
+                
             else:
                 # Computed earlier with units
                 pass
