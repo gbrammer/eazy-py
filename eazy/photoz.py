@@ -2918,7 +2918,8 @@ class PhotoZ(object):
             key = 'pivw{0}'.format(f_numbers[i])
             tab.meta[key] = _tempfilt.lc[i]
         
-        del(draws_resh)
+        if percentiles is not None:
+            del(draws_resh)
         
         return tab
 
