@@ -3597,7 +3597,7 @@ class PhotoZ(object):
         return tab
 
 
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), n_proc=-1, **kwargs):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), vnorm_type=2, n_proc=-1, **kwargs):
         """
         Rest-frame colors and population parameters at redshift in ``self.zbest`` attribute
         
@@ -3620,10 +3620,46 @@ class PhotoZ(object):
         simple, rf_pad_width, rf_max_err : bool, float, float
             See `~eazy.photoz.PhotoZ.rest_frame_fluxes`.
                 
-        template_fnu_units : `astropy.units.Unit`
+        template_fnu_units : `astropy.units.Unit`, None
             Units of templates when converted to ``flux_fnu``, e.g., 
-            :math:`L_\odot / Hz` for FSPS templates.
+            :math:`L_\odot / Hz` for FSPS templates.  If ``None``, then 
+            parameters are computed normalizing fits to the V band based on 
+            `vnorm_type`.
         
+        vnorm_type : 1 or 2
+            V-band normalization type for the tabulated parameters, if
+            ``template_fnu_units = None``. The fit coefficients are first
+            normalized to the template V-band, i.e., such that they give each
+            template's contribution to the observed rest-frame V-band. Then
+            the population parameters are estimated with these coefficients as
+            follows.
+            
+            `vnorm_type = 1`
+            
+               - `coeffs_norm`: coefficients renormalized to template
+                 rest-frame V-band
+               - `tab`: table of parameters associated with the templates
+               - `Lv`: V-band luminosity derived from the rest-frame V flux 
+                 inferred from the photometry
+               
+                   >>> Lv_norm = (coeffs_norm * tab['Lv']).sum()
+                   >>> mass_norm = (coeffs_norm * tab['mass']).sum()
+                   >>> mass = (mass_norm / Lv_norm) * Lv
+
+            `vnorm_type = 2`
+
+               - `coeffs_norm`: coefficients renormalized to template 
+                 rest-frame V-band
+               - `tab`: table of parameters associated with the templates
+               - `Lv`: V-band luminosity derived from the rest-frame V flux 
+                 inferred from the photometry
+               
+                   >>> mass_norm = (coeffs_norm * tab['mass'] / tab['Lv']).sum()
+                   >>> mass = (mass_norm / Lv_norm) * Lv
+            
+            The latter, ``vnorm_type = 2``, is the conceptually preferred 
+            method, though the former should be used with the `fsps_QSF_12_v3.param <https://github.com/gbrammer/eazy-photoz/blob/master/templates/fsps_full/fsps_QSF_12_v3.param>`_ template set.
+            
         n_proc : int
             Number of parrallel processes 
         
@@ -3860,23 +3896,31 @@ class PhotoZ(object):
         else:
             
             ### Mass & SFR, normalize to V band and then scale by V luminosity
-            ## For use with fsps_QSF_12 templates
-            Lv_norm = (coeffs_norm*temp_par_zdep['Lv']).sum(axis=1)
-            Lv_norm *= u.solLum
-            
-            MLv = (coeffs_norm*temp_par_zdep['mass']).sum(axis=1)
+            if vnorm_type == 1:
+                # For use with fsps_QSF_12 templates            
+                # Why is this required????
+                Lv_norm = (coeffs_norm*temp_par_zdep['Lv']).sum(axis=1)
+                Lv_norm *= u.solLum
+                vdenom = 1.
+            else:
+                # The "correct" way, parameters have to be normalized
+                # to V-band, also
+                Lv_norm = 1.*u.solLum
+                vdenom = temp_par_zdep['Lv']
+                
+            Mv = (coeffs_norm*temp_par_zdep['mass']/vdenom).sum(axis=1)
             #MLv *= u.solMass #/ u.solLum
-            MLv *= u.solMass 
-            MLv *= 1./Lv_norm
+            Mv *= u.solMass 
+            Mv *= 1./Lv_norm
 
-            LIRv = (coeffs_norm*temp_par_zdep['LIR']).sum(axis=1)
+            LIRv = (coeffs_norm*temp_par_zdep['LIR']/vdenom).sum(axis=1)
             LIRv *= u.solLum
             LIRv *= 1./Lv_norm
 
             # Absorbed energy 
             if 'energy_abs' in tab_temp.colnames:
                 energy_abs_v = (coeffs_norm * 
-                                temp_par_zdep['energy_abs']).sum(axis=1)
+                               temp_par_zdep['energy_abs']/vdenom).sum(axis=1)
                 energy_abs_v *= u.solLum 
                 energy_abs_v *= 1./Lv_norm
             else:
@@ -3893,7 +3937,7 @@ class PhotoZ(object):
             # LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
             # LIRv = LIR_norm / Lv_norm
 
-            SFRv = (coeffs_norm*temp_par_zdep['sfr']).sum(axis=1)
+            SFRv = (coeffs_norm*temp_par_zdep['sfr']/vdenom).sum(axis=1)
             #SFRv *= u.solMass / u.yr / u.solLum
             SFRv *= u.solMass / u.yr 
             SFRv *= 1./Lv_norm
@@ -3934,13 +3978,13 @@ class PhotoZ(object):
                     break
 
             par_table['Lv'] = Lv
-            par_table['mass'] = MLv*Lv
+            par_table['mass'] = Mv*Lv
             par_table['sfr'] = SFRv*Lv
             par_table['LIR'] = LIRv*Lv
             par_table['energy_abs'] = energy_abs_v*Lv
             par_table['Av'] = Av
             par_table['lw_age_V'] = lw_age_V
-            par_table['MLv'] = MLv
+            par_table['MLv'] = Mv
             
         # Make the full table
         tab = Table()
@@ -4253,9 +4297,16 @@ class PhotoZ(object):
             print(f'Get parameters (UBVJ={UBVJ}, simple={simple})')
         
         if (('template_fnu_units' not in kwargs) & 
-            ('fsps_QSF_12' in self.param['TEMPLATES_FILE'])):
-            warnings.warn(f"Setting template_fnu_units=None for {self.param['TEMPLATES_FILE']} templates",
+            ('fsps_QSF_12_v3' in self.param['TEMPLATES_FILE'])):
+            
+            # Need old V-band normalization method for the NMF templates
+            warnings.warn(f"Setting template_fnu_units=None for" + 
+                          f"{self.param['TEMPLATES_FILE']} templates",
                           AstropyUserWarning)
+            
+            if 'vnorm_type' not in kwargs:
+                kwargs['vnorm_type'] = 1
+                
             kwargs['template_fnu_units'] = None
             
         sps_tab = self.sps_parameters(UBVJ=UBVJ, 
