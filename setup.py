@@ -66,7 +66,7 @@ if os.path.exists('.git'):
     #version = '0.2.0'
     #version = '0.3.0' #  Fixes to SPS params, z-dependent templates
     #version = '0.4.0' #  change loglike calculations, improve residuals function
-
+    #version = '0.5.0' # restructured parallelism, redshift-dependent templates
     version_str =f"""# git describe --tags
 __version__ = "{version}"
 __long_version__ = "{long_version}"
@@ -77,7 +77,9 @@ __version_hash__ = "{version_hash}"
     fp.write(version_str)
     fp.close()
     print('Git version: {0}'.format(version))
-
+else:
+    version = "0.5.2"
+    
 setup(
     name = "eazy",
     version = version,
