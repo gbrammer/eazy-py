@@ -90,6 +90,11 @@ setup(
     packages=['eazy'],
     # install_requires=['astropy', 'dustmaps'],
     # requires=['numpy', 'scipy', 'astropy', 'drizzlepac', 'stwcs'],
+    install_requires = ['numpy',
+                        'scipy',
+                        'matplotlib',
+                        'astropy',
+                        'tqdm'],
     # long_description=read('README.rst'),
     classifiers=[
         "Development Status :: 1 - Planning",
