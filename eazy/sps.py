@@ -480,6 +480,7 @@ def fsps_line_info(wlimits=None):
         
     return waves, names
 
+
 DEFAULT_LINES = fsps_line_info(wlimits=[1200, 1.9e4])[0]
 
 BOUNDS = {}
@@ -724,9 +725,10 @@ class ExtendedFsps(StellarPopulation):
         # Remove lines from FSPS
         # line width seems to be 2*dlam at the line wavelength
         for i, ix in enumerate(line_ix):
-            gauss = 1/np.sqrt(2*np.pi*fsps_sigma[i]**2)
-            gauss *= np.exp(-(wave - line_wave[i])**2/2/fsps_sigma[i]**2)
-            clean -= gauss*line_lum[i]
+            if self.params['nebemlineinspec']:
+                gauss = 1/np.sqrt(2*np.pi*fsps_sigma[i]**2)
+                gauss *= np.exp(-(wave - line_wave[i])**2/2/fsps_sigma[i]**2)
+                clean -= gauss*line_lum[i]
             
             # indices of fine array where new lines defined
             qfine |= np.abs(wfine - line_wave[i]) < clip_sigma*line_dlam[i]
@@ -787,8 +789,9 @@ class ExtendedFsps(StellarPopulation):
         self.narrow = data
         
         return data
-            
-    def set_fir_template(self, arrays=None, file='templates/magdis/magdis_09.txt', verbose=True, unset=False):
+
+
+    def set_fir_template(self, arrays=None, file='templates/magdis/magdis_09.txt', verbose=True, unset=False, scale_pah3=0.5):
         """
         Set the far-IR template for reprocessed dust emission
         """
@@ -808,6 +811,7 @@ class ExtendedFsps(StellarPopulation):
                 print(f'Set FIR dust template from {file}')
             _ = np.loadtxt(file, unpack=True)
             wave, flux = _[0], _[1]
+            
             self.fir_name = file
 
         elif arrays is not None:
@@ -830,12 +834,25 @@ class ExtendedFsps(StellarPopulation):
             flux -= flux_nodust
 
             self.fir_name = 'fsps-dl07'
+        
+        if scale_pah3 is not None:
+            if verbose:
+                print(f'Scale 3.3um PAH: {scale_pah3:.2f}')
+                
+            ran = np.abs(wave-3.3e4) < 0.5e4
+            line = np.abs(wave-3.3e4) < 0.3e4
+            px = np.polyfit(wave[ran & ~line], flux[ran & ~line], 3)
             
+            scaled_line = (flux[ran] - np.polyval(px, wave[ran]))*scale_pah3
+            
+            flux[ran] = np.polyval(px, wave[ran]) + scaled_line
+                
         fir_flux = np.interp(self.wavelengths, wave, flux, left=0, right=0)
         self.fir_template = fir_flux/np.trapz(fir_flux, self.wavelengths)
         self.fir_arrays = arrays
         return True
-        
+
+
     def set_dust(self, Av=0., dust_obj_type='WG00x', wg00_kwargs=WG00_DEFAULTS):
         """
         Set `dust_obj` attribute
@@ -1182,23 +1199,22 @@ class ExtendedFsps(StellarPopulation):
         if hasattr(self, 'emline_names'):
             has_red = hasattr(self, 'emline_reddened')
             
-            for i in range(len(self.emline_wavelengths)):
-                n = self.emline_names[i]
-                if n in self.scale_lines:
-                    kscl = self.scale_lines[n]
-                else:
-                    kscl = 1.0
+            if self.emline_luminosity.ndim == 1:
+                for i in range(len(self.emline_wavelengths)):
+                    n = self.emline_names[i]
+                    if n in self.scale_lines:
+                        kscl = self.scale_lines[n]
+                    else:
+                        kscl = 1.0
                 
-                meta[f'scale {n}'] = kscl
-                meta[f'line {n}'] = self.emline_luminosity[i]*kscl
-                if has_red:
-                    meta[f'rline {n}'] = self.emline_reddened[i]*kscl
+                    meta[f'scale {n}'] = kscl
+                    meta[f'line {n}'] = self.emline_luminosity[i]*kscl
+                    if has_red:
+                        meta[f'rline {n}'] = self.emline_reddened[i]*kscl
                     
-                meta[f'eqw {n}'] = self.emline_eqw[i]
-                meta[f'sigma {n}'] = self.emline_sigma[i]
+                    meta[f'eqw {n}'] = self.emline_eqw[i]
+                    meta[f'sigma {n}'] = self.emline_sigma[i]
 
-                    
-                
         # Band information
         if hasattr(self, '_meta_bands'):
             light_ages = self.light_age_band(self._meta_bands, flat=False)
@@ -1212,6 +1228,7 @@ class ExtendedFsps(StellarPopulation):
             for i, b in enumerate(self._meta_bands):
                 meta[f'lwage_{b}'] = light_ages[i]
                 meta[f'lum_{b}'] = band_lum[i].value
+        
         try:
             meta['libraries'] = ';'.join([s.decode() for s in self.libraries])  
         except:
