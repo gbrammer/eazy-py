@@ -48,34 +48,35 @@ import os
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
-args = 'git describe --tags'
-p = subprocess.Popen(args.split(), stdout=subprocess.PIPE)
-long_version = p.communicate()[0].decode("utf-8").strip()
-spl = long_version.split('-')
+if os.path.exists('.git'):
+    args = 'git describe --tags'
+    p = subprocess.Popen(args.split(), stdout=subprocess.PIPE)
+    long_version = p.communicate()[0].decode("utf-8").strip()
+    spl = long_version.split('-')
 
-if len(spl) == 3:
-    main_version = spl[0]
-    commit_number = spl[1]
-    version_hash = spl[2]
-    version = f'{main_version}.dev{commit_number}'
-else:
-    version_hash = '---'
-    version = long_version
+    if len(spl) == 3:
+        main_version = spl[0]
+        commit_number = spl[1]
+        version_hash = spl[2]
+        version = f'{main_version}.dev{commit_number}'
+    else:
+        version_hash = '---'
+        version = long_version
 
-#version = '0.2.0'
-#version = '0.3.0' #  Fixes to SPS params, z-dependent templates
-#version = '0.4.0' #  change loglike calculations, improve residuals function
+    #version = '0.2.0'
+    #version = '0.3.0' #  Fixes to SPS params, z-dependent templates
+    #version = '0.4.0' #  change loglike calculations, improve residuals function
 
-version_str =f"""# git describe --tags
+    version_str =f"""# git describe --tags
 __version__ = "{version}"
 __long_version__ = "{long_version}"
 __version_hash__ = "{version_hash}"
-"""
+    """
 
-fp = open('eazy/version.py','w')
-fp.write(version_str)
-fp.close()
-print('Git version: {0}'.format(version))
+    fp = open('eazy/version.py','w')
+    fp.write(version_str)
+    fp.close()
+    print('Git version: {0}'.format(version))
 
 setup(
     name = "eazy",
