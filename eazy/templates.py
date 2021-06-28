@@ -1,8 +1,11 @@
 import os
+import warnings
+
 from collections import OrderedDict
 import numpy as np
 
 import astropy.units as u
+from astropy.utils.exceptions import AstropyWarning, AstropyUserWarning
 
 from . import utils
 
@@ -727,6 +730,75 @@ class Template():
             return Template(arrays=(self.wave, sm_flux), 
                             name=self.name, meta=self.meta, 
                             redshifts=self.redshifts)
+
+
+    def to_muse(self, z=0, extra_sigma=0, to_air=True, muse_wave=None, smoothspec_kwargs={}):
+        """
+        Smooth and resample to MUSE observed-frame wavelengths, including the MUSE Line Spread Function (LSF)
+        
+        Parameters
+        ----------
+        z : float
+            Target redshift
+        
+        extra_sigma : float
+            Extra velocity dispersion (sigma, km/s) to add in quadrature with 
+            the MUSE LSF
+        
+        to_air : bool
+            Apply vacuum-to-air conversion with `mpdaf.obj.vactoair`
+        
+        muse_wave : array, None
+            Wavelength grid (observed frame) of the target MUSE spectrum
+        
+        smoothspec_kwargs : dict
+            Extra keyword arguments to pass to the Prospector smoothing 
+            function `prospect.utils.smoothing.smoothspec`.
+        
+        Returns
+        -------
+        muse_templ : `~eazy.template.Template`
+            Smoothed and resampled `~eazy.template.Template` object
+            
+        """
+        from scipy.special import erfc
+        from prospect.utils.smoothing import smoothspec
+        
+        wobs = self.wave*(1+z)
+        
+        if to_air:
+            try:
+                from mpdaf.obj import vactoair
+                wobs = vactoair(wobs)
+            except ImportError:
+                msg = "`to_air` requested but `from mpdaaf.obj import vactoair` failed"
+                warnings.warn(msg, AstropyUserWarning)
+                
+        clip = (wobs > 4400) & (wobs < 9600)
+        if clip.sum() == 0:
+            raise ValueError('No template wavelengths found in MUSE range [4400, 9600] Angstroms')
+            
+        # MUSE LSF from MPDAF
+        step = 1.25
+        c = np.array([-0.09876662, 0.44410609, -0.03166038, 0.46285363])
+        sigma = lambda x: c[3] + c[2] * x + c[1] * x ** 2 + c[0] * x ** 3
+        x = (wobs - 6975.0) / 4650.0
+        
+        ##########################    
+        sig = sigma(x[clip])*step
+
+        vel_sigma = np.sqrt((sig/wobs[clip]*3.e5)**2 + extra_sigma**2)
+        smooth_lambda = vel_sigma / 3.e5 * wobs[clip]
+        
+        flux_smooth = smoothspec(wobs[clip], self.flux_flam(z=z)[clip], 
+                                 resolution=smooth_lambda, 
+                                 smoothtype='lsf', **smoothspec_kwargs)
+        
+        newname = self.name + f' + MUSE-LSF + {extra_sigma:.1f} km/s'
+        tnew = Template(arrays=(wobs[clip], flux_smooth), 
+                        name=newname, resample_wave=muse_wave, redshifts=[z])
+        
+        return tnew
 
 
     def resample(self, new_wave, z=0, in_place=True, return_array=False, interp_func=None):
