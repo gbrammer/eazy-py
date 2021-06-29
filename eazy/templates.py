@@ -768,11 +768,9 @@ class Template():
             Line Spread Function (LSF).  If ``'Bacon'``, then use the "UDF-10"
             MUSE LSF from `Bacon et al. 2017 
             <https://ui.adsabs.harvard.edu/abs/2017A%26A...608A...1B>`_ (Eq. 
-            8).
-            
-            Can also be a function that takes an argument of wavelength in
-            Angstroms and returns the LSF sigma, in Angstroms. If neither of
-            these, then only `extra_sigma` will be applied.
+            8). Can also be a ``function`` that takes an argument of
+            wavelength in Angstroms and returns the LSF sigma, in Angstroms.
+            If neither of these, then only `extra_sigma` will be applied.
             
         to_air : bool
             Apply vacuum-to-air conversion with `mpdaf.obj.vactoair <https://mpdaf.readthedocs.io/en/latest/api/mpdaf.obj.vactoair.html>`_
