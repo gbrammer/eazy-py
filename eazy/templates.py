@@ -743,14 +743,18 @@ class Template():
         optional Line Spread Function (LSF)
                 
         Note that the smoothing is performed with 
-        `prospect.utils.smoothing.smoothspec`, which doesn't integrate
-        precisely over "pixels" for spectral resolutions that are similar 
-        to or less than the output smoothing factor.
+        `prospect.utils.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html`_, 
+        which doesn't integrate precisely over "pixels" for spectral
+        resolutions that are similar to or less than the target smoothing
+        factor.
         
         Parameters
         ----------
         z : float
-            Target redshift
+            Target redshift.  Note that only the wavelength array is shifted
+            by ``(1+z)``.  The flux densities optionally include IGM
+            absorption (and dust from the ``redfunc`` attribute) but don't
+            include the ``fl_obs = fl_rest / (1+z)`` scaling.
         
         scalar : float, array
             Scalar value or array with same dimensions as ``wave`` and 
@@ -771,7 +775,7 @@ class Template():
             these, then only `extra_sigma` will be applied.
             
         to_air : bool
-            Apply vacuum-to-air conversion with `mpdaf.obj.vactoair`
+            Apply vacuum-to-air conversion with `mpdaf.obj.vactoair <https://mpdaf.readthedocs.io/en/latest/api/mpdaf.obj.vactoair.html>`_
         
         wavelengths : array, None
             Optional wavelength grid (observed frame) of the target output 
