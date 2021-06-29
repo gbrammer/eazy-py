@@ -690,7 +690,7 @@ class Template():
         Parameters
         ----------
         velocity_smooth: float
-            Velocity smoothing factor, in km/s.
+            Velocity smoothing *sigma*, in km/s.
         
         in_place : bool
             Set internal ``flux`` array to the smoothed array.  If False, then
@@ -734,7 +734,16 @@ class Template():
 
     def to_muse(self, z=0, extra_sigma=0, to_air=True, muse_wave=None, smoothspec_kwargs={}):
         """
-        Smooth and resample to MUSE observed-frame wavelengths, including the MUSE Line Spread Function (LSF)
+        Smooth and resample to MUSE observed-frame wavelengths, including the 
+        MUSE Line Spread Function (LSF)
+        
+        The MUSE LSF is adopted from the UDF-10 fit from `Bacon et al. 2017 
+        <https://ui.adsabs.harvard.edu/abs/2017A%26A...608A...1B>`_ (Eq. 8).
+        
+        Note that the smoothing is performed with 
+        `prospect.utils.smoothing.smoothspec`, which doesn't integrate
+        precisely over "pixels" for spectral resolutions that are similar 
+        to or less than the output smoothing factor.
         
         Parameters
         ----------
@@ -753,7 +762,10 @@ class Template():
         
         smoothspec_kwargs : dict
             Extra keyword arguments to pass to the Prospector smoothing 
-            function `prospect.utils.smoothing.smoothspec`.
+            function `prospect.utils.smoothing.smoothspec`.  When testing with
+            very high resolution templates around a specific wavelength, 
+            ``smoothspec_kwargs = {'fftsmooth':True}`` did not always work as
+            expected.  
         
         Returns
         -------
@@ -762,6 +774,7 @@ class Template():
             
         """
         from scipy.special import erfc
+        from astropy.stats import gaussian_sigma_to_fwhm
         from prospect.utils.smoothing import smoothspec
         
         wobs = self.wave*(1+z)
@@ -774,20 +787,15 @@ class Template():
                 msg = "`to_air` requested but `from mpdaaf.obj import vactoair` failed"
                 warnings.warn(msg, AstropyUserWarning)
                 
-        clip = (wobs > 4400) & (wobs < 9600)
+        clip = (wobs > 4200) & (wobs < 9900)
         if clip.sum() == 0:
             raise ValueError('No template wavelengths found in MUSE range [4400, 9600] Angstroms')
             
-        # MUSE LSF from MPDAF
-        step = 1.25
-        c = np.array([-0.09876662, 0.44410609, -0.03166038, 0.46285363])
-        sigma = lambda x: c[3] + c[2] * x + c[1] * x ** 2 + c[0] * x ** 3
-        x = (wobs - 6975.0) / 4650.0
+        # UDF-10 LSF from Bacon et al. 2017
+        bacon_lsf_fwhm = lambda w: 5.866e-8 * w**2 - 9.187e-4*w + 6.04
+        sig_ang = bacon_lsf_fwhm(wobs[clip]) / gaussian_sigma_to_fwhm
         
-        ##########################    
-        sig = sigma(x[clip])*step
-
-        vel_sigma = np.sqrt((sig/wobs[clip]*3.e5)**2 + extra_sigma**2)
+        vel_sigma = np.sqrt((sig_ang/wobs[clip]*3.e5)**2 + extra_sigma**2)
         smooth_lambda = vel_sigma / 3.e5 * wobs[clip]
         
         flux_smooth = smoothspec(wobs[clip], self.flux_flam(z=z)[clip], 

@@ -244,5 +244,107 @@ def test_integrate_filter():
                            equivalencies=u.equivalencies.spectral_density(wz))
 
         assert(np.allclose(flam_interp*utils.FLAM_CGS, flam_unit))
+
+
+def test_template_resampling():
+    """
+    Resampling preserving integrated flux 
+    """
+    try:
+        from grizli.utils_c import interp
+        interp_grizli = interp.interp_conserve_c
+    except:
+        interp_grizli = None
+        
+    interp_eazy = utils.interp_conserve
     
+    # Template with delta function line
+    xtest = np.linspace(6550, 6576, 1024)
+    ytest = xtest*0
     
+    ytest[len(xtest)//2] = 1
+    
+    dx = np.diff(xtest)[0]
+    
+    tline = templates.Template(arrays=(xtest, ytest/dx))
+    
+    # Different resample grids
+    for func in [interp_eazy, interp_grizli]:
+        if func is None:
+            continue
+        
+        for nstep in [16,32,64,128]:
+            wlo = np.linspace(6550, 6576, nstep)
+            
+            tlo = tline.resample(wlo, in_place=False)
+                        
+            assert np.allclose(np.trapz(tlo.flux.flatten(), tlo.wave), 1., 
+                           rtol=1.e-3)
+
+    # Arbitrarily-spaced wavelengths
+    np.random.seed(1)
+    for func in [interp_eazy, interp_grizli]:
+        if func is None:
+            continue
+        
+        for nstep in [16,32,64,128]:
+            wlo = np.sort(np.random.rand(nstep)*26+6550)
+            
+            tlo = tline.resample(wlo, in_place=False)
+                        
+            assert np.allclose(np.trapz(tlo.flux.flatten(), tlo.wave), 1., 
+                           rtol=1.e-3)
+
+
+def test_template_smoothing():
+    """
+    Test template smoothing:
+        
+        - `eazy.templates.Template.smooth_velocity`
+        - `eazy.templates.Template.to_muse`
+        
+    """
+    from astropy.stats import gaussian_sigma_to_fwhm
+    
+    #### Template with delta function line
+    xtest = np.linspace(6550, 6576, 1024)
+    ytest = xtest*0; ytest[len(xtest)//2] = 1
+    
+    dx = np.diff(xtest)[0]
+    
+    tline = templates.Template(arrays=(xtest, ytest))
+    
+    #### Velocity smoothing
+    vel = 100 # sigma
+    pixel_sigma = vel/3.e5*6563./dx
+    
+    tsm = tline.smooth_velocity(vel, in_place=False)
+    
+    assert np.allclose(tsm.flux.max(), 1./np.sqrt(2*np.pi)/pixel_sigma, 
+                       rtol=1.e-3)
+                       
+    assert np.allclose(np.trapz(tsm.flux.flatten(), tsm.wave), dx,
+                       rtol=1.e-3)
+    
+    #### MUSE LSF
+    bacon_lsf_fwhm = lambda w: 5.866e-8 * w**2 - 9.187e-4*w + 6.04
+    lsf_sig = bacon_lsf_fwhm(6563)/gaussian_sigma_to_fwhm
+    
+    tlsf = tline.to_muse(extra_sigma=0, smoothspec_kwargs={'fftsmooth':False})
+    
+    smax = 1/np.sqrt(2*np.pi)/(lsf_sig/dx)
+    assert np.allclose(tlsf.flux.max(), smax, rtol=1.e-3)
+    assert np.allclose(np.trapz(tlsf.flux.flatten(), tlsf.wave), dx,
+                       rtol=1.e-3)
+                       
+    #### Resampled
+    for nstep in [16,32,64,128]:
+        wlo = np.linspace(6550, 6576, nstep)
+        tlo = tline.to_muse(extra_sigma=0, 
+                            smoothspec_kwargs={'fftsmooth':False}, 
+                            muse_wave=wlo)
+                        
+        assert np.allclose(np.trapz(tlo.flux.flatten(), tlo.wave), dx, 
+                       rtol=1.e-2)
+
+
