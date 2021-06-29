@@ -301,7 +301,7 @@ def test_template_smoothing():
     Test template smoothing:
         
         - `eazy.templates.Template.smooth_velocity`
-        - `eazy.templates.Template.to_muse`
+        - `eazy.templates.Template.to_observed_frame`
         
     """
     from astropy.stats import gaussian_sigma_to_fwhm
@@ -330,19 +330,39 @@ def test_template_smoothing():
     bacon_lsf_fwhm = lambda w: 5.866e-8 * w**2 - 9.187e-4*w + 6.04
     lsf_sig = bacon_lsf_fwhm(6563)/gaussian_sigma_to_fwhm
     
-    tlsf = tline.to_muse(extra_sigma=0, smoothspec_kwargs={'fftsmooth':False})
+    tlsf = tline.to_observed_frame(extra_sigma=0, lsf_func='Bacon',
+                                   smoothspec_kwargs={'fftsmooth':False})
     
     smax = 1/np.sqrt(2*np.pi)/(lsf_sig/dx)
     assert np.allclose(tlsf.flux.max(), smax, rtol=1.e-3)
     assert np.allclose(np.trapz(tlsf.flux.flatten(), tlsf.wave), dx,
                        rtol=1.e-3)
-                       
+    
+    #### User LSF
+    lsf_sig = 2.0
+    my_lsf = lambda x: x*0 + lsf_sig
+    tlsf = tline.to_observed_frame(extra_sigma=0, lsf_func=my_lsf,
+                                   smoothspec_kwargs={'fftsmooth':False})
+    
+    smax = 1/np.sqrt(2*np.pi)/(lsf_sig/dx)
+    assert np.allclose(tlsf.flux.max(), smax, rtol=1.e-3)
+    assert np.allclose(np.trapz(tlsf.flux.flatten(), tlsf.wave), dx,
+                       rtol=1.e-3)
+    
+    #### No LSF is the same as smooth_velocity
+    tobs = tline.to_observed_frame(extra_sigma=vel, lsf_func=None, 
+                                   to_air=False, z=0,
+                                   smoothspec_kwargs={'fftsmooth':False}, 
+                                   clip_wavelengths=None)
+    
+    np.allclose(tobs.flux, tsm.flux, atol=tsm.flux.max()*1.e-3)
+                  
     #### Resampled
     for nstep in [16,32,64,128]:
         wlo = np.linspace(6550, 6576, nstep)
-        tlo = tline.to_muse(extra_sigma=0, 
+        tlo = tline.to_observed_frame(extra_sigma=0, lsf_func='Bacon',
                             smoothspec_kwargs={'fftsmooth':False}, 
-                            muse_wave=wlo)
+                            wavelengths=wlo)
                         
         assert np.allclose(np.trapz(tlo.flux.flatten(), tlo.wave), dx, 
                        rtol=1.e-2)

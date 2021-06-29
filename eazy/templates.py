@@ -505,6 +505,11 @@ class Template():
                         
         elif arrays is not None:
             self.wave, self.flux = arrays[0]*1., arrays[1]*1.
+            if arrays[0].shape[0] != np.atleast_2d(arrays[1]).shape[1]:
+                raise ValueError("Array dimensions don't match: "+
+                                 f'arrays[0]: {arrays[0].shape}, '+
+                                 f'arrays[1]: {arrays[1].shape}, ')
+                
             if hasattr(self.flux, 'unit'):
                 self.flux_unit = self.flux.unit
                 
@@ -732,14 +737,11 @@ class Template():
                             redshifts=self.redshifts)
 
 
-    def to_muse(self, z=0, extra_sigma=0, to_air=True, muse_wave=None, smoothspec_kwargs={}):
+    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func='Bacon', to_air=True, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, clip_wavelengths=[4500,9400]):
         """
-        Smooth and resample to MUSE observed-frame wavelengths, including the 
-        MUSE Line Spread Function (LSF)
-        
-        The MUSE LSF is adopted from the UDF-10 fit from `Bacon et al. 2017 
-        <https://ui.adsabs.harvard.edu/abs/2017A%26A...608A...1B>`_ (Eq. 8).
-        
+        Smooth and resample to observed-frame wavelengths, including an
+        optional Line Spread Function (LSF)
+                
         Note that the smoothing is performed with 
         `prospect.utils.smoothing.smoothspec`, which doesn't integrate
         precisely over "pixels" for spectral resolutions that are similar 
@@ -750,63 +752,121 @@ class Template():
         z : float
             Target redshift
         
+        scalar : float, array
+            Scalar value or array with same dimensions as ``wave`` and 
+            ``flux`` attributes
+            
         extra_sigma : float
             Extra velocity dispersion (sigma, km/s) to add in quadrature with 
             the MUSE LSF
         
+        lsf_func : 'Bacon', function
+            Line Spread Function (LSF).  If ``'Bacon'``, then use the "UDF-10"
+            MUSE LSF from `Bacon et al. 2017 
+            <https://ui.adsabs.harvard.edu/abs/2017A%26A...608A...1B>`_ (Eq. 
+            8).
+            
+            Can also be a function that takes an argument of wavelength in
+            Angstroms and returns the LSF sigma, in Angstroms. If neither of
+            these, then only `extra_sigma` will be applied.
+            
         to_air : bool
             Apply vacuum-to-air conversion with `mpdaf.obj.vactoair`
         
-        muse_wave : array, None
-            Wavelength grid (observed frame) of the target MUSE spectrum
+        wavelengths : array, None
+            Optional wavelength grid (observed frame) of the target output 
+            (e.g., MUSE) spectrum
         
         smoothspec_kwargs : dict
             Extra keyword arguments to pass to the Prospector smoothing 
             function `prospect.utils.smoothing.smoothspec`.  When testing with
             very high resolution templates around a specific wavelength, 
             ``smoothspec_kwargs = {'fftsmooth':True}`` did not always work as
-            expected.  
+            expected, so be careful with this option (which is much faster).
         
+        include_igm : bool
+            Include IGM absorption at indicated redshift
+        
+        clip_wavelengths : [float, float]
+            Trim the full observed-frame wavelength array before convolving.  
+            The defaults bracket the nominal MUSE range.
+            
         Returns
         -------
-        muse_templ : `~eazy.template.Template`
+        tobs : `~eazy.template.Template`
             Smoothed and resampled `~eazy.template.Template` object
             
         """
-        from scipy.special import erfc
         from astropy.stats import gaussian_sigma_to_fwhm
         from prospect.utils.smoothing import smoothspec
         
         wobs = self.wave*(1+z)
+        
+        if include_igm:
+            igmz = self.igm_absorption(z, pow=include_igm)
+        else:
+            igmz = 1.
         
         if to_air:
             try:
                 from mpdaf.obj import vactoair
                 wobs = vactoair(wobs)
             except ImportError:
-                msg = "`to_air` requested but `from mpdaaf.obj import vactoair` failed"
+                msg = ("`to_air` requested but `from mpdaaf.obj import " + 
+                       "vactoair` failed")
                 warnings.warn(msg, AstropyUserWarning)
-                
-        clip = (wobs > 4200) & (wobs < 9900)
-        if clip.sum() == 0:
-            raise ValueError('No template wavelengths found in MUSE range [4400, 9600] Angstroms')
-            
-        # UDF-10 LSF from Bacon et al. 2017
-        bacon_lsf_fwhm = lambda w: 5.866e-8 * w**2 - 9.187e-4*w + 6.04
-        sig_ang = bacon_lsf_fwhm(wobs[clip]) / gaussian_sigma_to_fwhm
         
-        vel_sigma = np.sqrt((sig_ang/wobs[clip]*3.e5)**2 + extra_sigma**2)
+        if clip_wavelengths is not None:
+            clip = wobs >= clip_wavelengths[0]
+            clip &= wobs <= clip_wavelengths[1]
+            
+            if clip.sum() == 0:
+                raise ValueError('No template wavelengths found in the '+
+                                 f'clipping range {clip_wavelengths} '+ 
+                                 'Angstroms')
+        else:
+            clip = wobs > 0
+            
+        if lsf_func in ['Bacon']:
+            # UDF-10 LSF from Bacon et al. 2017
+            bacon_lsf_fwhm = lambda w: 5.866e-8 * w**2 - 9.187e-4*w + 6.04
+            sig_ang = bacon_lsf_fwhm(wobs[clip]) / gaussian_sigma_to_fwhm
+            
+            lsf_sigma = sig_ang/wobs[clip]*3.e5
+            lsf_func_name = 'MUSE-LSF'
+            
+        elif hasattr(lsf_func, '__call__'):
+            lsf_sigma = lsf_func(wobs[clip])/wobs[clip]*3.e5
+            lsf_func_name = 'user'
+        
+        else:
+            lsf_sigma = 0.
+            lsf_func_name = None
+        
+        # Quadrature sum of LSF and extra velocities    
+        vel_sigma = np.sqrt(lsf_sigma**2 + extra_sigma**2)
+        
+        # In Angstroms
         smooth_lambda = vel_sigma / 3.e5 * wobs[clip]
         
-        flux_smooth = smoothspec(wobs[clip], self.flux_flam(z=z)[clip], 
+        # Do the smoothing
+        flux_smooth = smoothspec(wobs[clip], 
+                                 (self.flux_flam(z=z)*igmz*scalar)[clip], 
                                  resolution=smooth_lambda, 
                                  smoothtype='lsf', **smoothspec_kwargs)
         
-        newname = self.name + f' + MUSE-LSF + {extra_sigma:.1f} km/s'
-        tnew = Template(arrays=(wobs[clip], flux_smooth), 
-                        name=newname, resample_wave=muse_wave, redshifts=[z])
+        newname = self.name + f' z={z:.3f}' 
+        if lsf_func_name is not None:
+            newname += ' + ' + lsf_func_name
         
-        return tnew
+        if extra_sigma > 0:
+            newname += ' + {extra_sigma:.1f} km/s'
+            
+        tobs = Template(arrays=(wobs[clip], flux_smooth), 
+                        name=newname, resample_wave=wavelengths, 
+                        redshifts=[z])
+        
+        return tobs
 
 
     def resample(self, new_wave, z=0, in_place=True, return_array=False, interp_func=None):
@@ -937,7 +997,7 @@ class Template():
         return iz
 
 
-    def zscale(self, z, scalar=1, apply_igm=True):
+    def zscale(self, z, scalar=1, include_igm=True, **kwargs):
         """Redshift the template and multiply by a scalar.
 
         Parameters
@@ -947,18 +1007,25 @@ class Template():
 
         scalar : float or array
             Multiplicative factor.  Additional factor of 1./(1+z) is implicit.
-
+        
+        include_igm : bool
+            Include Inoue (2014) IGM absorption (also can be passed as 
+            ``apply_igm`` in ``kwargs``.)
+        
         Returns
         -------
         ztemp : `~eazy.templates.Template`
             Redshifted and scaled spectrum.
 
         """
-        if apply_igm:
-            igmz = self.igm_absorption(z, pow=apply_igm)
+        if 'apply_igm' in kwargs:
+            include_igm = kwargs['apply_igm']
+            
+        if include_igm:
+            igmz = self.igm_absorption(z, pow=include_igm)
         else:
             igmz = 1.
-
+        
         return Template(arrays=(self.wave*(1+z),
                                 self.flux_flam(z=z)*scalar/(1+z)*igmz), 
                         name=f'{self.name} z={z}')
