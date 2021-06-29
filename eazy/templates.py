@@ -743,7 +743,7 @@ class Template():
         optional Line Spread Function (LSF)
                 
         Note that the smoothing is performed with 
-        `prospect.utils.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html`_, 
+        `prospect.utils.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html>`_, 
         which doesn't integrate precisely over "pixels" for spectral
         resolutions that are similar to or less than the target smoothing
         factor.
@@ -783,10 +783,11 @@ class Template():
         
         smoothspec_kwargs : dict
             Extra keyword arguments to pass to the Prospector smoothing 
-            function `prospect.utils.smoothing.smoothspec`.  When testing with
-            very high resolution templates around a specific wavelength, 
-            ``smoothspec_kwargs = {'fftsmooth':True}`` did not always work as
-            expected, so be careful with this option (which is much faster).
+            function `prospect.utils.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html>`_.  
+            When testing with very high resolution templates around a specific
+            wavelength, ``smoothspec_kwargs = {'fftsmooth':True}`` did not
+            always work as expected, so be careful with this option (which is
+            much faster).
         
         include_igm : bool
             Include IGM absorption at indicated redshift
