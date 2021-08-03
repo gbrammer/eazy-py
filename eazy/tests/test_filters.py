@@ -1,4 +1,3 @@
-import pytest
 import os
 import warnings
 
@@ -6,7 +5,6 @@ import numpy as np
 
 from astropy.utils.exceptions import AstropyWarning
 
-from .. import utils
 from .. import filters
 
 def test_array_filter():

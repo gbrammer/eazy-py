@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 
 from .. import utils
@@ -92,5 +91,22 @@ def test_invert():
     a = np.array([[1., 2.], [3., 4.]])
     ainv = utils.safe_invert(a)
     assert(np.allclose(np.dot(a, ainv), np.eye(2)))
+
+
+def test_query_string():
+    """
+    """
+    ra, dec = 53.14474, -27.78552
     
+    qstr = utils.query_html(ra, dec, with_coords=True, replace_comma=False, 
+                            queries=['CDS'])
+    
+    expected = '(53.144740, -27.785520) <a href="http://vizier.u-strasbg.fr/viz-bin/VizieR?-c=53.14474+%2D27.78552&-c.rs=1.0">CDS</a>'
+    assert(qstr == expected)
+                    
+    for co in [True, False]:
+        for re in [True, False]:
+            qstr = utils.query_html(ra, dec, with_coords=co, replace_comma=re, 
+                            queries=['CDS','ESO','MAST','ALMA', 'LEG','HSC'])
+                            
     

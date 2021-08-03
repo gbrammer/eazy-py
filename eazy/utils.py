@@ -604,71 +604,152 @@ def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[
         return True
 
 
-def query_html(ra, dec, **kwargs):
+def query_html(ra, dec, with_coords=True, replace_comma=True, queries=['CDS','ESO','MAST','ALMA', 'LEG','HSC'], **kwargs):
     """
-    Return HTML string of queries at a position
+    Return HTML string of queries around a position
+    
+    Parameters
+    ----------
+    ra, dec : float
+        Coordinates in decimal degrees
+    
+    with_coords : bool
+        Include '(ra, dec)' in output string
+    
+    replace_comma : bool
+        Replace ',' with URL-safe '%2C'
+    
+    queries : list
+        - CDS: Vizier/CDS catalogs
+        - ESO: ESO archive
+        - MAST: STScI/MAST HST archive
+        - ALMA: ALMA archive
+        - LEG/LEGACY: LegacySurvey map interface
+        - HSC: HSC map interface
+    
+    Returns
+    -------
+    html : str
+        HTML-formatted string with query links
+        
     """
-    html = f"({ra:.6f}, {dec:.6f}) "
-    for func, name in zip([cds_query, eso_query, mast_query, alma_query, show_legacysurvey, hscmap_query], ['CDS','ESO','MAST','ALMA', 'LEG','HSC']):
+    if with_coords:
+        html = [f"({ra:.6f}, {dec:.6f})"]
+    else:
+        html = []
+    
+    # Function/name mapping
+    funcs = [cds_query, eso_query, mast_query, alma_query, show_legacysurvey, hscmap_query]
+    names = ['CDS','ESO','MAST','ALMA', 'LEG','HSC']
+    query_map = {}
+    for name, func in zip(names, funcs):
+        query_map[name] = func
+    
+    query_map['LEGACY'] = query_map['LEG']
+    
+    for name in queries:
+        if name in query_map:
+            func = query_map[name]
+        else:
+            continue
+            
         url = func(ra, dec, **kwargs)
-        html += f' <a href="{url}">{name}</a>'
+        html.append(f'<a href="{url}">{name}</a>')
     
+    html = ' '.join(html)
+    
+    if replace_comma:
+        html = html.replace(',','%2C')
+        
     return html
-    
-def cds_query(ra, dec, radius=1., **kwargs):
+
+
+def cds_query(ra, dec, radius=1., unit='s', **kwargs):
     """
     Open browswer with CDS catalog query around central position
+    
     """
     #rd = self.get('pan fk5').strip()
     rd = f'{ra} {dec}'
     rdst = rd.replace('+', '%2B').replace('-', '%2D').replace(' ', '+')
     url = (f'http://vizier.u-strasbg.fr/viz-bin/VizieR?'
-           f'-c={rdst}&-c.rs={radius:.1f}')
+           f'-c={rdst}&-c.r{unit}={radius}')
            
     #os.system(f'open {url}')
     return url
 
-def eso_query(ra, dec, radius=1., dp_types=['CUBE','IMAGE'], extra='', **kwargs):
+
+def eso_query(ra, dec, radius=1., unit='m', dp_types=['CUBE','IMAGE'], extra='', **kwargs):
     """
     Open browser with ESO archive query around central position.
     
-    ``radius`` in arcmin.
+    Note: ESO query is data footprint **contains*** point
+    
     """
     #ra, dec = self.get('pan fk5').strip().split()
     
+    # native is deg
+    if unit == 'd':
+        r = f'{radius:.2f}'
+    elif unit == 'm':
+        r = f'{radius/60:.3f}'
+    elif unit == 's':
+        r = f'{radius/3600:.5f}'
+        
     dp_type = ','.join(dp_types)
     
     url = (f'https://archive.eso.org/scienceportal/home?'
-            f'pos={ra},{dec}&r={radius/60.}&dp_type={dp_type}{extra}')
+            f'pos={ra},{dec}&r={r}&dp_type={dp_type}{extra}')
                     
     #os.system(f'open {url}')
     return url
 
-def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], max=1000, **kwargs):
+
+def mast_query(ra, dec, instruments=['WFC3','ACS','WFPC2'], mast_radius=1., mast_unit='m', max=1000, **kwargs):
     """
     Open browser with MAST archive query around central position
+    
+    Note: MAST query is **distance to** point
+    
     """
     #ra, dec = self.get('pan fk5').strip().split()
     if len(instruments) > 0:
         instr='&sci_instrume='+','.join(instruments)
     else:
         instr = ''
+    
+    # native is arcmin
+    if mast_unit == 'd':
+        r = f'{mast_radius*60:.2f}'
+    elif mast_unit == 'm':
+        r = f'{mast_radius:.3f}'
+    elif mast_unit == 's':
+        r = f'{mast_radius/60:.5f}'
         
     url = (f'https://archive.stsci.edu/hst/search.php?RA={ra}&DEC={dec}'
+           f'&radius={r}'
            f'&sci_aec=S{instr}&max_records={max}&outputformat=HTML_Table'
             '&action=Search')
             
     #os.system(f'open {url}')
     return url
 
-def alma_query(ra, dec, mirror="almascience.eso.org", radius=1, extra='', **kwargs):
+
+def alma_query(ra, dec, mirror="almascience.eso.org", radius=1, unit='m', extra='', **kwargs):
     """
     Open browser with ALMA archive query around central position
     """
-    #ra, dec = self.get('pan fk5').strip().split()
 
-    url = (f"https://{mirror}/asax/?result_view=observation"
-           f"&raDec={ra}%20{dec},{radius}{extra}")
+    # native is arcmin
+    if unit == 'd':
+        r = f'{radius*60:.2f}'
+    elif unit == 'm':
+        r = f'{radius:.3f}'
+    elif unit == 's':
+        r = f'{radius/60:.5f}'
+        
+    url = (f"https://{mirror}/aq/?result_view=observation"
+           f"&raDec={ra}%20{dec},{r}{extra}")
     #os.system(f'open "{url}"')
     return url
 
@@ -702,7 +783,8 @@ def show_legacysurvey(ra, dec, layer='dr8', zoom=17, **kwargs):
             
     #os.system(f'open {url}')
     return url
-    
+
+
 def interp_conserve(x, xp, fp, left=0., right=0.):
     """
     Interpolation analogous to `numpy.interp` but conserving "flux".
@@ -753,7 +835,8 @@ def interp_conserve(x, xp, fp, left=0., right=0.):
         outy[i] = np.trapz(fully[bin], fullx[bin])/dx[i]
         
     return outy
-        
+
+
 class emceeChain():     
     def __init__(self, chain=None, file=None, param_names=[],
                        burn_fraction=0.5, sampler=None):

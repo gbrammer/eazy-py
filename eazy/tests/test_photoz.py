@@ -1,4 +1,3 @@
-import pytest
 import os
 import warnings
 
@@ -9,10 +8,8 @@ np.seterr(all='ignore')
 from astropy.utils.exceptions import AstropyWarning
 
 from .. import utils
-from .. import templates
 from .. import filters
 from .. import photoz
-from .. import filters
 
 from . import test_filters
 from . import test_templates
@@ -200,7 +197,8 @@ def test_sps_parameters():
     
     # Parameters normalized by V band
     sps = ez.sps_parameters(template_fnu_units=None, simple=True)
-    fnu = template_fnu_units=(1*u.solLum / u.Hz)
+    
+    fnu = (1*u.solLum / u.Hz)
     sps = ez.sps_parameters(template_fnu_units=fnu, simple=True)
     
     # Full RF-colors with filter weighting
@@ -219,69 +217,69 @@ def test_sps_parameters():
     assert(np.argmax(coeffs_norm) == 0)
     assert(np.sum(coeffs_norm) < 1.1)
     
-    ### All zout data
+    # All zout data
     # zdict = {}
     # for k in zout.colnames:
     #     zdict[k] = zout[k][0]
     
     zdict = {'nusefilt': 10,
-    'z_ml': 0.99616235,
-    'z_ml_chi2': 0.013447836,
-    'z_ml_risk': 0.0105553605,
-    'lc_min': 3353.6304006459895,
-    'lc_max': 45020.33785230743,
-    'z_phot': 0.99616235,
-    'z_phot_chi2': 0.013447836,
-    'z_phot_risk': 0.0105553605,
-    'z_min_risk': 0.9937155,
-    'min_risk': 0.010250151,
-    'z_raw_chi2': 0.9937155,
-    'raw_chi2': 0.035614725,
-    'z025': 0.92501247,
-    'z160': 0.9604295,
-    'z500': 0.99208033,
-    'z840': 1.0187114,
-    'z975': 1.0420052,
-    'restU': 0.41460526,
-    'restU_err': 0.01217702,
-    'restB': 0.8223915,
-    'restB_err': 0.027577162,
-    'restV': 0.92202765,
-    'restV_err': 0.017819434,
-    'restJ': 1.024555,
-    'restJ_err': 0.05461645,
-    'dL': 6575.8372348364455,
-    'mass': 1338132577.7487125,
-    'sfr': 0.026515421690098212,
-    'Lv': 3418389791.239653,
-    'LIR': 438179193.31513166,
-    'MLv': 0.39145113912344354,
-    'Av': 0.06295947926487588,
-    'rest270': 0.11133574,
-    'rest270_err': 0.007641867,
-    'rest274': 0.23238972,
-    'rest274_err': 0.008679345,
-    'rest120': 0.12516989,
-    'rest120_err': 0.005393833,
-    'rest121': 0.1816069,
-    'rest121_err': 0.00364957,
-    'rest156': 0.3724664,
-    'rest156_err': 0.014633045,
-    'rest157': 0.86651146,
-    'rest157_err': 0.018754214,
-    'rest158': 0.94490474,
-    'rest158_err': 0.027536243,
-    'rest159': 0.997915,
-    'rest159_err': 0.023829281,
-    'rest160': 1.0238949,
-    'rest160_err': 0.0475851,
-    'rest161': 1.024555,
-    'rest161_err': 0.05461645,
-    'rest162': 1.010895,
-    'rest162_err': 0.06887752,
-    'rest163': 0.7563232,
-    'rest163_err': 0.06583378,
-    'DISTMOD': 43.33921454218198}
+             'z_ml': 0.99616235,
+             'z_ml_chi2': 0.013447836,
+             'z_ml_risk': 0.0105553605,
+             'lc_min': 3353.6304006459895,
+             'lc_max': 45020.33785230743,
+             'z_phot': 0.99616235,
+             'z_phot_chi2': 0.013447836,
+             'z_phot_risk': 0.0105553605,
+             'z_min_risk': 0.9937155,
+             'min_risk': 0.010250151,
+             'z_raw_chi2': 0.9937155,
+             'raw_chi2': 0.035614725,
+             'z025': 0.92501247,
+             'z160': 0.9604295,
+             'z500': 0.99208033,
+             'z840': 1.0187114,
+             'z975': 1.0420052,
+             'restU': 0.41460526,
+             'restU_err': 0.01217702,
+             'restB': 0.8223915,
+             'restB_err': 0.027577162,
+             'restV': 0.92202765,
+             'restV_err': 0.017819434,
+             'restJ': 1.024555,
+             'restJ_err': 0.05461645,
+             'dL': 6575.8372348364455,
+             'mass': 1338132577.7487125,
+             'sfr': 0.026515421690098212,
+             'Lv': 3418389791.239653,
+             'LIR': 438179193.31513166,
+             'MLv': 0.39145113912344354,
+             'Av': 0.06295947926487588,
+             'rest270': 0.11133574,
+             'rest270_err': 0.007641867,
+             'rest274': 0.23238972,
+             'rest274_err': 0.008679345,
+             'rest120': 0.12516989,
+             'rest120_err': 0.005393833,
+             'rest121': 0.1816069,
+             'rest121_err': 0.00364957,
+             'rest156': 0.3724664,
+             'rest156_err': 0.014633045,
+             'rest157': 0.86651146,
+             'rest157_err': 0.018754214,
+             'rest158': 0.94490474,
+             'rest158_err': 0.027536243,
+             'rest159': 0.997915,
+             'rest159_err': 0.023829281,
+             'rest160': 1.0238949,
+             'rest160_err': 0.0475851,
+             'rest161': 1.024555,
+             'rest161_err': 0.05461645,
+             'rest162': 1.010895,
+             'rest162_err': 0.06887752,
+             'rest163': 0.7563232,
+             'rest163_err': 0.06583378,
+             'DISTMOD': 43.33921454218198}
     
     for k in zdict:
         if '_err' in k:
@@ -290,26 +288,26 @@ def test_sps_parameters():
             assert(np.allclose(zout[k][0], zdict[k], rtol=0.1))
 
     # confirm that zout['z_phot'] == zout['z_ml']
-    assert( np.all(zout['z_ml'] == zout['z_phot']) )
+    assert(np.all(zout['z_ml'] == zout['z_phot']))
         
     ### user-specified zbest
     zuser = np.full(NRND+1, z_spec)
     z2, _ = ez.standard_output(zbest=zuser, rf_pad_width=0.5, rf_max_err=2, 
-                                     prior=True, beta_prior=True, simple=True,
-                                     save_fits=False)
+                               prior=True, beta_prior=True, simple=True,
+                               save_fits=False)
     
     # confirm that z2 has 'z_ml' and 'z_phot' columns and they're different 
-    assert( np.all(z2['z_ml'] != z2['z_phot']) )
+    assert(np.all(z2['z_ml'] != z2['z_phot']))
 
     # confirm that z2['z_ml'] == zout['z_phot']
-    assert( np.all(z2['z_ml'] == zout['z_phot']) )
+    assert(np.all(z2['z_ml'] == zout['z_phot']))
     
     # zphot is now the user-specified redshift
     assert(np.allclose(z2['z_phot'], zuser, rtol=1.e-2))
     
     # SPS parameters are different, as calculated for zuser
-    assert( np.all(z2['mass'] != zout['mass']) )
-    assert( np.all(z2['sfr'] != zout['sfr']) )
+    assert(np.all(z2['mass'] != zout['mass']))
+    assert(np.all(z2['sfr'] != zout['sfr']))
 
 
 def test_load_products():
@@ -321,16 +319,17 @@ def test_load_products():
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', AstropyWarning)
     
-        zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5, 
-                                   rf_max_err=2, 
-                                   prior=True, beta_prior=True, simple=True, 
-                                   save_fits=2)
+        zout, hdu = ez.standard_output(zbest=None, rf_pad_width=0.5,
+                                       rf_max_err=2,
+                                       prior=True, beta_prior=True,
+                                       simple=True,
+                                       save_fits=2)
                                    
     new = photoz.PhotoZ(param_file='eazy_test.zphot.param',
-                         translate_file='eazy_test.zphot.translate', 
-                         zeropoint_file='eazy_test.zphot.zeropoint', 
-                         load_prior=True, 
-                         load_products=False)
+                        translate_file='eazy_test.zphot.translate', 
+                        zeropoint_file='eazy_test.zphot.zeropoint', 
+                        load_prior=True, 
+                        load_products=False)
     
     assert(len(new.param.params) == len(ez.param.params))
     
@@ -338,8 +337,7 @@ def test_load_products():
     for k in ez.param.params:
         assert(bool_param(ez.param.params[k]) == 
                bool_param(new.param.params[k]))
-        
-            
+
     new.load_products()
     assert(new.ZML_WITH_PRIOR == ez.ZML_WITH_PRIOR)
     assert(new.ZML_WITH_BETA_PRIOR == ez.ZML_WITH_BETA_PRIOR)
@@ -347,15 +345,16 @@ def test_load_products():
     has_chi2_init = (ez.chi2_fit != 0).sum(axis=1) > 0 
     has_chi2 = (new.chi2_fit != 0).sum(axis=1) > 0 
     assert(has_chi2_init.sum() == has_chi2.sum())
-    
+
     assert(np.allclose(new.coeffs_best, ez.coeffs_best))
 
     assert(np.allclose(new.fit_coeffs, ez.fit_coeffs))
 
     assert(np.allclose(new.prior_data, ez.prior_data))
-    
+
     assert(np.allclose(ez.lnp[has_chi2,:], new.lnp[has_chi2,:]))
-    
+
+
 def test_fit_stars():
     """
     Fit phoenix star library for Star/Galaxy separation
