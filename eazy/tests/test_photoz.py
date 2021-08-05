@@ -22,6 +22,10 @@ z_spec = 1.0
 # Additional catalog objects with random noise
 NRND = 16
 
+# S/N constant in F-lambda from F160W
+# If None, then constant S/N across all bands
+uncertainty_power = 2
+
 def make_fake_catalog(SN=20):
     """
     Make a fake photometric catalog
@@ -50,7 +54,12 @@ def make_fake_catalog(SN=20):
     #SN = 20
     efnu_f160w = (fnu/SN)[i_f160]
     lc = np.array([f.pivot for f in f_list])
-    efnu = efnu_f160w*(lc/lc[i_f160])**2
+    
+    # Constant S/N in f-lambda
+    if uncertainty_power is None:
+        efnu = fnu/SN
+    else:
+        efnu = efnu_f160w*(lc/lc[i_f160])**uncertainty_power
     
     ### Make table
     tab = photoz.Table()
@@ -392,6 +401,15 @@ def test_photoz_figures():
     fig.savefig('eazy_test.zphot_zspec.png', dpi=72)
     
     plt.close('all')
+
+
+def test_zeropoint_residuals():
+    """
+    """
+    global ez
+
+    ez.fit_catalog(fitter='nnls')
+    res = ez.residuals()
 
 
 def test_cleanup():

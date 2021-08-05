@@ -2133,6 +2133,9 @@ class PhotoZ(object):
             #ref_filter = self.param['PRIOR_FILTER']
             zp_ref = 1.
         else:
+            if ref_filter not in self.f_numbers:
+                raise ValueError(f'ref_filter={ref_filter} not found')
+                
             zp_ref = zp_i[self.f_numbers == ref_filter][0]
             zp_i /= zp_ref
 
@@ -3598,7 +3601,7 @@ class PhotoZ(object):
         return tab
 
 
-    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), vnorm_type=2, n_proc=-1, **kwargs):
+    def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), vnorm_type=2, n_proc=-1, coeffv_min=0, **kwargs):
         """
         Rest-frame colors and population parameters at redshift in ``self.zbest`` attribute
         
@@ -3660,6 +3663,12 @@ class PhotoZ(object):
             
             The latter, ``vnorm_type = 2``, is the conceptually preferred 
             method, though the former should be used with the `fsps_QSF_12_v3.param <https://github.com/gbrammer/eazy-photoz/blob/master/templates/fsps_full/fsps_QSF_12_v3.param>`_ template set.
+        
+        coeffv_min : float
+            Mininum contribution to the observed v-band flux that contributes
+            to the parameter estimates.  Set to a small positive number to 
+            limit the contribution of extreme (dusty) M/Lv SFR/Lv templates
+            to the derived parameters.
             
         n_proc : int
             Number of parrallel processes 
@@ -3737,7 +3746,13 @@ class PhotoZ(object):
         
         # Normalize fit coefficients to unity sum
         coeffs_norm = (coeffs_norm.T/coeffs_norm.sum(axis=1)).T
-
+        
+        # Include templates above a threshold contribution to the V-band 
+        # flux density
+        if coeffv_min > 0:
+            coeffs_include = coeffs_norm > coeffv_min
+            coeffs_norm[~coeffs_include] = 0
+            
         # Convert observed maggies to fnu
         fnu_units = u.erg/u.s/u.cm**2/u.Hz
         uJy_to_cgs = u.microJansky.to(u.erg/u.s/u.cm**2/u.Hz)
@@ -3752,9 +3767,10 @@ class PhotoZ(object):
         if template_fnu_units is not None:
             to_physical = fnu_scl*fnu_units*4*np.pi*dL**2/(1+self.zbest)
             to_physical /= (1*template_fnu_units).to(u.erg/u.second/u.Hz)
+            vnorm_type = 0
         else:
             to_physical = None
-            
+
         if self.get_err:
             par_draws_table = {}
         
@@ -3827,7 +3843,9 @@ class PhotoZ(object):
             coeffs_rest = (self.coeffs_best.T*to_physical).T
             # Remove unit (which should be null)
             coeffs_rest = np.array(coeffs_rest)
-
+            if coeffv_min > 0:
+                coeffs_rest[~coeffs_include] = 0
+            
             table_units = {'mass':u.solMass, 'sfr':u.solMass/u.yr,
                            'Lv':u.solLum, 'LIR':u.solLum, 
                            'energy_abs':u.solLum, 
@@ -4132,6 +4150,8 @@ class PhotoZ(object):
         tab.meta['ZML_WITH_PRIOR'] = self.ZML_WITH_PRIOR
         tab.meta['ZML_WITH_BETA_PRIOR'] = self.ZML_WITH_BETA_PRIOR
         tab.meta['RFSIMPLE'] = simple, 'RF fluxes without reweighting'
+        tab.meta['COEFFVM'] = coeffv_min, 'Threshold template contribution to rest-V'
+        tab.meta['VNORMTYP'] = vnorm_type, 'Vnorm method (0=units)'
         
         for i in range(self.NFILT):
             f_i = self.f_numbers[i]
@@ -4148,7 +4168,7 @@ class PhotoZ(object):
         
         tab.meta['RF_PADW'] = (rf_pad_width, 'pad_width for RF fluxes')
         tab.meta['RF_PADM'] = (rf_max_err, 'max_err for RF fluxes')
-        
+                                       
         # Additional Rest-frame filters
         if len(extra_rf_filters) > 0:
             _ex = self.rest_frame_fluxes(f_numbers=extra_rf_filters,
