@@ -47,6 +47,7 @@ NUVRK_FILTERS = [121, 158, 163]
 
 CDF_SIGMAS = np.linspace(-5, 5, 51)
 
+# nearest, interp
 TEMPLATE_REDSHIFT_TYPE = 'nearest'
 
 class PhotoZ(object):
@@ -304,12 +305,14 @@ class PhotoZ(object):
         ### Read catalog and filters
         self.fixed_cols = {}        
         self.read_catalog()
+                
         if self.NFILT < 1:
             print('\n!! No filters found, maybe a problem with'
                   ' the translate file?\n')
             return None
             
         self.idx = np.arange(self.NOBJ, dtype=int)
+        self.zp = np.ones(self.NFILT)
         
         ### Read prior file
         self.full_logprior = np.zeros((self.NOBJ, self.NZ), 
@@ -732,8 +735,6 @@ class PhotoZ(object):
             self.ext_redden = self.ext_corr
         else:
             self.ext_redden = np.ones(self.NFILT)
-
-        self.zp = self.ext_corr*0+1
         
         for i in range(self.NFILT):
             self.fnu[:,i] = self.cat[self.flux_columns[i]]*1
@@ -765,17 +766,10 @@ class PhotoZ(object):
         
         self.set_sys_err(positive=True)
         
-        self.ok_data = ((self.efnu > 0) 
-                        & (self.fnu > self.param['NOT_OBS_THRESHOLD']) 
-                        & np.isfinite(self.fnu) 
-                        & np.isfinite(self.efnu))
-                         
-        self.fnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
-        self.efnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
-        
-        self.nusefilt = self.ok_data.sum(axis=1)
-        self.lc_reddest = np.max(self.ok_data*self.pivot, axis=1)
+        self.set_ok_data()
+
         self.lc_zmax = self.zgrid.max()
+
         self.clip_wavelength = None
 
 
@@ -881,6 +875,39 @@ class PhotoZ(object):
             self.efnu = efnu.astype(self.ARRAY_DTYPE)
         else:
             return efnu.astype(self.ARRAY_DTYPE)
+
+
+    def set_ok_data(self):
+        """
+        Determine valid catalog data:
+            
+            - Positive uncertainties
+            - Finite flux densities and uncertainties (`numpy.isfinite`)
+            - Flux densities greater than ``NOT_OBS_THRESHOLD`` parameter
+        
+        Returns
+        -------
+        nusefilt : array-like
+            Number of valid filters per object.  Also sets the following 
+            attributes:
+                
+                - `ok_data` : boolean array with dimensions ``(NOBJ, NFILT)``
+                - `nusefilt` : number of valid filters
+                - `lc_reddest` : Pivot wavelength of reddest valid filter
+                
+        """
+        self.ok_data = ((self.efnu > 0) 
+                        & (self.fnu > self.param['NOT_OBS_THRESHOLD']) 
+                        & np.isfinite(self.fnu) 
+                        & np.isfinite(self.efnu))
+                         
+        self.fnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
+        self.efnu[~self.ok_data] = self.param['NOT_OBS_THRESHOLD'] - 9
+        
+        self.nusefilt = self.ok_data.sum(axis=1)
+        self.lc_reddest = np.max(self.ok_data*self.pivot, axis=1)
+        
+        return self.nusefilt
 
 
     def set_zgrid(self):
@@ -3460,6 +3487,24 @@ class PhotoZ(object):
                        selection=None):
         """
         Compute percentiles of the final PDF(z)
+        
+        Parameters
+        ----------
+        percentiles : list
+            Percentiles to compute from the p(z) distribution
+        
+        oversample : int
+            Oversampling factor of the redshift grid for smoother 
+            interpolation
+        
+        selection : array-like
+            Subsample selection array (bool or indices)
+        
+        Returns
+        -------
+        zlimits : (NOBJ, M) array
+            Where `M` is the number of `percentiles` requested.
+            
         """
         import scipy.interpolate 
         from scipy.integrate import cumtrapz

@@ -478,6 +478,56 @@ def abs_mag_to_luminosity(absmag, pivot=None, output_unit=u.L_sun):
 def zphot_zspec(zphot, zspec, zlimits=None, zmin=0, zmax=4, axes=None, figsize=[6,7], minor=0.5, skip=2, selection=None, catastrophic_limit=0.15, title=None, min_zphot=0.02, alpha=0.2, extra_xlabel='', extra_ylabel='', xlabel=r'$z_\mathrm{spec}$', ylabel=r'$z_\mathrm{phot}$', label_pos=(0.05, 0.95), label_kwargs=dict(ha='left', va='top', fontsize=10), label_prefix='', format_axes=True, color='k', point_label=None, **kwargs):
     """
     Make zphot_zspec plot scaled by log(1+z) and show uncertainties
+
+    Parameters
+    ----------
+    zphot : array-like
+        Redshift on dependent axis
+
+    zspec : array-like
+        Redshift on independent axis
+
+    zlimits : (N, 2) array
+        Redshifts to use for photo-z errorbars, e.g. from 
+        `~eazy.photoz.Photoz.pz_percentiles`, where `N` is the number of 
+        objects as in `zphot` and `zspec`
+
+    zmin, zmax : float
+        Plot limits
+
+    axes : `matplotlib` axes, None
+        If specified, overplot in existing axes rather than generating a new
+        plot.  For example, run the function once to generate the figure and
+        then plot different points onto the existing axes:
+        
+        >>> fig = eazy.utils.zphot_spec(zphot, zspec, selection=sample1)
+        >>> _ = eazy.utils.zphot_spec(zphot, zspec, selection=sample2, 
+        >>>                           axes=fig.axes, color='b')
+
+    figsize : list
+        Figure canvas dimensions
+
+    minor : float
+        Axis tick interval
+
+    skip : int
+        Put axis labels every `skip` ticks
+
+    selection : array-like
+        Subsample selection (boolean or indices) applied as `zphot[selection]`
+
+    catastrophic_limit : float
+        Limit to define "catastrophic" failures, which is used for computing
+        precision / outlier statistics printed on the plot
+
+    title : str
+        Title to add to the plot axes
+
+    Returns
+    -------
+    fig : `matplotlib.figure.Figure`
+        Figure object
+
     """
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
