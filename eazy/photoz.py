@@ -1445,6 +1445,9 @@ class PhotoZ(object):
         import time
         import multiprocessing as mp
         
+        if 'selection' in kwargs:
+            idx = kwargs['selection']
+            
         if idx is None:
             idx_fit = self.idx
             selection = self.idx > -1
@@ -1467,7 +1470,7 @@ class PhotoZ(object):
         if (n_proc == 0) | (mp.cpu_count() == 1):
             # Serial by redshift
             np_check = 1
-            for iz, z in tqdm(enumerate(range(self.NZ))):
+            for iz, z in tqdm(enumerate(self.zgrid)):
                 _res = fit_by_redshift(iz,
                                        self.zgrid[iz],
                                        self.tempfilt(self.zgrid[iz]),
@@ -1501,7 +1504,7 @@ class PhotoZ(object):
                                        self.param.params['VERBOSITY'],
                                        fitter)
                                       ) 
-                       for iz, z in enumerate(range(self.NZ))]
+                       for iz, z in enumerate(self.zgrid)]
 
             pool.close()
         
@@ -2520,7 +2523,7 @@ class PhotoZ(object):
                             dtype=self.ARRAY_DTYPE)
         for i in range(self.NTEMP):
             zargs = {'z':z, 'redshift_type':TEMPLATE_REDSHIFT_TYPE}
-            fnu = self.templates[i].flux_fnu(**zargs)
+            fnu = self.templates[i].flux_fnu(**zargs)*self.tempfilt.scale[i]
             try:
                 tempflux[i, :] = fnu
             except:
@@ -3787,7 +3790,8 @@ class PhotoZ(object):
         # iz = np.argmin(np.abs(self.zgrid[:,None] - self.zbest[None,:]), 
         #                axis=0)
         iz = self.izbest
-        coeffs_norm = self.coeffs_best*self.ubvj_tempfilt[iz,:,2]        
+        coeffs_norm = self.coeffs_best * self.tempfilt.scale 
+        coeffs_norm *= self.ubvj_tempfilt[iz,:,2]        
         
         # Normalize fit coefficients to unity sum
         coeffs_norm = (coeffs_norm.T/coeffs_norm.sum(axis=1)).T
@@ -3821,7 +3825,8 @@ class PhotoZ(object):
         
             coeffs_draws = np.maximum(self.coeffs_draws, 0)
             #  Renorm in rest V band
-            _draws = np.transpose(coeffs_draws, axes=(1,0,2)) 
+            _draws = np.transpose(coeffs_draws*self.tempfilt.scale, 
+                                  axes=(1,0,2)) 
             draws_norm = np.transpose(_draws*self.ubvj_tempfilt[iz,:,2],
                                         axes=(0,1,2))
             draws_norm = (draws_norm.T/draws_norm.sum(axis=2).T).T
@@ -3887,7 +3892,7 @@ class PhotoZ(object):
             # Coefficients with units
             coeffs_rest = (self.coeffs_best.T*to_physical).T
             # Remove unit (which should be null)
-            coeffs_rest = np.array(coeffs_rest)
+            coeffs_rest = np.array(coeffs_rest)*self.tempfilt.scale
             if coeffv_min > 0:
                 coeffs_rest[~coeffs_include] = 0
             
@@ -4461,7 +4466,7 @@ class PhotoZ(object):
         h['BPRIOR'] = (beta_prior, 'UV beta prior applied')
         
         # Template coefficients 
-        hdu.append(pyfits.ImageHDU(self.coeffs_best.astype(np.float32),
+        hdu.append(pyfits.ImageHDU((self.coeffs_best*self.tempfilt.scale).astype(np.float32),
                                    name='COEFFS'))
         h = hdu[-1].header
         h['ABZP'] = (self.param['PRIOR_ABZP'], 'AB zeropoint')
@@ -4623,14 +4628,18 @@ class PhotoZ(object):
         
         output_data['phot_wave'] = wave
         output_data['phot_flam'] = flam
-        output_data['phot_flam_model'] = fmodel_norm
+        output_data['phot_flam_model'] = flam_obs
         
         # Running median
         xm, ym, ys, N = utils.running_median(wave, flam, **median_args)
         
-        output_data['sed_wave'] = fmodel_norm
-        output_data['sed_flam'] = xm
+        output_data['sed_wave'] = xm
+        output_data['sed_flam'] = ym
         output_data['sed_nmad'] = ys
+
+        xm, ym, ys, N = utils.running_median(wave, flam_obs, **median_args)
+        output_data['sed_flam_model'] = ym
+        output_data['sed_flam_model_nmad'] = ys
 
         if get_templates:
             sp = self.show_fit(self.OBJID[idx][0], get_spec=True)
@@ -5128,6 +5137,7 @@ class TemplateGrid(object):
             
         self.interpolator_function = interpolator
         self.init_interpolator(interpolator=interpolator)
+        self.scale = np.ones(self.NTEMP)
 
 
     @property 
@@ -5209,8 +5219,8 @@ class TemplateGrid(object):
         
         # Spline interpolator        
         if interpolator is None:
-            self.spline = scipy.interpolate.Akima1DInterpolator(self.zgrid, self.tempfilt, axis=0)
-            #self.spline = scipy.interpolate.CubicSpline(self.zgrid, self.tempfilt)
+            self.spline = scipy.interpolate.Akima1DInterpolator(self.zgrid, 
+                                                        self.tempfilt, axis=0)
             self.interpolator_function = scipy.interpolate.Akima1DInterpolator
         else:
             self.spline = interpolator(self.zgrid, self.tempfilt, axis=0)
@@ -5262,7 +5272,7 @@ class TemplateGrid(object):
         Interpolate filter flux grid at specified redshift
         """
         
-        return self.spline(z)
+        return self.spline(z)*self.scale[:,None]
 
 
 def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters):
@@ -5609,6 +5619,12 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter):
     try:
         if fitter == 'nnls':
             coeffs_x, rnorm = nnls(Ax[:,ok_temp], (fnu_i/rms)[ok_band])
+        
+        elif fitter == 'nnls0':
+            Ai = A[ok_temp,:][:,ok_band].T
+            LHS = (Ai.T/var).dot(Ai)            
+            RHS = (Ai.T/var).dot(fnu_i[ok_band])
+            coeffs_x, rnorm = nnls(LHS, RHS)
             
         elif fitter == 'bounded':
             func = scipy.optimize.lsq_linear
@@ -5652,24 +5668,46 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter):
             # Transform A to normal equations
                             
             ivmat = np.diag(1./var[ok_band])
-            Ai = A[ok_temp,:][:,ok_band].T
-            An = np.median(Ai)
+            Ai = A[:,ok_band].T
+            if '-1' in fitter:
+                An = np.ones(A.shape[0])
+            elif '-p' in fitter:
+                # Normalize each template to the *photometry* in a given band
+                band_index = int(fitter.split('-p')[1].split('_')[0])
+                An = A[:,band_index]/fnu_i[band_index]
+            elif '-b' in fitter:
+                # Normalize each template to a given band
+                band_index = int(fitter.split('-b')[1].split('_')[0])
+                An = A[:,band_index]
+            elif '-m' in fitter:
+                # Normalize by maximum ratio of templates to photometry
+                okb = ok_band & (fnu_i/efnu_i > 3)
+                An = np.full(A.shape[0], 
+                             (A[ok_temp,:]/fnu_i)[:,okb].max())
+            else:
+                # Normalize by median template flux value
+                An = np.full(A.shape[0], np.median(Ai[:,ok_temp]))
+                
             Ai /= An
+            Ai = Ai[:,ok_temp]
             LHS = Ai.T.dot(ivmat).dot(Ai)
             
             # Regularization
             if '_' in fitter:
-                lamb = float(fitter.split('_')[1])
                 n_col = ok_temp.sum()
-                LHS += lamb*np.identity(n_col)
+                lamb = float(fitter.split('_')[1])*np.identity(n_col)
+                #lamb[5] *= 5
+                #lamb[-1] *= 5
+                
+                LHS += lamb
                 
             RHS = Ai.T.dot(ivmat).dot(fnu_i[ok_band])
-            if '+' in fitter:
-                coeffs_x, rnorm = nnls(LHS, RHS)
+            if '-lstq' in fitter:
+                coeffs_x = np.linalg.lstsq(LHS, RHS)
             else:
-                coeffs_x = np.linalg.solve(LHS, RHS)
+                coeffs_x, rnorm = nnls(LHS, RHS)
             
-            coeffs_x /= An
+            coeffs_x /= An[ok_temp]
             
         elif fitter.startswith('regularized'):
             # With regularization
@@ -5688,8 +5726,6 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter):
             coeffs_x = np.linalg.solve(LHS, RHS)#, rcond=None)
             coeffs_x /= An
             
-            # coeffs_x, _, _, _ = np.linalg.lstsq(Ax[:,ok_temp], (fnu_i/rms)[ok_band],
-            #                                     rcond=None)
         
         elif fitter == 'lstsq':
             _res  = np.linalg.lstsq(Ax[:,ok_temp], (fnu_i/rms)[ok_band], 
@@ -5704,24 +5740,39 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter):
         coeffs_i = np.zeros(sh[0])
         
     fmodel = np.dot(coeffs_i, A)
-    chi2_i = np.sum((fnu_i-fmodel)**2/var*ok_band)
+    chi2_i = ((fnu_i-fmodel)**2/var)[ok_band].sum()
     
     coeffs_draw = None
     if ndraws > 0:
         if fitter == 'nnls':
             ok_temp = coeffs_i > 0
-            LHS = Ax[:,ok_temp]*1
-            An = 1.
-        else:
-            ok_temp = coeffs_i != 0
-        
+            LHSx = Ax[:,ok_temp]*1
+            An = np.ones(A.shape[0])
+            mat = np.dot(LHSx.T, LHSx)
+            
+        elif fitter == 'nnls0':
+            # LHS already A.T @ C-1 @ A
+            ok_nz = (coeffs_x > 0)
+            mat = LHS[ok_nz,:][:,ok_nz]
+            ok_temp[np.where(ok_temp)[0][~ok_nz]] = False
+            An = np.ones(A.shape[0])
+            
+        elif fitter.startswith('normal'):
+            # LHS already limited to valid templates
+            ok_nz = (coeffs_x != 0)
+            LHSx = LHS[ok_nz,:][:,ok_nz]
+            ok_temp[np.where(ok_temp)[0][~ok_nz]] = False
+            mat = np.dot(LHSx.T, LHSx)
+            
         coeffs_draw = np.zeros((ndraws, A.shape[0]))
         try:
-            covar = utils.safe_invert(np.dot(LHS.T, LHS))/An**2
-            draws = np.random.multivariate_normal(coeffs_i[ok_temp], covar, 
+            covar = utils.safe_invert(mat)
+            draws = np.random.multivariate_normal((coeffs_i*An)[ok_temp], 
+                                                  covar, 
                                                   size=ndraws)
-            coeffs_draw[:, ok_temp] = draws
+            coeffs_draw[:, ok_temp] = draws/An[ok_temp]
         except:
+            print('Error getting coeffs draws')
             coeffs_draw = None
             
     return chi2_i, coeffs_i, fmodel, coeffs_draw
