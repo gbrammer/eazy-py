@@ -65,10 +65,57 @@ def set_warnings(numpy_level='ignore', astropy_level='ignore'):
     
     np.seterr(all=numpy_level)
     warnings.simplefilter(astropy_level, category=AstropyWarning)
-    
-def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=False, bins=None, x_func=astropy.stats.biweight_location, y_func=astropy.stats.biweight_location, std_func=astropy.stats.biweight_midvariance, integrate=False):
+
+
+def running_median(xi, yi, NBIN=10, reverse=False, bins=None, x_func=np.median, y_func=np.median, std_func=astropy.stats.mad_std, x_kwargs={}, y_kwargs={}, std_kwargs={}, use_biweight=False, integrate=False, **kwargs):
     """
-    Running median/biweight/nmad
+    Binned median/biweight/nmad statistics
+    
+    Parameters
+    ----------
+    xi : array-like
+        Data of independent variable
+    
+    yi : array-like
+        Data of dependent variable
+    
+    NBIN : int
+        Number of bins along `xi`
+    
+    reverse : bool
+        Calculate bins starting at largest values of `xi`
+    
+    bins : array-like
+        Fixed bins, rather than calculating with `NBIN`
+    
+    x_func : function
+        Function to compute moments of `xi`
+    
+    y_func, std_func : function
+        Functions to compute moments of `yi`.  Assumed to be the central 
+        value and dispersion, but don't have to be
+    
+    x_kwargs, y_kwargs, std_kwargs : dict
+        Keyword arguments to pass to moment functions
+    
+    use_biweight : bool
+        Use robust biweight estimators:
+        
+            - `x_func` : `astropy.stats.biweight_location`
+            - `y_func` : `astropy.stats.biweight_location`
+            - `std_func` : `astropy.stats.biweight_midvariance`
+        
+    integrate : bool
+        Numerically integrate `yi` with the trapezoidal rule within the bins
+    
+    Returns
+    -------
+    xm, ym, ys : array-like
+        Binned moments of `xi` and `yi`
+    
+    yn : array-like
+        Number of entries per bin
+        
     """
     
     NPER = xi.size // NBIN
@@ -84,17 +131,16 @@ def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=Fals
     
     NBIN = len(bins)-1
            
-    xm = np.arange(NBIN)*1.
-    xs = xm*0
-    ym = xm*0
-    ys = xm*0
-    N = np.arange(NBIN)
+    xm = np.ones(NBIN)
+    xs = np.zeros_like(xm)
+    ym = np.zeros_like(xm)
+    ys = np.zeros_like(xm)
+    N = np.zeros(NBIN, dtype=int)
     
-    if use_median:
-        y_func = np.median
-    
-    if use_nmad:
-        std_func = astropy.stats.mad_std
+    if use_biweight:
+        x_func = astropy.stats.biweight_location
+        y_func = astropy.stats.biweight_location
+        std_func = astropy.stats.biweight_midvariance
         
     #idx = np.arange(NPER, dtype=int)
     for i in range(NBIN):
@@ -109,35 +155,23 @@ def running_median(xi, yi, NBIN=10, use_median=True, use_nmad=True, reverse=Fals
             dx = (ma-mi)
             ym[i] = np.trapz(yi[in_bin][xso], xi[in_bin][xso])/dx
         else:
-            xm[i] = x_func(xi[in_bin])
-            ym[i] = y_func(yi[in_bin])
+            xm[i] = x_func(xi[in_bin], **x_kwargs)
+            ym[i] = y_func(yi[in_bin], **y_kwargs)
         
-        ys[i] = std_func(yi[in_bin])
-        
-        # if use_median:
-        #     xm[i] = np.median(xi[in_bin]) # [so][idx+NPER*i])
-        #     ym[i] =  np.median(yi[in_bin]) # [so][idx+NPER*i])
-        # else:
-        #     xm[i] = astropy.stats.biweight_location(xi[in_bin]) # [so][idx+NPER*i])
-        #     ym[i] = astropy.stats.biweight_location(yi[in_bin]) # [so][idx+NPER*i])
-        #     
-        # if use_nmad:
-        #     mad = astropy.stats.median_absolute_deviation
-        #     ys[i] = 1.4826*mad(yi[in_bin]) # [so][idx+NPER*i])
-        # else:
-        #     ys[i] = astropy.stats.biweight_midvariance(yi[in_bin]) # [so][idx+NPER*i])
-            
+        ys[i] = std_func(yi[in_bin], **std_kwargs)
+                    
     return xm, ym, ys, N
 
-def nmad(arr):
+
+def nmad(data):
     """
     Normalized median absolute deviation statistic
     
-    Includes the normalization factor of 1.48, see 
-    `astropy.stats.median_absolute_deviation`.
+    Just a wrapper around `astropy.stats.mad_std`.
     """
     import astropy.stats
-    return 1.48*astropy.stats.median_absolute_deviation(arr)
+    #return 1.48*astropy.stats.median_absolute_deviation(arr)
+    return astropy.stats.mad_std(data)
 
 
 def log_zgrid(zr=[0.7,3.4], dz=0.01):
