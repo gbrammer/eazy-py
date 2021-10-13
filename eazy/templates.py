@@ -815,7 +815,7 @@ class Template():
                 from mpdaf.obj import vactoair
                 wobs = vactoair(wobs)
             except ImportError:
-                msg = ("`to_air` requested but `from mpdaaf.obj import " + 
+                msg = ("`to_air` requested but `from mpdaf.obj import " + 
                        "vactoair` failed")
                 warnings.warn(msg, AstropyUserWarning)
         
