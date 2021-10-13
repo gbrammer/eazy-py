@@ -37,6 +37,43 @@ __all__ = ["Zafar15", "ExtinctionModel", "SMC", "Reddy15", "KC13",
            "ParameterizedWG00", "ExtendedFsps", "fsps_line_info", 
            "wuyts_line_Av"]
 
+
+class ArrayExtCurve(BaseAttAvModel):
+    """
+    Alam interpolated from arrays
+    """
+    name = 'Array'
+    #bump_ampl = 1.
+        
+    Rv = 2.21 # err 0.22
+    
+    xarray = np.arange(0.09, 2.2, 0.01)
+    yarray = xarray*0.+1
+    left=None
+    right=None
+    
+    @staticmethod
+    def Alam(mu,):
+        """
+        klam, eq. 1
+        """
+        Alam = np.interp(mu, self.xarray, self.yarray, 
+                         left=self.left, right=self.right)
+        return Alam
+            
+    def evaluate(self, x, Av):
+       
+        if not hasattr(x, 'unit'):
+            xin = np.atleast_1d(x)*u.micron
+        else:
+            xin = np.atleast_1d(x)
+        
+        mu = xin.to(u.micron).value
+
+        alam = self.Alam(mu) #*self.Rv
+        return np.maximum(alam*Av, 0.)
+
+
 class Zafar15(BaseAttAvModel):
     """
     Quasar extinction curve from Zafar et al. (2015)
