@@ -52,8 +52,7 @@ class ArrayExtCurve(BaseAttAvModel):
     left=None
     right=None
     
-    @staticmethod
-    def Alam(mu,):
+    def Alam(self, mu):
         """
         klam, eq. 1
         """
