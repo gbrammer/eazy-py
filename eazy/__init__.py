@@ -8,7 +8,7 @@ from . import photoz
 
 from .version import __version__, __long_version__, __version_hash__
 
-def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False):
+def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=False):
     """
     Make symbolic links to EAZY inputs
     
@@ -30,6 +30,10 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False):
         to point to it (e.g, 'EAZYCODE'), which you then pass as the `path`
         argument.
     
+    copy : bool
+        Copy ``templates`` directory and ``FILTER.RES.latest`` file, rather 
+        than symlink
+        
     Returns
     -------
     Symbolic links to the `FILTER.RES.latest` file and `templates` 
@@ -50,17 +54,30 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False):
     
     # Templates directory
     if os.path.exists('./templates'):
-        os.remove('./templates')
+        try:
+            os.remove('./templates')
+        except PermissionError:
+            os.system('rm -rf templates')
+    
+    t_path = os.path.join(path, 'templates')
+    if copy:
+        os.system('cp -R {0} .'.format(t_path))
+    else:
+        os.symlink(t_path, './templates')
         
-    os.symlink(os.path.join(path, 'templates'), './templates')
-    print('{0} -> {1}'.format(os.path.join(path, 'templates'), './templates'))
+    print('{0} -> {1}'.format(t_path, './templates'))
     
     # Filter file
     if os.path.exists('./FILTER.RES.latest'):
         os.remove('./FILTER.RES.latest')
     
-    os.symlink(os.path.join(path, 'filters/FILTER.RES.latest'), './FILTER.RES.latest')
-    print('{0} -> {1}'.format(os.path.join(path, 'filters/FILTER.RES.latest'), './FILTER.RES.latest'))
+    res_path = os.path.join(path, 'filters/FILTER.RES.latest')
+    if copy:
+        os.system(f'cp {0} .'.format(res_path))
+    else:
+        os.symlink(res_path, './FILTER.RES.latest')
+        
+    print('{0} -> {1}'.format(res_path, './FILTER.RES.latest'))
     
     if get_hdfn_test_catalog:
         for cat_path in ['inputs', 'hdfn_fs99']:
@@ -70,7 +87,8 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False):
                 for file in [parent, translate]:
                     os.symlink(file, os.path.basename(file))
                     print('{0} -> {1}'.format(file, os.path.basename(file)))
-                    
+
+
 def get_test_catalog(path=None, path_is_env=True):
     """
     Make symbolic links to EAZY inputs
