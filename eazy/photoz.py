@@ -5765,15 +5765,17 @@ def template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter):
             mat = np.dot(LHSx.T, LHSx)
             
         coeffs_draw = np.zeros((ndraws, A.shape[0]))
-        try:
+        #try:
+        if ok_temp.sum() > 0:
             covar = utils.safe_invert(mat)
             draws = np.random.multivariate_normal((coeffs_i*An)[ok_temp], 
                                                   covar, 
                                                   size=ndraws)
             coeffs_draw[:, ok_temp] = draws/An[ok_temp]
-        except:
-            print('Error getting coeffs draws')
-            coeffs_draw = None
+        else:
+            #print('Error getting coeffs draws')
+            #coeffs_draw = None
+            pass 
             
     return chi2_i, coeffs_i, fmodel, coeffs_draw
 
