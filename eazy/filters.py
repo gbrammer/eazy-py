@@ -14,7 +14,7 @@ for c in VEGA.colnames:
     VEGA[c] = VEGA[c].astype(float)
     
 class FilterDefinition:
-    def __init__(self, name=None, wave=None, throughput=None, bp=None):
+    def __init__(self, name=None, wave=None, throughput=None, bp=None, photon_counter=True):
         """
         Bandpass object
         
@@ -32,20 +32,52 @@ class FilterDefinition:
         bp : optional, `pysynphot.obsbandpass` object
             `pysynphot` filter bandpass
         
+        photon_counter : bool
+            Filter is associated with a photon-counting detector (e.g. CCDs).  
+            Often FIR devices are energy-counting, e.g., MIPS, Herschel.
+            
         """
         self.name = name
         self.wave = wave
-        self.throughput = throughput
+        self._throughput = throughput
         self.Aflux = 1.
-        
+        self.photon_counter = photon_counter
+
+        if isinstance(name, str):
+            # Set energy-counting filters
+            ir_filts = ['mips/24','mips/70','mips/160',
+                        'scuba2/450','scuba2/850',
+                        'herschel/pacs/70', 'herschel/pacs/100', 
+                        'herschel/pacs/160', 'herschel/spire/200', 
+                        'herschel/spire/350', 'herschel/spire/500']
+            
+            if name.split()[0] in ir_filts:
+                self.photon_counter = False
+
         # pysynphot Bandpass
         if bp is not None:
             self.wave = np.cast[np.double](bp.wave)
-            self.throughput =  np.cast[np.double](bp.throughput)
+            self._throughput =  np.cast[np.double](bp.throughput)
             self.name = bp.name
-                    
-        self.norm = 1.
-        if self.throughput is not None:
+        
+        # Set throughput accounting for photon_counter
+        self.set_throughput()
+
+
+    def set_throughput(self):
+        """
+        Set throughput accounting for `photon_counter` attribute
+        """
+        if self._throughput is None:
+            self.throughput = None
+            self.norm = 1.
+        else:
+            if self.photon_counter:
+                self.throughput = self._throughput
+            else:
+                _wfact = self.wave/np.mean(self.wave)
+                self.throughput =  self._throughput/_wfact
+            
             self.norm = np.trapz(self.throughput/self.wave, self.wave)
 
 
@@ -86,17 +118,21 @@ class FilterDefinition:
             return False
         
         if source_flux is None:
-            source_flux = self.throughput*0.+1
+            src = self.throughput*0.+1
         else:
-            source_flux = interp(self.wave, source_lam, source_flux, left=0, right=0)
+            src = interp(self.wave, source_lam, source_flux, left=0, right=0)
         
         if (self.wave.min() < 910) | (self.wave.max() > 6.e4):
             Alambda = 0.
         else:
             f99 = utils.GalacticExtinction(EBV=EBV, Rv=Rv)
             Alambda = f99(self.wave)
-                         
-        delta = np.trapz(self.throughput*source_flux*10**(-0.4*Alambda), self.wave) / np.trapz(self.throughput*source_flux, self.wave)
+        
+        src_red = np.trapz(self.throughput*src*10**(-0.4*Alambda)/self.wave, 
+                           self.wave)               
+        src_nored = np.trapz(self.throughput*src/self.wave, self.wave)
+        
+        delta = src_red/src_nored
         
         if mag:
             return 2.5*np.log10(delta)
