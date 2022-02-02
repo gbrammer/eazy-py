@@ -1330,7 +1330,8 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
             break
     
     if hdu is None:
-        url = 'https://s3.amazonaws.com/grizli/CONF'
+        #url = 'https://s3.amazonaws.com/grizli/CONF'
+        url = 'https://erda.ku.dk/vgrid/Gabriel%20Brammer/CONF/'
         print('Fetch {0}/{1}'.format(url, file))
 
         #os.system('wget -O /tmp/{1} {0}/{1}'.format(url, file))
