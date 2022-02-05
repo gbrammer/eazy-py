@@ -1,8 +1,13 @@
 -r ../requirements.txt
-jupyterlab>=2.0
-notebook==6.0.3
+dash
+requests
+flask
+retrying
+ipython
+ipykernel
+ansi2html
+notebook
 jupyter_server_proxy
 pandas
 numpy
 jupyter-dash
-
