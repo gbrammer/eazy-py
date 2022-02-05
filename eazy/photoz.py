@@ -50,6 +50,8 @@ CDF_SIGMAS = np.linspace(-5, 5, 51)
 # nearest, interp
 TEMPLATE_REDSHIFT_TYPE = 'nearest'
 
+PLOTLY_LAYOUT_KWARGS = {'template':'plotly_white', 'showlegend':False}
+
 class PhotoZ(object):
     ZML_WITH_PRIOR = None
     ZML_WITH_BETA_PRIOR = None
@@ -2865,6 +2867,178 @@ class PhotoZ(object):
             return fig, data
         else:
             return fig, data
+
+
+    def show_fit_plotly(self, id_i, show_fnu=0, row_heights=[0.6, 0.4], zrange=None, template='plotly_white', showlegend=False, show=False, vertical=True, panel_ratio=[0.5, 0.5], subplots_kwargs={}, layout_kwargs={'template':'plotly_white', 'showlegend':False}):
+
+        """
+        Plot SED + p(z) using `plotly` interface
+        """
+        import plotly.express as px
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        DEFAULT_PLOTLY_COLORS=['rgb(31, 119, 180)', 'rgb(255, 127, 14)',
+                               'rgb(44, 160, 44)', 'rgb(214, 39, 40)',
+                               'rgb(148, 103, 189)', 'rgb(140, 86, 75)',
+                               'rgb(227, 119, 194)', 'rgb(127, 127, 127)',
+                               'rgb(188, 189, 34)', 'rgb(23, 190, 207)']
+
+        def alpha_color(i=0, alpha=0.5):
+            """
+            Define a plotly color with transparency alpha
+            """
+            color = DEFAULT_PLOTLY_COLORS[i].replace(')',f',{alpha:.2f})')
+            return color.replace('rgb','rgba')
+
+        def pmarker(i=0, alpha=0.5, size=10, **kwargs):
+            """
+            plotly marker with color + transparency
+            """
+            color = alpha_color(i=i, alpha=alpha)
+            return dict(color=color, size=size, **kwargs)
+
+        data = self.show_fit(id_i, get_spec=True, show_fnu=show_fnu)
+
+        data['filter'] = self.flux_columns
+        clip = (data['templz'] > 0.95*data['pivot'].min()) 
+        clip &= (data['templz'] < 1.05*data['pivot'].max())
+
+        subplots_kws = {}
+        for k in subplots_kwargs:
+            subplots_kws[k] = subplots_kwargs[k]
+
+        if vertical:
+            pz_axis = {'row':2, 'col':1}
+            if 'row_heights' not in subplots_kws:
+                subplots_kws['row_heights'] = panel_ratio
+
+            subplots_kws['rows'] = 2
+            subplots_kws['cols'] = 1
+
+        else:
+            pz_axis = {'row':1, 'col':2}
+            if 'column_widths' not in subplots_kws:
+                subplots_kws['column_widths'] = panel_ratio
+
+            subplots_kws['rows'] = 1
+            subplots_kws['cols'] = 2
+
+        fig = make_subplots(**subplots_kws)
+        fig.update_layout(**layout_kwargs)
+
+        ###### SED
+        valid = self.ok_data[data['ix'],:] # & (self.lc < 1.e4)
+
+        ivalid = np.where(valid)[0]
+        xivalid = np.where(~valid)[0]
+
+        error_y = dict(type='data', 
+                       array=data['efobs'][valid],
+                       visible=True)
+
+        hovertempl = "%{text}  (%{x:.2f}, %{y:.2f} ± %{customdata:.2f})"
+        _sed = go.Scatter(x=data['pivot'][valid]/1.e4,
+                          y=data['fobs'][valid], 
+                          error_y=error_y, 
+                          text=[data['filter'][i] for i in ivalid], 
+                          customdata=data['efobs'][valid], 
+                          name='Observed', mode='markers', 
+                          marker=pmarker(i=7), 
+                          hovertemplate=hovertempl)
+
+        fig.add_trace(_sed, row=1, col=1)
+
+        if (~valid).sum() > 0:
+            htempl = '%{text}  (%{x:.2f}, %{customdata[0]:.2f} ± '
+            htempl += '%{customdata[1]:.2f})'
+            
+            _missing = go.Scatter(x=data['pivot'][~valid]/1.e4, 
+                                  y=np.zeros((~valid).sum()), 
+                                  text=[data['filter'][i]
+                                        for i in ivalid],  
+                                customdata=np.stack((data['fobs'][~valid],
+                                                  data['efobs'][~valid])), 
+                                  name='Missing', mode='markers', 
+                                  marker_symbol='x',
+                                  marker=pmarker(i=7),
+                                  hovertemplate=htempl)
+
+            fig.add_trace(_missing, row=1, col=1)
+
+        _sed_model = go.Scatter(x=data['pivot']/1.e4,
+                                y=data['model'], 
+                                text=data['filter'], 
+                                name='Model', mode='markers', 
+                                marker=pmarker(i=0, size=8), 
+                            hovertemplate="%{text}  (%{x:.2f}, %{y:.2f})")
+
+        fig.add_trace(_sed_model, row=1, col=1)
+
+        _templ = go.Scatter(x=data['templz'][clip]/1.e4, 
+                            y=data['templf'][clip],
+                            name='Template',
+                            mode='lines', 
+                            line=dict(color=alpha_color(i=0, alpha=0.5)), 
+                            hovertemplate="(%{x:.2f}, %{y:.2f})")
+
+        fig.add_trace(_templ, row=1, col=1)
+
+        fig.update_xaxes(type="log", title_text='Wavelength, microns', 
+                         row=1, col=1)
+
+        # Limits
+        un = data['flux_unit']
+        ylabel_units = ['F<sub>&lambda;</sub>', 'µJy', 'µJy / µm']
+        if show_fnu == 0:
+            ylabel = 'Flambda (1e-19)'
+        else:
+            ylabel = f'Flux density '
+            ylabel += f'({ylabel_units[np.clip(show_fnu, 0, 2)]})'
+
+        ymax = np.nanmax(data['efobs'] + data['model'])
+
+        fig.update_yaxes(title_text=ylabel, range=[-0.1*ymax, 1.2*ymax], 
+                         row=1, col=1) 
+
+        ############                
+        # P(z)
+        _zpdf = go.Scatter(x=self.zgrid, 
+                           y=(self.lnp[data['ix'],:] -
+                              self.lnp[data['ix'],:].max()), 
+                           name='p(z)',
+                           mode='lines', 
+                           line=dict(color=alpha_color(i=1)))
+
+        fig.add_trace(_zpdf, **pz_axis)
+        fig.update_yaxes(title_text=f'ln P(z)', range=[-50, 2], **pz_axis)
+        fig.update_xaxes(type="linear", title_text='z', **pz_axis)
+        if zrange is not None:
+            fig.update_xaxes(range=zrange, **pz_axis)
+
+        label = f"ID={id_i}, z={data['z']:.3f}"
+        fig.add_annotation(text=label,
+                      xref="x domain", yref="y domain",
+                      x=0.95, y=0.95, showarrow=False, 
+                      **pz_axis)
+
+        if self.ZSPEC[data['ix']] > 0:
+            fig.add_vline(x=self.ZSPEC[data['ix']], 
+                          line=dict(color=alpha_color(i=3)),
+                          name='zspec', **pz_axis)
+
+            #label += f", z_spec={self.ZSPEC[data['ix']]:.3f}"
+            _text = f"z_spec={self.ZSPEC[data['ix']]:.3f}"
+            fig.add_annotation(text=_text,
+                               xref="x domain", yref="y domain", 
+                               x=0.95, y=0.85, showarrow=False, 
+                               font=dict(color=alpha_color(i=3)), 
+                               **pz_axis)
+
+        if show:
+            fig.show()
+
+        return fig
 
 
     def observed_frame_fluxes(self, f_numbers=[325], filters=None, verbose=True, n_proc=-1, percentiles=[2.5,16,50,84,97.5]):

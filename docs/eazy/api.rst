@@ -6,4 +6,7 @@ Additional API
 .. automodapi:: eazy.sps
     :no-inheritance-diagram:
 
+.. automodapi:: eazy.visualization
+    :no-inheritance-diagram:
+
 
