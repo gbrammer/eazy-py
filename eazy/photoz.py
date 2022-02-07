@@ -598,6 +598,8 @@ class PhotoZ(object):
              
         if 'fits' in self.param['CATALOG_FILE'].lower():
             self.cat = Table.read(self.param['CATALOG_FILE'], format='fits')
+        elif self.param['CATALOG_FILE'].lower().endswith('csv'):
+            self.cat = Table.read(self.param['CATALOG_FILE'], format='csv')        
         else:
             self.cat = Table.read(self.param['CATALOG_FILE'], 
                                   format=self.param['CATALOG_FORMAT'])
@@ -3057,7 +3059,7 @@ class PhotoZ(object):
             ylabel = f'Flux density '
             ylabel += f'({ylabel_units[np.clip(show_fnu, 0, 2)]})'
 
-        ymax = np.nanmax(data['efobs'] + data['model'])
+        ymax = np.nanpercentile((data['efobs'] + data['model'])[valid], 95)
 
         fig.update_yaxes(title_text=ylabel, range=[-0.1*ymax, 1.2*ymax], 
                          row=1, col=1) 
