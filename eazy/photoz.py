@@ -809,6 +809,67 @@ class PhotoZ(object):
                 warnings.warn(f'Filter {fnum} in {zeropoint_file} not ' + 
                                'in the filter list', AstropyUserWarning)
 
+
+    def make_csv_catalog(self, include_zeropoints=True, scale_to_ujy=True):
+        """
+        Make a standardized catalog table in CSV format
+        
+        Parameters
+        ----------
+        include_zeropoints : bool
+            Include zeropoint factors in flux+err columns
+        
+        scale_to_ujy : bool
+            Scale  photometry to microJansky units using the ``PRIOR_ABZP`` 
+            parameter
+        
+        Returns
+        -------
+        tab, trans : `~astropy.table.Table`
+            `tab` is the photometric table.  `trans` is the column 
+            translations that can be put into a `eazy.param.TranslateFile`.
+            
+        """
+        from astropy.table import Table
+        tab = Table()
+        tab['id'] = self.OBJID
+        tab['ra'] = self.RA
+        tab['dec'] = self.DEC
+        tab['z_spec'] = self.ZSPEC
+        
+        tab['ra'].format = '.6f'
+        tab['dec'].format = '.6f'
+        tab['z_spec'].format = '.5f'
+        
+        if scale_to_ujy:
+            to_ujy = self.to_ujy
+        else:
+            to_ujy = 1.0
+        
+        tr_rows = []
+        for j, (fc, ec) in enumerate(zip(self.flux_columns, 
+                                         self.err_columns)):
+            if include_zeropoints:
+                tab[fc] = self.fnu[:,j]*self.zp[j]*to_ujy
+                tab[ec] = self.efnu_orig[:,j]*self.zp[j]*to_ujy
+            else:
+                tab[fc] = self.fnu[:,j]*to_ujy
+                tab[ec] = self.efnu_orig[:,j]*to_ujy
+            
+            tab[fc][~self.ok_data[:,j]] = -99.
+            tab[ec][~self.ok_data[:,j]] = -99.
+            
+            tr_rows.append([fc, f'F{self.f_numbers[j]}'])
+            tr_rows.append([ec, f'E{self.f_numbers[j]}'])
+            
+            tab[fc].format = '.3f'
+            tab[ec].format = '.3f'
+
+        tr = Table(rows=tr_rows, names=['column', 'trans'])
+
+        return tab, tr
+
+
     def set_template_error(self, TEF=None, compute_tef_lnp=True):
         """
         Set the Template Error Function 
