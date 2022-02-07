@@ -87,30 +87,19 @@ def make_fake_catalog(SN=20):
 
             fp.write(f'f_{f} F{f_numbers[i]}\n')
             fp.write(f'e_{f} E{f_numbers[i]}\n')
+    
+    tr = param.TranslateFile(translate_file)
+    with open(translate_file + '.csv','w') as fp:
+        fp.write(tr.to_csv())
 
+    tr = param.TranslateFile(translate_file + '.csv')
+    
     ### ASCII catalog
     cat_file = 'eazy_test.cat'
     tab.write(cat_file, overwrite=True, format='ascii.commented_header')
     tab.write(cat_file+'.fits', overwrite=True, format='fits')
         
     return tab, cat_file, translate_file
-
-
-def test_translate_file():
-    """
-    Read/write TranslateFile
-    """
-    
-    data_path = test_filters.test_data_path()
-    os.chdir(data_path)
-    
-    translate_file = 'zphot.translate.test'
-
-    tr = param.TranslateFile(translate_file)
-    with open(translate_file + '.csv','w') as fp:
-        fp.write(tr.to_csv())
-        
-    tr = param.TranslateFile(translate_file + '.csv')
 
 
 def test_full_photoz():
