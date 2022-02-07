@@ -10,6 +10,7 @@ from astropy.utils.exceptions import AstropyWarning
 from .. import utils
 from .. import filters
 from .. import photoz
+from .. import param
 
 from . import test_filters
 from . import test_templates
@@ -91,7 +92,25 @@ def make_fake_catalog(SN=20):
     cat_file = 'eazy_test.cat'
     tab.write(cat_file, overwrite=True, format='ascii.commented_header')
     tab.write(cat_file+'.fits', overwrite=True, format='fits')
+        
     return tab, cat_file, translate_file
+
+
+def test_translate_file():
+    """
+    Read/write TranslateFile
+    """
+    
+    data_path = test_filters.test_data_path()
+    os.chdir(data_path)
+    
+    translate_file = 'zphot.translate.test'
+
+    tr = param.TranslateFile(translate_file)
+    with open(translate_file + '.csv','w') as fp:
+        fp.write(tr.to_csv())
+        
+    tr = param.TranslateFile(translate_file + '.csv')
 
 
 def test_full_photoz():

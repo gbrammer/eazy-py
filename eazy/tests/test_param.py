@@ -9,6 +9,7 @@ def data_path():
     path = os.path.join(os.path.dirname(__file__), '../data/')
     return path
 
+
 def test_param_file():
     """
     Read Param file
@@ -27,4 +28,4 @@ def test_param_file():
     pfile1['XPARAM'] = 1.
     assert('XPARAM' in pfile1.param_names)
     assert(pfile1['XPARAM'] == 1)
-    
+
