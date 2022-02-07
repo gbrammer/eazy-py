@@ -8,10 +8,44 @@ from . import utils
 __all__ = ['EazyExplorer']
 
 class EazyExplorer(object):
-    def __init__(self, photoz, zout, selection=None):
+    def __init__(self, photoz, zout, extra_zout_columns=[], selection=None, 
+                 extra_plots={}):
         """
         Generating a tool for interactive visualization of `eazy` outputs with 
         the `dash` + `plotly` libraries.
+        
+        Parameters
+        ----------
+        photoz : `~eazy.photoz.PhotoZ`
+            The main ``PhotoZ`` object.
+        
+        zout : `astropy.table.Table`
+            The `zout` output table with galaxy parameters.  At
+            a minimum, it must have columns ``id``, ``z_phot``, ``z_spec``, 
+            ``z_phot_chi2``, ``nusefilt``, ``restU``, ``restV``, ``restJ``, 
+            ``sfr``, ``mass``, ``ra``, ``dec``.
+        
+        extra_zout_columns : list
+            Additional columns from ``zout`` to copy to the app 
+            ``df`` `pandas.DataFrame` object.
+        
+        selection : array-like
+            Selection array on `zout` for catalog subset, can be integer 
+            indices, or a boolean array with the same length as `zout`
+        
+        extra_plots : dict
+            Extra scatter plot definitions following
+            
+            >>> extra_plots = {'PlotName': (xcol, ycol, xlabel, ylabel, xr, yr)}
+            
+            where ``xcol`` and ``ycol`` are `str` column names in `zout`,
+            ``xlabel`` and ``ylabel`` are `str` used for the plot labels and
+            ``xr`` and ``yr`` are the default plot range tuples. Only
+            ``xcol`` and ``ycol`` are required, and the others are computed if
+            not provided.  Note that ``xcol`` and ``ycol`` are added 
+            automatically from `zout` if necessary and don't need to be 
+            specified in `extra_zout_columns`.
+            
         """
         import pandas as pd
         try:
@@ -43,12 +77,39 @@ class EazyExplorer(object):
         df['ra'] = photoz.RA
         df['dec'] = photoz.DEC
         df['chi2'] = zout['z_phot_chi2']/zout['nusefilt']
+        for c in extra_zout_columns:
+            if c in zout.colnames:
+                df[c] = zout[c]
+                
+        self.extra_plots = {}
+        
+        for k in extra_plots:
+            _plot_args = extra_plots[k]
+            xcol, ycol = _plot_args[:2]
+            
+            if xcol not in df.columns:
+                df[xcol] = zout[xcol]
+            if ycol not in df.columns:
+                df[ycol] = zout[ycol]
+            
+            if len(_plot_args) == 2:
+                self.extra_plots[k] = (xcol, ycol, xcol, ycol, 
+                                       np.nanmin(xcol), np.nanmax(ycol))
+            elif len(_plot_args) == 4:
+                self.extra_plots[k] = (*_plot_args, 
+                                       np.nanmin(xcol), np.nanmax(ycol))
+            elif len(_plot_args) == 6:
+                self.extra_plots[k] = _plot_args
+            else:
+                print(f'Expected 2,4 or 6 elements in extra_plots[{k}], '
+                      f'found {len(_plot_args)}')
+
         if selection is not None:
             df = df[selection]
                 
         _red_ix = np.argmax(photoz.pivot*(photoz.pivot < 3.e4))
         self.DEFAULT_FILTER = photoz.flux_columns[_red_ix]
-        
+                
         ZP = photoz.param['PRIOR_ABZP']*1.
         fmin = 10**(-0.4*(33-ZP))
         fmax = 10**(-0.4*(12-ZP))
@@ -79,7 +140,7 @@ class EazyExplorer(object):
         return (self.df['dec'].min(), self.df['dec'].max())
 
 
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css']):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -89,7 +150,7 @@ class EazyExplorer(object):
             `plotly` style `template <https://plotly.com/python/templates/#specifying-themes-in-graph-object-figures>`_.
         
         server_mode, port : str, int
-            The app server is generated with 
+            If not `None`, the app server is started with 
             `app.run_server(mode=server_mode, port=port)`.
         
         app_type : str
@@ -98,6 +159,15 @@ class EazyExplorer(object):
             
         plot_height : int
             Height in pixels of the scatter and SED+P(z) plot windows.
+        
+        infer_proxy : bool
+            Run `JupyterDash.infer_jupyter_proxy_config()`, before app 
+            initilization, e.g., for running on GoogleColab.
+            
+        Returns
+        -------
+        app : object
+            App object following `app_type`.
             
         """
         import dash
@@ -111,12 +181,18 @@ class EazyExplorer(object):
                             external_stylesheets=external_stylesheets)
         else:
             from jupyter_dash import JupyterDash
+            if infer_proxy:
+                JupyterDash.infer_jupyter_proxy_config()
+                
             app = JupyterDash(__name__, 
                               external_stylesheets=external_stylesheets)
 
         PLOT_TYPES = ['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 
                       'RA/Dec']
-                      
+        
+        for _t in self.extra_plots:
+            PLOT_TYPES.append(_t)
+            
         COLOR_TYPES = ['z_phot', 'z_spec', 'mass', 'sSFR', 'chi2']
         
         #_title = f"{self.photoz.param['MAIN_OUTPUT_FILE']}"
@@ -554,6 +630,7 @@ class EazyExplorer(object):
                                     color_continuous_scale='portland_r')
             
             # Scatter plot            
+            args = None
             if plot_type == 'Mass-redshift':
                 args = ('z_phot','mass',
                         'z<sub>phot</sub>', 'log Stellar mass', 
@@ -577,12 +654,25 @@ class EazyExplorer(object):
                         'z<sub>spec</sub>', 'z<sub>phot</sub>', 
                         (0, 4.5), (0, 4.5), 
                         {}, color_kwargs)
-            else:
+            elif plot_type == 'UVJ':
                 args = ('vj','uv',
                         '(V-J)', '(U-V)', 
                         (-0.1, 2.5), (-0.1, 2.5), 
                         {}, color_kwargs)
-
+            
+            if args is None:
+                for _t in self.extra_plots:
+                    if plot_type == _t:
+                        args = (*self.extra_plots[_t], {}, color_kwargs)
+                        break
+            
+            if args is None:
+                # Fall back to z-phot z-spec
+                args = ('z_spec','z_phot',
+                        'z<sub>spec</sub>', 'z<sub>phot</sub>', 
+                        (0, 4.5), (0, 4.5), 
+                        {}, color_kwargs)
+                           
             fig = update_sample_scatter(dff, *args)
 
             if ('Mass' in plot_type) & ('checked' in mass_checked):
@@ -644,6 +734,12 @@ class EazyExplorer(object):
                               selector=dict(type='scatter'))
             fig.update_coloraxes(showscale=False)
             
+            if (xcol, ycol) == ('z_spec','z_phot'):
+                _one2one = go.Scatter(x=[0, 8], y=[0,8],
+                                  mode="lines",
+                                  marker=dict(color='rgba(250,0,0,0.5)'))
+                fig.add_trace(_one2one)
+                
             fig.add_annotation(text=f'N = {len(dff)} / {len(self.df)}',
                           xref="x domain", yref="y domain",
                           x=0.98, y=0.05, showarrow=False)
@@ -736,20 +832,17 @@ class EazyExplorer(object):
             else:
                 ix = np.where(ix)[0][0]
                 ra, dec = self.df['ra'][ix], self.df['dec'][ix]
-                #rd_links = query_html(ra, dec, queries=['CDS', 'ESO', 'MAST', 
-                #                                        'LEG'])
-                                                        
-                object_info = [f'ID: {id_i}  |  α, δ) = {ra:.6f}, {dec:.6f} ',
-                               html.A(' | ESO', 
-                                      href=utils.eso_query(ra, dec, 
+                object_info = [f'ID: {id_i}  |  α, δ = {ra:.6f} {dec:.6f} ',
+                               ' | ', html.A('ESO', 
+                                             href=utils.eso_query(ra, dec, 
                                                            radius=1.0,
                                                            unit='s')),
-                               html.A(' | CDS', 
-                                      href=utils.cds_query(ra, dec, 
+                               ' | ', html.A('CDS', 
+                                             href=utils.cds_query(ra, dec, 
                                                            radius=1.0,
                                                            unit='s')),
-                               html.A(' | Leg', 
-                                      href=utils.show_legacysurvey(ra, dec, 
+                               ' | ', html.A('Leg', 
+                                        href=utils.show_legacysurvey(ra, dec, 
                                                            layer='dr9')),
                                html.Br(), 
                                f"z_phot: {self.df['z_phot'][ix]:.3f}  ", 
@@ -762,6 +855,8 @@ class EazyExplorer(object):
 
             return fig, object_info, match_sep
 
-        app.run_server(mode=server_mode, port=port)
+        if server_mode is not None:
+            app.run_server(mode=server_mode, port=port)
+            
         return app    
 
