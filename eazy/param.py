@@ -198,6 +198,15 @@ class TranslateFile():
             err_irac_ch1   E18
             ...
             
+        or a CSV table with format
+        
+        .. code-block::
+        
+            column, trans, error
+            flux_irac_ch1, F18
+            err_irac_ch1,  E18, 1.0
+            ...
+        
         where `flux_irac_ch1` is a column in the catalog table corresponding 
         to the IRAC 3.6 µm flux density. ``F18`` indicates that this is a 
         *flux density* column and is associated with filter number 18 in the 
@@ -216,23 +225,42 @@ class TranslateFile():
         something else, they should be "translated" to avoid confusion
         
         """
+        from astropy.table import Table
+        
         self.file=file
-        self.ordered_keys = []
-        lines = open(file).readlines()
         self.trans = collections.OrderedDict()
         self.error = collections.OrderedDict()
-        for line in lines:
-            spl = line.split()
-            if (line.strip() == '') | (len(spl) < 2):
-                continue
+
+        if file.endswith('csv'):
+            tr = Table.read(file)
+                
+            if 'error' not in tr.colnames:
+                tr['error'] = 1.0
             
-            key = spl[0]
-            self.ordered_keys.append(key)
-            self.trans[key] = spl[1]
-            if len(spl) == 3:
-                self.error[key] = float(spl[2])
-            else:
-                self.error[key] = 1.
+            if tr.colnames != ['column', 'trans', 'error']:
+                msg = f"csv translate_file file must have columns"
+                msg += f" 'column', 'trans' [, 'error'].  The file {file}"
+                msg += f' has columns {tr.colnames}.'
+                raise ValueError(msg)
+            
+            for i, k in enumerate(tr['column']):
+                self.trans[k] = tr['trans'][i]
+                self.error[k] = tr['error'][i]
+                
+        else:
+            lines = open(file).readlines()
+
+            for line in lines:
+                spl = line.split()
+                if (line.strip() == '') | (len(spl) < 2):
+                    continue
+            
+                key = spl[0]
+                self.trans[key] = spl[1]
+                if len(spl) == 3:
+                    self.error[key] = float(spl[2])
+                else:
+                    self.error[key] = 1.
 
 
     def change_error(self, filter=88, value=1.e8):
@@ -245,7 +273,7 @@ class TranslateFile():
             else:
                 err_filt = 'e'+filter
 
-            if err_filt in self.ordered_keys:
+            if err_filt in self.error:
                 self.error[err_filt] = value
                 return True
         
@@ -263,7 +291,7 @@ class TranslateFile():
         Write to an ascii file
         """
         lines = []
-        for key in self.ordered_keys:
+        for key in self.error:
             line = '{0}  {1}'.format(key, self.trans[key])
             if self.trans[key].startswith('E') & ((self.error[key] != 1.0) | show_ones):
                 line += '  {0:.1f}'.format(self.error[key])
@@ -280,3 +308,14 @@ class TranslateFile():
         else:
             for line in lines:
                 print(line[:-1])
+
+
+    def to_csv(self):
+        """
+        Generate CSV string
+        """
+        rows = 'column,trans,error\n'
+        for k in self.error:
+            rows += f'{k},{self.trans[k]},{self.error[k]}\n'
+        return rows
+        
