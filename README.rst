@@ -41,5 +41,9 @@ Installation instructions
 
 Demo
 ~~~~
+
+.. image:: https://colab.research.google.com/assets/colab-badge.svg
+ :target: https://colab.research.google.com/github/gbrammer/eazy-py/blob/master/docs/examples/HDFN-demo.ipynb
+
 .. image:: https://mybinder.org/badge_logo.svg
  :target: https://mybinder.org/v2/gh/gbrammer/eazy-py/HEAD?filepath=docs%2Fexamples%2FHDFN-demo.ipynb
