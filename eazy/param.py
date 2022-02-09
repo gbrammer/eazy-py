@@ -156,8 +156,9 @@ class EazyParam(object):
         
         for k in ['TEMPLATES_FILE', 'TEMP_ERR_FILE', 'CATALOG_FILE', 
                   'FILTERS_RES']:
-            if not os.path.exists(self[k]):
-                raise FileNotFoundError(f'{k} ({self[k]}) not found')        
+            if isinstance(self[k], str):
+                if not os.path.exists(self[k]):
+                    raise FileNotFoundError(f'{k} ({self[k]}) not found')        
 
         assert(int(self['ARRAY_NBITS']) in [32,64])
         
@@ -227,11 +228,28 @@ class TranslateFile():
         """
         from astropy.table import Table
         
-        self.file=file
+        self.file = file
         self.trans = collections.OrderedDict()
         self.error = collections.OrderedDict()
 
-        if file.endswith('csv'):
+        if hasattr(file, 'colnames'):
+            tr = file
+            self.file = 'input_table.translate'
+        
+            if 'error' not in tr.colnames:
+                tr['error'] = 1.0
+        
+            if tr.colnames != ['column', 'trans', 'error']:
+                msg = f"table translate_file file must have columns"
+                msg += f" 'column', 'trans' [, 'error'].  The file {file}"
+                msg += f' has columns {tr.colnames}.'
+                raise ValueError(msg)
+        
+            for i, k in enumerate(tr['column']):
+                self.trans[k] = tr['trans'][i]
+                self.error[k] = tr['error'][i]
+
+        elif file.endswith('csv'):
             tr = Table.read(file)
                 
             if 'error' not in tr.colnames:
@@ -246,7 +264,7 @@ class TranslateFile():
             for i, k in enumerate(tr['column']):
                 self.trans[k] = tr['trans'][i]
                 self.error[k] = tr['error'][i]
-                
+                            
         else:
             lines = open(file).readlines()
 

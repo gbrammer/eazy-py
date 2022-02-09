@@ -420,6 +420,31 @@ def test_zeropoint_residuals():
     res = ez.residuals()
 
 
+def test_hdf5():
+    """
+    Test HDF5 save / recover state
+    """
+    global ez
+    
+    from .. import hdf5
+    try:
+        import h5py
+    except ImportError:
+        return None
+    
+    hdf5.write_hdf5(ez, h5file='test.hdf5', include_fit_coeffs=False, 
+                    include_templates=True)
+    
+    new_ez = hdf5.initialize_from_hdf5('test.hdf5')
+    
+    assert(np.allclose(ez.fnu, new_ez.fnu))
+    assert(np.allclose(ez.efnu, new_ez.efnu))
+    assert(np.allclose(ez.prior_mags, new_ez.prior_mags))
+    assert(np.allclose(ez.zml, new_ez.zml))
+    assert(np.allclose(ez.zbest, new_ez.zbest))
+    assert(np.allclose(ez.lnp, new_ez.lnp))
+
+
 def test_cleanup():
     
     if os.path.exists('filters/FILTER.RES.latest.npy'):

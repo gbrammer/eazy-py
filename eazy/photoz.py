@@ -21,7 +21,7 @@ import astropy.units as u
 import astropy.constants as const
 from astropy.utils.exceptions import AstropyWarning, AstropyUserWarning
 
-from . import filters
+from . import filters as filters_code
 from . import param 
 from . import igm as igm_module
 
@@ -60,7 +60,7 @@ class PhotoZ(object):
     ZPHOT_AT_ZSPEC = None
     ZPHOT_USER = None
     
-    def __init__(self, param_file=None, translate_file=None, zeropoint_file=None, load_prior=True, load_products=False, params={}, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, random_seed=0, random_draws=100, **kwargs):
+    def __init__(self, param_file=None, translate_file=None, zeropoint_file=None, load_prior=True, load_products=False, params={}, n_proc=0, cosmology=None, compute_tef_lnp=True, tempfilt=None, tempfilt_data=None, random_seed=0, random_draws=100, **kwargs):
         """
         Main object for fitting templates / photometric redshifts
         
@@ -272,20 +272,7 @@ class PhotoZ(object):
         
         if 'IGM_SCALE_TAU' in self.param.params:
             IGM_OBJECT.scale_tau = self.param['IGM_SCALE_TAU']
-        
-        if 'ARRAY_NBITS' in self.param.params:
-            if self.param['ARRAY_NBITS'] == 64:
-                self.ARRAY_DTYPE = np.float64
-            else:
-                self.ARRAY_DTYPE = np.float32
-        else:
-            self.ARRAY_DTYPE = np.float32
-                    
-        if 'MW_EBV' not in self.param.params:
-            self.param.params['MW_EBV'] = 0.0354 # MACS0416
-            #self.param.params['MW_EBV'] = 0.0072 # GOODS-S
-            #self.param['SCALE_2175_BUMP'] = 0.4 # Test
-                    
+                            
         ### Read templates
         kws = dict(templates_file=self.param['TEMPLATES_FILE'], 
                     velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
@@ -308,6 +295,9 @@ class PhotoZ(object):
             
         ### Read catalog and filters
         self.fixed_cols = {}        
+        
+        self.RES = filters_code.FilterFile(self.param['FILTERS_RES'])
+        
         self.read_catalog()
                 
         if self.NFILT < 1:
@@ -359,10 +349,11 @@ class PhotoZ(object):
                                         RES=self.param['FILTERS_RES'], 
                                         f_numbers=self.f_numbers, 
                                         add_igm=self.param['IGM_SCALE_TAU'], 
-                                    galactic_ebv=self.param.params['MW_EBV'], 
+                                    galactic_ebv=self.MW_EBV, 
                                     Eb=self.param['SCALE_2175_BUMP'], 
                                     n_proc=n_proc, cosmology=self.cosmology, 
-                                    array_dtype=self.ARRAY_DTYPE)
+                                    array_dtype=self.ARRAY_DTYPE, 
+                                    tempfilt_data=tempfilt_data)
             t1 = time.time()
             print('Process templates: {0:.3f} s'.format(t1-t0))
         else:
@@ -517,6 +508,33 @@ class PhotoZ(object):
             return np.full(self.NOBJ, -1, dtype=self.ARRAY_DTYPE)
 
 
+    @property 
+    def ARRAY_DTYPE(self):
+        """
+        Array data type from `ARRAY_NBITS` parameter
+        """
+        if 'ARRAY_NBITS' in self.param.params:
+            if self.param['ARRAY_NBITS'] == 64:
+                ARRAY_DTYPE = np.float64
+            else:
+                ARRAY_DTYPE = np.float32
+        else:
+            ARRAY_DTYPE = np.float32
+        
+        return ARRAY_DTYPE
+
+
+    @property 
+    def MW_EBV(self):    
+        """
+        Galactic extinction E(B-V)
+        """
+        if 'MW_EBV' not in self.param.params:
+            return 0. # 0.0354 # MACS0416
+        else:
+            return self.param.params['MW_EBV']
+
+
     def load_products(self, compute_error_residuals=False, fitter='nnls', **kwargs):
         """
         Load results from ``zout`` and ``data`` FITS files created by 
@@ -596,9 +614,14 @@ class PhotoZ(object):
         
         """
         if verbose:
-            print('Read CATALOG_FILE:', self.param['CATALOG_FILE'])
+            if hasattr(self.param['CATALOG_FILE'], 'colnames'):
+                print('CATALOG_FILE is a table')
+            else:
+                print('Read CATALOG_FILE:', self.param['CATALOG_FILE'])
              
-        if 'fits' in self.param['CATALOG_FILE'].lower():
+        if hasattr(self.param['CATALOG_FILE'], 'colnames'):
+            self.cat = self.param['CATALOG_FILE']
+        elif 'fits' in self.param['CATALOG_FILE'].lower():
             self.cat = Table.read(self.param['CATALOG_FILE'], format='fits')
         elif self.param['CATALOG_FILE'].lower().endswith('csv'):
             self.cat = Table.read(self.param['CATALOG_FILE'], format='csv')        
@@ -612,9 +635,7 @@ class PhotoZ(object):
         # self.NOBJ = len(self.cat)
         self.prior_mag_cat = np.zeros(self.NOBJ)-1
         
-        all_filters = filters.FilterFile(self.param['FILTERS_RES'])
-        self.RES = all_filters
-        np.save(self.param['FILTERS_RES']+'.npy', [all_filters])
+        #np.save(self.param['FILTERS_RES']+'.npy', [all_filters])
 
         self.filters = []
         self.flux_columns = []
@@ -731,7 +752,7 @@ class PhotoZ(object):
         self.efmodel = self.fnu*0.
         
         # MW extinction correction: dered = fnu/self.ext_corr
-        ext_mag = [f.extinction_correction(self.param.params['MW_EBV']) 
+        ext_mag = [f.extinction_correction(self.MW_EBV) 
                    for f in self.filters]
         self.ext_corr = 10**(0.4*np.array(ext_mag))
 
@@ -742,10 +763,13 @@ class PhotoZ(object):
         else:
             self.ext_redden = np.ones(self.NFILT)
         
+        #print(self.flux_columns, self.fnu.shape)
+        
         for i in range(self.NFILT):
             self.fnu[:,i] = self.cat[self.flux_columns[i]]*1
             efnu[:,i] = self.cat[self.err_columns[i]]*1
             if self.err_columns[i] in self.translate.error:
+                #print('x', efnu[:,i].shape, self.translate.error[self.err_columns[i]], self.err_columns[i])
                 efnu[:,i] *= self.translate.error[self.err_columns[i]]
         
         if self.param['MAGNITUDES'] in utils.TRUE_VALUES:
@@ -813,7 +837,7 @@ class PhotoZ(object):
                 warnings.warn(f'Filter {fnum} in {zeropoint_file} not ' + 
                                'in the filter list', AstropyUserWarning)
 
-
+    
     def make_csv_catalog(self, include_zeropoints=True, scale_to_ujy=True):
         """
         Make a standardized catalog table in CSV format
@@ -833,38 +857,56 @@ class PhotoZ(object):
             `tab` is the photometric table.  `trans` is the column 
             translations that can be put into a `eazy.param.TranslateFile`.
             
-        """
-        from astropy.table import Table
-        tab = Table()
-        tab['id'] = self.OBJID
-        tab['ra'] = self.RA
-        tab['dec'] = self.DEC
-        tab['z_spec'] = self.ZSPEC
-        
-        tab['ra'].format = '.6f'
-        tab['dec'].format = '.6f'
-        tab['z_spec'].format = '.5f'
-        
+        """        
         if scale_to_ujy:
             to_ujy = self.to_ujy
         else:
             to_ujy = 1.0
         
+        args = (self.OBJID, self.RA, self.DEC, self.ZSPEC, 
+                self.fnu*to_ujy, self.efnu_orig*to_ujy, 
+                self.ok_data,
+                self.flux_columns, self.err_columns,
+                self.zp**include_zeropoints, 
+                self.f_numbers)
+        
+        tab, trans = self._csv_from_arrays(*args)
+
+
+    @staticmethod
+    def _csv_from_arrays(id, ra, dec, zspec, fnu, efnu_orig, ok_data, flux_columns, err_columns, zp, f_numbers):
+        """
+        Make catalog from arrays
+        
+        Returns
+        -------
+        tab, trans : `~astropy.table.Table`
+            `tab` is the photometric table.  `trans` is the column 
+            translations that can be put into a `eazy.param.TranslateFile`.
+        """
+        from astropy.table import Table
+        
+        tab = Table()
+        tab['id'] = id
+        tab['ra'] = ra
+        tab['dec'] = dec
+        tab['z_spec'] = zspec
+        
+        tab['ra'].format = '.6f'
+        tab['dec'].format = '.6f'
+        tab['z_spec'].format = '.5f'
+        
         tr_rows = []
-        for j, (fc, ec) in enumerate(zip(self.flux_columns, 
-                                         self.err_columns)):
-            if include_zeropoints:
-                tab[fc] = self.fnu[:,j]*self.zp[j]*to_ujy
-                tab[ec] = self.efnu_orig[:,j]*self.zp[j]*to_ujy
-            else:
-                tab[fc] = self.fnu[:,j]*to_ujy
-                tab[ec] = self.efnu_orig[:,j]*to_ujy
+        for j, (fc, ec) in enumerate(zip(flux_columns, err_columns)):
+
+            tab[fc] = fnu[:,j]*zp[j]
+            tab[ec] = efnu_orig[:,j]*zp[j]
             
-            tab[fc][~self.ok_data[:,j]] = -99.
-            tab[ec][~self.ok_data[:,j]] = -99.
+            tab[fc][~ok_data[:,j]] = -99.
+            tab[ec][~ok_data[:,j]] = -99.
             
-            tr_rows.append([fc, f'F{self.f_numbers[j]}'])
-            tr_rows.append([ec, f'E{self.f_numbers[j]}'])
+            tr_rows.append([fc, f'F{f_numbers[j]}'])
+            tr_rows.append([ec, f'E{f_numbers[j]}'])
             
             tab[fc].format = '.3f'
             tab[ec].format = '.3f'
@@ -1078,8 +1120,8 @@ class PhotoZ(object):
         wy = wx*0.
         wy[np.abs(wx) <= dw/2.] = 1
         
-        f1 = filters.FilterDefinition(wave=wx+w1, throughput=wy)
-        f2 = filters.FilterDefinition(wave=wx+w2, throughput=wy)
+        f1 = filters_code.FilterDefinition(wave=wx+w1, throughput=wy)
+        f2 = filters_code.FilterDefinition(wave=wx+w2, throughput=wy)
         
         y1 = [t.integrate_filter(f1, flam=True) for t in self.templates]
         y2 = [t.integrate_filter(f2, flam=True) for t in self.templates]
@@ -2369,7 +2411,14 @@ class PhotoZ(object):
                 templ.flux *= templ_corr
 
             # Recompute filter fluxes from tweaked templates    
-            self.tempfilt = TemplateGrid(self.zgrid, self.templates, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], n_proc=0, cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
+            self.tempfilt = TemplateGrid(self.zgrid, self.templates, 
+                                         RES=self.RES, 
+                                         f_numbers=self.f_numbers, 
+                                         add_igm=self.param['IGM_SCALE_TAU'], 
+                                         galactic_ebv=self.MW_EBV, 
+                                         Eb=self.param['SCALE_2175_BUMP'], 
+                                         n_proc=0, cosmology=self.cosmology, 
+                                         array_dtype=self.ARRAY_DTYPE)
 
         return fig
 
@@ -3145,10 +3194,10 @@ class PhotoZ(object):
                 print(fnames)
                 
         _tempfilt = TemplateGrid(self.zgrid, self.templates, 
-                                   RES=self.param['FILTERS_RES'], 
+                                   RES=self.RES, 
                                    f_numbers=np.array(f_numbers), 
                                    add_igm=self.param['IGM_SCALE_TAU'],
-                                   galactic_ebv=self.param['MW_EBV'], 
+                                   galactic_ebv=self.MW_EBV, 
                                    Eb=self.param['SCALE_2175_BUMP'], 
                                    n_proc=n_proc, verbose=verbose, 
                                    cosmology=self.cosmology,
@@ -4785,9 +4834,20 @@ class PhotoZ(object):
         import astropy.units as u
         
         if grizli_templates is not None:
-            template_list = [templates_module.Template(arrays=(grizli_templates[k].wave, grizli_templates[k].flux), name=k) for k in grizli_templates]
+            template_list = [templates_module.Template(
+                                            arrays=(grizli_templates[k].wave, 
+                                                    grizli_templates[k].flux), 
+                                            name=k) 
+                             for k in grizli_templates]
             
-            tempfilt = TemplateGrid(self.zgrid, template_list, RES=self.param['FILTERS_RES'], f_numbers=self.f_numbers, add_igm=self.param['IGM_SCALE_TAU'], galactic_ebv=self.param.params['MW_EBV'], Eb=self.param['SCALE_2175_BUMP'], cosmology=self.cosmology, array_dtype=self.ARRAY_DTYPE)
+            tempfilt = TemplateGrid(self.zgrid, template_list, 
+                                    RES=self.RES, 
+                                    f_numbers=self.f_numbers, 
+                                    add_igm=self.param['IGM_SCALE_TAU'], 
+                                    galactic_ebv=self.MW_EBV, 
+                                    Eb=self.param['SCALE_2175_BUMP'], 
+                                    cosmology=self.cosmology, 
+                                    array_dtype=self.ARRAY_DTYPE)
         else:
             tempfilt = None
         
@@ -5212,7 +5272,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
 
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt=None):
+    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
         """
         Integrate filters through filters on a redshift grid
         
@@ -5225,7 +5285,7 @@ class TemplateGrid(object):
             List of `~eazy.templates.Template` objects
         
         RES : str
-            Filename of a `~eazy.filters.FilterFile`
+            Filename of a `~eazy.filters.FilterFile`, or the object itself.
         
         f_numbers : list
             List of *unit-indexed* filter numbers for the desired filters to 
@@ -5258,6 +5318,9 @@ class TemplateGrid(object):
         array_dtype : dtype
             Data type for computed arrays
         
+        tempfilt_data : array
+            Precomputed array of integrated fluxes
+            
         Attributes
         ----------
         NZ
@@ -5307,14 +5370,22 @@ class TemplateGrid(object):
         self.idx = np.arange(self.NZ, dtype=int)
                 
         if filters is None:
-            all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
+            if hasattr(RES, 'filters'):
+                all_filters = RES
+            else:
+                if os.path.exists(RES+'.npy'):
+                    all_filters = np.load(RES+'.npy', 
+                                          allow_pickle=True)[0]
+                else:
+                    all_filters = filters_code.FilterFile(RES)
+                
             filters = [all_filters[fnum] for fnum in f_numbers]
         
         self.filter_names = np.array([f.name for f in filters])
         self.filters = filters
         #self.NFILT = len(self.filters)
         
-        if tempfilt is None:
+        if tempfilt_data is None:
             self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT), 
                                  self.ARRAY_DTYPE)
         
@@ -5366,12 +5437,16 @@ class TemplateGrid(object):
                     self.tempfilt[:,itemp,:] = tf_i        
         else:
             # Precomputed
-            if tempfilt.shape != (self.NZ, self.NTEMP, self.NFILT):
-                msg = f'Precomputed `tempfilt` shape ({tempfilt.shape})'
+            if verbose:
+                print('TemplateGrid: user-provided tempfilt_data')
+
+            if tempfilt_data.shape != (self.NZ, self.NTEMP, self.NFILT):
+                msg = f'Precomputed `tempfilt_data` shape '
+                msg += f'({tempfilt.shape})'
                 msg += f' is not ({self.NZ}, {self.NTEMP}, {self.NFILT})!'
                 raise ValueError(msg)
             
-            self.tempfilt = tempfilt
+            self.tempfilt = tempfilt_data
             
         # Check for bad values.  Not sure where they're coming from?
         bad = ~np.isfinite(self.tempfilt)
