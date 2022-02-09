@@ -52,6 +52,8 @@ TEMPLATE_REDSHIFT_TYPE = 'nearest'
 
 PLOTLY_LAYOUT_KWARGS = {'template':'plotly_white', 'showlegend':False}
 
+MULTIPROCESSING_TIMEOUT = 600
+
 class PhotoZ(object):
     ZML_WITH_PRIOR = None
     ZML_WITH_BETA_PRIOR = None
@@ -1460,7 +1462,7 @@ class PhotoZ(object):
         self.fit_catalog(*args, **kwargs)
 
 
-    def fit_catalog(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls', timeout=60, **kwargs):
+    def fit_catalog(self, idx=None, n_proc=4, verbose=True, get_best_fit=True, prior=False, beta_prior=False, fitter='nnls', **kwargs):
         """
         This is the main function for fitting redshifts for a full catalog
         and is parallelized by fitting each redshift grid step separately.
@@ -1497,9 +1499,6 @@ class PhotoZ(object):
             Least-squares method for template fits.  See
             `~eazy.photoz.template_lsq`.        
             
-        timeout : int
-            Timeout for parallel processes
-        
         Returns
         -------
         Updates various attributes, like `chi2_fit`, `fit_coeffs`.
@@ -1575,7 +1574,7 @@ class PhotoZ(object):
         
             # Gather results
             for res in tqdm(jobs):
-                iz, chi2, coeffs = res.get(timeout=timeout)
+                iz, chi2, coeffs = res.get(timeout=MULTIPROCESSING_TIMEOUT)
                 self.chi2_fit[idx_fit,iz] = chi2
                 self.fit_coeffs[idx_fit,iz,:] = coeffs
         
@@ -1784,7 +1783,7 @@ class PhotoZ(object):
             pool.join()
 
             for res in jobs:
-                _ = res.get(timeout=1)
+                _ = res.get(timeout=MULTIPROCESSING_TIMEOUT)
                 _ix, _coeffs_best, _fmodel, _efmodel, _chi2_best, _cdraws = _
                 self.coeffs_best[_ix,:] = _coeffs_best
                 self.fmodel[_ix,:] = _fmodel
@@ -3194,7 +3193,7 @@ class PhotoZ(object):
         return tab
 
 
-    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, ndraws=1000, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000, par_timeout=600, **kwargs):
+    def rest_frame_fluxes(self, f_numbers=DEFAULT_UBVJ_FILTERS, pad_width=0.5, max_err=0.5, ndraws=1000, percentiles=[2.5,16,50,84,97.5], simple=False, verbose=1, fitter='nnls', n_proc=-1, par_skip=10000, **kwargs):
         """
         Rest-frame fluxes, refit by down-weighting bands far away from 
         the desired RF band.
@@ -3265,9 +3264,6 @@ class PhotoZ(object):
             Number of processes to use.  If zero, then run in serial mode.  
             Otherwise, will run in parallel threads splitting the catalog into 
             ``NOBJ/par_skip`` pieces.
-        
-        par_timeout : scalar
-            Timeout for `multiprocessing` threads.
         
         Returns
         -------
@@ -3403,7 +3399,7 @@ class PhotoZ(object):
             #pool.join()
 
             for res in tqdm(jobs):
-                _ = res.get(timeout=par_timeout)
+                _ = res.get(timeout=MULTIPROCESSING_TIMEOUT)
                 _ix, _frest = _                
                 f_rest[_ix,:,:] = _frest
             #
@@ -5216,7 +5212,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
 
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, par_timeout=120):
+    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt=None):
         """
         Integrate filters through filters on a redshift grid
         
@@ -5261,9 +5257,6 @@ class TemplateGrid(object):
         
         array_dtype : dtype
             Data type for computed arrays
-        
-        par_timeout : float
-            Timeout for parallel processes
         
         Attributes
         ----------
@@ -5321,51 +5314,65 @@ class TemplateGrid(object):
         self.filters = filters
         #self.NFILT = len(self.filters)
         
-        self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT), 
+        if tempfilt is None:
+            self.tempfilt = np.zeros((self.NZ, self.NTEMP, self.NFILT), 
                                  self.ARRAY_DTYPE)
         
-        if n_proc >= 0:
-            # Parallel            
-            if n_proc == 0:
-                pool = mp.Pool(processes=mp.cpu_count())
-            else:
-                np_check = np.minimum(mp.cpu_count(), n_proc)
-                pool = mp.Pool(processes=np_check)
+            if n_proc >= 0:
+                # Parallel            
+                if n_proc == 0:
+                    pool = mp.Pool(processes=mp.cpu_count())
+                else:
+                    np_check = np.minimum(mp.cpu_count(), n_proc)
+                    pool = mp.Pool(processes=np_check)
                 
-            jobs = [pool.apply_async(_integrate_tempfilt,
-                                        (itemp, templates[itemp], zgrid, RES,
-                                         f_numbers, add_igm, galactic_ebv, Eb,
-                                         filters))
-                       for itemp in range(self.NTEMP)]
+                jobs = [pool.apply_async(_integrate_tempfilt,
+                                            (itemp,
+                                             templates[itemp], 
+                                             zgrid, RES,
+                                             f_numbers, add_igm,
+                                             galactic_ebv, Eb,
+                                             filters))
+                           for itemp in range(self.NTEMP)]
 
-            pool.close()
-            #pool.join()
+                pool.close()
+                #pool.join()
                 
-            for res in tqdm(jobs):
-                itemp, tf_i = res.get(timeout=par_timeout)
-                if verbose > 1:
-                    self.tempfilt[:,itemp,:] = tf_i        
+                for res in tqdm(jobs):
+                    itemp, tf_i = res.get(timeout=MULTIPROCESSING_TIMEOUT)
+                    if verbose > 1:
+                        self.tempfilt[:,itemp,:] = tf_i        
             
-            if verbose > 1:
-                for itemp in range(self.NTEMP):
-                    msg = 'Template {0:>3}: {1} (NZ={2}).'
-                    print(msg.format(itemp, templates[itemp].name,
-                                     templates[itemp].NZ))
-                
-        else:
-            # Serial
-            for itemp in tqdm(range(self.NTEMP)):
-                itemp, tf_i = _integrate_tempfilt(itemp, templates[itemp],
-                                                  zgrid, RES, f_numbers, 
-                                                  add_igm, galactic_ebv, Eb, 
-                                                  filters)
                 if verbose > 1:
-                    msg = 'Process template {0} (NZ={1}).'
-                    print(msg.format(templates[itemp].name,
-                                     templates[itemp].NZ))
+                    for itemp in range(self.NTEMP):
+                        msg = 'Template {0:>3}: {1} (NZ={2}).'
+                        print(msg.format(itemp, templates[itemp].name,
+                                         templates[itemp].NZ))
+                
+            else:
+                # Serial
+                for itemp in tqdm(range(self.NTEMP)):
+                    itemp, tf_i = _integrate_tempfilt(itemp, 
+                                                      templates[itemp],
+                                                      zgrid, RES, 
+                                                      f_numbers, add_igm, 
+                                                      galactic_ebv, Eb, 
+                                                      filters)
+                    if verbose > 1:
+                        msg = 'Process template {0} (NZ={1}).'
+                        print(msg.format(templates[itemp].name,
+                                         templates[itemp].NZ))
                     
-                self.tempfilt[:,itemp,:] = tf_i        
-        
+                    self.tempfilt[:,itemp,:] = tf_i        
+        else:
+            # Precomputed
+            if tempfilt.shape != (self.NZ, self.NTEMP, self.NFILT):
+                msg = f'Precomputed `tempfilt` shape ({tempfilt.shape})'
+                msg += f' is not ({self.NZ}, {self.NTEMP}, {self.NFILT})!'
+                raise ValueError(msg)
+            
+            self.tempfilt = tempfilt
+            
         # Check for bad values.  Not sure where they're coming from?
         bad = ~np.isfinite(self.tempfilt)
         if bad.sum():
