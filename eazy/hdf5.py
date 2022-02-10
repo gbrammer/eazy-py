@@ -3,6 +3,11 @@ Tools for saving/recoving state from HDF5 files
 """
 import numpy as np
 
+try:
+    import h5py
+except:
+    pass
+    
 from . import photoz
 from . import utils
 from . import templates as templates_code
@@ -28,7 +33,7 @@ def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_temp
         Include template arrays
         
     """
-    import h5py
+
     if verbose:
         print(f'h5: create file {h5file}')
         
@@ -128,7 +133,7 @@ def cat_from_hdf5(h5file):
         TranslateFile object
         
     """
-    import h5py
+
     with h5py.File(h5file,'r') as f:
         cat, trans = photoz.PhotoZ._csv_from_arrays(f['cat/id'][:],
                                       f['cat/ra'][:], f['cat/dec'][:], 
@@ -157,7 +162,6 @@ def params_from_hdf5(h5file):
     params : dict
     """
     from collections import OrderedDict
-    import h5py
     
     params = OrderedDict()
     
@@ -172,8 +176,18 @@ def params_from_hdf5(h5file):
 def templates_from_hdf5(h5file, verbose=False):
     """
     Read list of templates
+    
+    Parameters
+    ----------
+    h5file : str
+        HDF5 filename
+    
+    Returns
+    -------
+    templates : list
+        List of `eazy.templates.Template` objects read from ``h5file``.
+    
     """
-    import h5py
     templates = []
     with h5py.File(h5file,'r') as f:
         NTEMP = f['templates'].attrs['NTEMP']
@@ -195,6 +209,50 @@ def templates_from_hdf5(h5file, verbose=False):
     return templates
 
 
+def show_info(h5file):
+    """
+    Print summary info of contents of ``h5file`` to the screen
+    """
+
+    with h5py.File(h5file,'r') as f:
+        def show_size(name):
+            if hasattr(f[name], 'shape'):
+                print(name, f[name].shape)
+            else:
+                comment = '-'*(len(name)+3)
+                print(f'\n{comment}\n {name}/\n{comment}')
+
+        f.visit(show_size)
+
+
+def get_dataset_shape(h5file, dataset):
+    """
+    Return the shape of a datset in ``h5file``
+    """
+        
+    with h5py.File(h5file,'r') as f:
+        if dataset not in f:
+            raise ValueError(f'Dataset {dataset} not found in {h5file}')
+        
+        return f[dataset].shape
+
+
+def get_dataset_slice(h5file, dataset, sl=None):
+    """
+    Get a slice of a dataset in ``h5file``.  If no ``sl`` slice provided, then
+    return the full array
+    """
+
+    with h5py.File(h5file,'r') as f:
+        if dataset not in f:
+            raise ValueError(f'Dataset {dataset} not found in {h5file}')
+        
+        if sl is None:
+            return f[dataset][:]
+        else:
+            return f[dataset][sl]
+
+
 def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
     """
     Initialize a `~eazy.photoz.PhotoZ` object from HDF5 data
@@ -209,7 +267,6 @@ def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
     pzobj : '~eazy.photoz.PhotoZ'
     
     """
-    import h5py
     
     # Parameter dictionary
     params = params_from_hdf5(h5file)
@@ -261,7 +318,6 @@ class Viewer(object):
         Tool to replicate functionality of `PhotoZ.show_fit` but with 
         data read from a stored HDF5 file rather than a "live" object
         """
-        import h5py
         from astropy.cosmology import LambdaCDM
         
         self.h5file = h5file
@@ -286,17 +342,117 @@ class Viewer(object):
         self.set_tempfilt()
 
 
+    def info(self):
+        """
+        Print file contents
+        """
+        show_info(self.h5file)
+
+
     def get_catalog(self):
         """
+        Create a full catalog table from the photometry data in the 
+        HDF5 file
         """
         cat, trans = cat_from_hdf5(self.h5file)
         return cat
 
 
+    def get_table(self, names, sl=None, verbose=True, strip_slash=True, as_table=True):
+        """
+        Build a table from multiple dataset names
+        
+        Parameters
+        ----------
+        names : str
+            Dataset names in `h5file`
+        
+        sl : slice-like
+            Array slice
+        
+        verbose : bool
+            Print some status info
+        
+        Returns
+        -------
+        data : array-like
+            Sliced dataset data
+            
+        """
+        from astropy.table import Table
+        
+        tab = {}
+        for name in names:
+            if strip_slash:
+                key = name.split('/')[-1]
+            else:
+                key = name
+            
+            tab[key] = self.get_dataset(name, sl=sl, verbose=verbose)
+        
+        if as_table:
+            tab = Table(tab)
+            tab.meta['to_ujy'] = self.to_uJy
+            return tab
+        else:
+            return tab
+
+
+    def get_dataset(self, name, sl=None, verbose=True):
+        """
+        Get a single column of data from the HDF5 file
+
+        If ``name`` is in the `self.flux_columns` or `self.err_columns` lists, 
+        then compute the appropriate index of the `fit/fnu` or `fit/efnu_orig` 
+        datasets, respectively.
+        
+        Parameters
+        ----------
+        name : str
+            Dataset name in `h5file`
+        
+        sl : slice-like
+            Array slice
+        
+        verbose : bool
+            Print some status info
+        
+        Returns
+        -------
+        data : array-like
+            Sliced dataset data
+            
+        """
+        if name in self.flux_columns:
+            c_i = list(self.flux_columns).index(name)
+            if verbose:
+                print(f'{name} = cat/fnu[:,{c_i}]')
+
+            data = get_dataset_slice(self.h5file, 'cat/fnu', sl)
+            data = np.atleast_2d(data)[:,c_i]
+
+        elif name in self.err_columns:
+            c_i = list(self.err_columns).index(name)
+            print(f'{name} = cat/efnu_orig[:,{c_i}]')
+
+            data = get_dataset_slice(self.h5file, 'cat/efnu_orig', sl)
+            data = np.atleast_2d(data)[:,c_i]
+
+        else:
+            data = get_dataset_slice(self.h5file, name, sl)
+
+        if data.size == 1:
+            return data[0]
+        else:
+            return data
+
+
     def set_tempfilt(self):
         """
+        Generate the `eazy.photoz.TemlpateGrid` object needed for plotting
+        SEDs and refitting at other redshifts.
         """
-        import h5py
+
         with h5py.File(self.h5file, 'r') as f:
             self.tempfilt = photoz.TemplateGrid(self.zgrid, self.templates, 
                                     RES=self.param['FILTERS_RES'], 
@@ -314,24 +470,15 @@ class Viewer(object):
 
     def set_template_error(self):
         """
-        Set the Template Error Function 
-        
-        Parameters
-        ----------
-        TEF : `eazy.templates.TemplateError` or None
-            If not specified, read from `params['TEMP_ERR_FILE']` and scale
-            by `params['TEMP_ERR_A2']`.
-        
-        compute_tef_lnp : bool
-            Compute the likelihood normalization correction for the 
-            `~eazy.templates.TemplateError` function.
-        
+        Set the Template Error Function from `fit/tef_x` and `fit/tef_y` data
+        in the HDF5 file
+                
         Returns
         -------
-        Sets `TEF`, `TEFgrid` and `compute_tef_lnp` attributes
+        Sets `TEF` attributes
             
         """
-        import h5py
+        
         with h5py.File(self.h5file, 'r') as f:
             arrays = (f['fit/tef_x'][:], f['fit/tef_y'][:])
             
@@ -342,8 +489,9 @@ class Viewer(object):
 
     def set_attrs_from_hdf5(self):
         """
+        Set fixed attributes needed for `show_fit`
         """
-        import h5py
+
         with h5py.File(self.h5file,'r') as f:
             self.NOBJ, self.NFILT = f['cat/fnu'].shape
             self.pivot = f['cat/pivot'][:]
@@ -360,8 +508,15 @@ class Viewer(object):
 
     def get_object_data(self, ix):
         """
+        Pull out data for a given array index (not id!) corresponding 
+        to a particular object
+        
+        Returns
+        -------
+        z_i, fnu_i, efnu_i, ra_i, dec_i, chi2_i, zspec_i, ok_i
+        
         """
-        import h5py
+
         with h5py.File(self.h5file,'r') as f:
             fnu_i = f['cat/fnu'][ix,:]
             efnu_orig = f['cat/efnu_orig'][ix,:]
@@ -380,8 +535,12 @@ class Viewer(object):
 
     def get_lnp(self, ix):
         """
+        Compute ln P(z) directly from chi2.  
+        
+        N.B. No prior implemented yet!
+        
         """
-        import h5py
+
         with h5py.File(self.h5file,'r') as f:
             chi2_i = f['fit/chi2_fit'][ix,:]
             
@@ -390,6 +549,7 @@ class Viewer(object):
 
     def show_fit(self, id, **kwargs):
         """
+        Wrapper around `eazy.photoz.PhotoZ.show_fit`
         """
         _ = photoz.PhotoZ.show_fit(self, id, **kwargs)
         return _
@@ -397,6 +557,7 @@ class Viewer(object):
 
     def show_fit_plotly(self, id, **kwargs):
         """
+        Wrapper around `eazy.photoz.PhotoZ.show_fit_plotly`
         """
         _ = photoz.PhotoZ.show_fit_plotly(self, id, **kwargs)
         return _
