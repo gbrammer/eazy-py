@@ -88,7 +88,7 @@ def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_temp
             grp.attrs['NTEMP'] = pzobj.NTEMP
             for i, templ in enumerate(pzobj.templates):
                 grp.attrs[f'TEMPL{i:03d}'] = templ.name
-                print(f'h5 templates/{templ.name}')
+                print(f'h5: templates/{templ.name}')
                 dset = grp.create_dataset(f'wave {templ.name}', 
                                     data=templ.wave.astype(pzobj.ARRAY_DTYPE))
                 dset = grp.create_dataset(f'flux {templ.name}', 
@@ -285,7 +285,8 @@ class Viewer(object):
                                 Eb=self.param['SCALE_2175_BUMP'], 
                                 n_proc=1, cosmology=self.cosmology, 
                                 array_dtype=self.ARRAY_DTYPE, 
-                                tempfilt_data=f['fit/tempfilt'][:])
+                                tempfilt_data=f['fit/tempfilt'][:], 
+                                verbose=False)
         
             self.tempfilt.scale = f['fit/tempfilt_scale'][:]
 
