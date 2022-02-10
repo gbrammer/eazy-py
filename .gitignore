@@ -5,7 +5,7 @@ __pycache__/
 
 Test/*
 eazy/data/eazy_test*
-eazy/data/zphot.translate.test
+eazy/data/zphot.translate.test*
 
 # C extensions
 *.so
@@ -16,6 +16,7 @@ docs/examples/templates
 docs/examples/hdfn*
 docs/examples/FILTER*
 docs/examples/zphot*
+docs/examples/zfourge.uds*
 
 # Distribution / packaging
 .Python
