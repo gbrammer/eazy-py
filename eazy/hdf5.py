@@ -509,9 +509,9 @@ class Viewer(object):
     def set_attrs_for_dash(self):
         """
         Set additional attributes needed for the Dash/Plotly tool.  They're
-        not set automatically as they may be memory-intensive for large
-        catalogs and aren't explicitly necessary for just `show_fit`.
-        
+        not set in `set_attrs_from_hdf5` as they may be memory-intensive for 
+        very large catalogs and aren't explicitly necessary for just 
+        `show_fit` showing SEDs.
         """
         with h5py.File(self.h5file,'r') as f:
             self.RA = f['cat/ra'][:]
