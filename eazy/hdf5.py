@@ -7,7 +7,7 @@ from . import photoz
 from . import utils
 from . import templates as templates_code
 
-def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_templates=True):
+def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_templates=True, verbose=True):
     """
     Write self-contained HDF5 file
     
@@ -29,6 +29,9 @@ def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_temp
         
     """
     import h5py
+    if verbose:
+        print(f'h5: create file {h5file}')
+        
     with h5py.File(h5file,'w') as f:
 
         grp = f.create_group("cat")
@@ -38,17 +41,23 @@ def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_temp
         dset = grp.create_dataset('z_spec', data=pzobj.ZSPEC)
         
         for k in pzobj.cat.meta:
-            print('h5: cat meta: ', k, pzobj.cat.meta[k])
+            if verbose:
+                print('h5: cat meta: ', k, pzobj.cat.meta[k])
             grp.attrs[k] = pzobj.cat.meta[k]
 
         for name in ['flux_columns','err_columns']:
-            print(f'h5: cat/{name}')
+            if verbose:
+                print(f'h5: cat/{name}')
+            
             attr = getattr(pzobj, name)
-            dset = grp.create_dataset(name, data=attr) 
+            dset = grp.create_dataset(name, data=[a.encode('utf8')
+                                                  for a in attr]) 
 
         for name in ['f_numbers','fnu','efnu_orig','ok_data','zp',
                      'ext_corr','ext_redden','pivot']:
-            print(f'h5: cat/{name}')
+            if verbose:
+                print(f'h5: cat/{name}')
+
             attr = getattr(pzobj, name)
             dset = grp.create_dataset(name, data=attr)
         
@@ -56,7 +65,9 @@ def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_temp
         
         grp = f.create_group("fit")
         for name in ['zml','zbest','chi2_fit','coeffs_best']:
-            print(f'h5: fit/{name}')
+            if verbose:
+                print(f'h5: fit/{name}')
+            
             attr = getattr(pzobj, name)
             dset = grp.create_dataset(name, data=attr)
         
@@ -69,7 +80,9 @@ def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_temp
         
         if include_fit_coeffs | pzobj.ZML_WITH_BETA_PRIOR:
             name = 'fit_coeffs'
-            print(f'h5: fit/{name}')
+            if verbose:
+                print(f'h5: fit/{name}')
+            
             attr = getattr(pzobj, name)
             dset = grp.create_dataset(name, data=attr)
             
@@ -88,7 +101,9 @@ def write_hdf5(pzobj, h5file='test.hdf5', include_fit_coeffs=False, include_temp
             grp.attrs['NTEMP'] = pzobj.NTEMP
             for i, templ in enumerate(pzobj.templates):
                 grp.attrs[f'TEMPL{i:03d}'] = templ.name
-                print(f'h5: templates/{templ.name}')
+                if verbose:
+                    print(f'h5: templates/{templ.name}')
+                
                 dset = grp.create_dataset(f'wave {templ.name}', 
                                     data=templ.wave.astype(pzobj.ARRAY_DTYPE))
                 dset = grp.create_dataset(f'flux {templ.name}', 
@@ -154,7 +169,7 @@ def params_from_hdf5(h5file):
     return params
 
 
-def templates_from_hdf5(h5file):
+def templates_from_hdf5(h5file, verbose=False):
     """
     Read list of templates
     """
@@ -163,7 +178,10 @@ def templates_from_hdf5(h5file):
     with h5py.File(h5file,'r') as f:
         NTEMP = f['templates'].attrs['NTEMP']
         for i in range(NTEMP):
+                
             name = f['templates'].attrs[f'TEMPL{i:03d}']
+            if verbose:
+                print(f'h5: read {name}')
             
             wave = f[f'templates/wave {name}'][:]
             flux = f[f'templates/flux {name}'][:]
@@ -177,7 +195,7 @@ def templates_from_hdf5(h5file):
     return templates
 
 
-def initialize_from_hdf5(h5file='test.hdf5'):
+def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
     """
     Initialize a `~eazy.photoz.PhotoZ` object from HDF5 data
     
@@ -213,6 +231,9 @@ def initialize_from_hdf5(h5file='test.hdf5'):
         pzobj.chi2_fit = f['fit/chi2_fit'][:]
         pzobj.zp = f['cat/zp'][:]
         
+        if 'templates' in f:
+            pzobj.templates = templates_from_hdf5(h5file, verbose=verbose)
+            
         if 'fit/fit_coeffs' in f:
             pzobj.fit_coeffs = f['fit/fit_coeffs'][:]
         
@@ -235,7 +256,7 @@ def initialize_from_hdf5(h5file='test.hdf5'):
 
 
 class Viewer(object):
-    def __init__(self, h5file):
+    def __init__(self, h5file, verbose=True):
         """
         Tool to replicate functionality of `PhotoZ.show_fit` but with 
         data read from a stored HDF5 file rather than a "live" object
@@ -250,7 +271,7 @@ class Viewer(object):
         photoz.PhotoZ.set_zgrid(self)
         self.NZ = len(self.zgrid)
         
-        self.templates = templates_from_hdf5(h5file)
+        self.templates = templates_from_hdf5(h5file, verbose=verbose)
         self.NTEMP = len(self.templates)
         
         self.set_attrs_from_hdf5()

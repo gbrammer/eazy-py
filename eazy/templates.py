@@ -1106,8 +1106,9 @@ class Template():
         
         fluxes = []
         for filt_i in filts:    
-            templ_filt = interp(filt_i.wave, self.wave*(1+z),
-                                fnu, left=0, right=0)
+            templ_filt = interp(filt_i.wave.astype(np.float),
+                                self.wave.astype(np.float)*(1+z),
+                                fnu.astype(np.float), left=0, right=0)
                 
             # f_nu/lam dlam == f_nu d (ln nu)    
             integrator = np.trapz
