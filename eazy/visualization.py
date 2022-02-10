@@ -2,6 +2,8 @@
 Scripts for more interactive visualization of SEDs, etc.
 """
 import numpy as np
+import astropy.io.fits as pyfits
+import astropy.wcs as pywcs
 
 from . import utils
 
@@ -165,7 +167,7 @@ class EazyExplorer(object):
         return (self.df['dec'].min(), self.df['dec'].max())
 
 
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_size=10):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -200,7 +202,8 @@ class EazyExplorer(object):
         from dash import html 
         import plotly.express as px
         from urllib.parse import urlparse, parse_qsl, urlencode
-
+        import astropy.wcs as pywcs
+        
         if app_type == 'dash':
             app = dash.Dash(__name__, 
                             external_stylesheets=external_stylesheets)
@@ -237,7 +240,33 @@ class EazyExplorer(object):
         
         # bool_options = {'has_zspec': 'z_spec > 0', 
         #                 'use': 'Use == 1'}
-                                        
+        
+        if cutout_hdu is not None:
+            cutout_wcs = pywcs.WCS(cutout_hdu.header, relax=True)
+            cutout_data = cutout_hdu.data
+            print('xxx', cutout_data.shape)
+            
+            cutout_div = html.Div([
+                             dcc.Graph(id='cutout-figure', 
+                                       style={})
+                                 ], style={'right':'70px', 
+                                           'width':'120px',
+                                           'height':'120px',
+                                        'border':'1px solid rgb(200,200,200)',
+                                           'top':'10px', 
+                                           'position':'absolute'})
+            cutout_target = 'figure'
+        else:
+            cutout_div = html.Div(id='cutout-figure', 
+                                   style={'left':'1px', 
+                                           'width':'1px',
+                                           'height':'1px',
+                                           'bottom':'1px', 
+                                           'position':'absolute'})
+            cutout_data = None
+            cutout_target = 'children'
+                
+            
         ####### App layout
         app.layout = html.Div([
             # Selectors
@@ -448,7 +477,8 @@ class EazyExplorer(object):
                 dcc.Graph(id='object-sed-figure',
                           style={'width':'95%'})
             ], style={'float':'right', 'width':'49%', 'height':'70%'}),
-
+            
+            cutout_div
         ])
 
 
@@ -787,20 +817,42 @@ class EazyExplorer(object):
             
             return fig
 
-        # @app.callback([dash.dependencies.Output('id-input', 'value')], 
-        #               [dash.dependencies.Input('radec-input', 'value')])
-        # def get_id_from_radec(radec_text):
-        #     """
-        #     Parse ra/dec text for nearest object
-        #     """
-        #     ra, dec = np.cast[float](radec_text.replace(',',' ').split())
-        #     
-        #     cosd = np.cos(self.df['dec']/180*np.pi)
-        #     dx = (self.df['ra'] - ra)*cosd
-        #     dy = (self.df['dec'] - dec)
-        #     dr = np.sqrt(dx**2+dy**2)*3600.
-        #     
-        #     return df['id'][np.argmin(dr)]
+
+        def sed_cutout_figure(id_i):
+            """
+            SED cutout
+            """
+            from plotly.subplots import make_subplots
+
+            if cutout_data is not None:
+                ix = np.where(self.df['id'] == id_i)[0]
+                ri, di = self.df['ra'][ix], self.df['dec'][ix]
+                xi, yi = np.squeeze(cutout_wcs.all_world2pix([ri], [di], 0))
+                xp = int(np.round(xi))
+                yp = int(np.round(yi))
+                slx = slice(xp-cutout_size,xp+cutout_size+1)
+                sly = slice(yp-cutout_size,yp+cutout_size+1)
+
+                try:
+                    cutout = cutout_data[sly, slx]
+                except:
+                    cutout = np.zeros((2*cutout_size, 2*cutout_size))
+
+                fig = px.imshow(cutout, color_continuous_scale='gray_r')
+
+                fig.update_coloraxes(showscale=False)
+                fig.update_layout(width=120, height=120, 
+                                  margin=dict(l=0,r=0,b=0,t=0,pad=0,
+                                                  autoexpand=True))
+
+                fig.update_xaxes(range=(0, 2*cutout_size), 
+                                 visible=False, showticklabels=False)
+                fig.update_yaxes(range=(0, 2*cutout_size),
+                                 visible=False, showticklabels=False)
+
+                return fig
+
+
         def parse_id_input(id_input):
             """
             Parse input as id or (ra dec)
@@ -827,7 +879,9 @@ class EazyExplorer(object):
         @app.callback([dash.dependencies.Output('object-sed-figure', 
                                                 'figure'),
                        dash.dependencies.Output('object-info', 'children'), 
-                       dash.dependencies.Output('match-sep', 'children')], 
+                       dash.dependencies.Output('match-sep', 'children'), 
+                       dash.dependencies.Output('cutout-figure', 
+                                                cutout_target)], 
                       [dash.dependencies.Input('sample-selection-scatter', 
                                                'hoverData'), 
                        dash.dependencies.Input('sed-unit-selector', 'value'),
@@ -893,11 +947,19 @@ class EazyExplorer(object):
                                f" | mass: {self.df['mass'][ix]:.2f} ",
                                f" | sSFR: {self.df['ssfr'][ix]:.2f}", 
                                html.Br()]
+            
+            
+            if cutout_data is None:
+                cutout_fig = ['']
+            else:
+                cutout_fig = sed_cutout_figure(id_i)
+                
+            return fig, object_info, match_sep, cutout_fig
 
-            return fig, object_info, match_sep
 
         if server_mode is not None:
             app.run_server(mode=server_mode, port=port)
             
         return app    
+
 
