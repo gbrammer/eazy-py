@@ -2429,9 +2429,9 @@ class PhotoZ(object):
             fp.write('F{0:<3d}  {1:.6f}  # {2}\n'.format(self.f_numbers[i], self.zp[i], self.flux_columns[i]))
         
         fp.close()
-
-
-    def show_fit(self, id, id_is_idx=False, zshow=None, show_fnu=0, get_spec=False, xlim=[0.3, 9], show_components=False, show_redshift_draws=False, draws_cmap=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], ndraws=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=-20, max_stars=3, show_upperlimits=True, snr_thresh=2., with_tef=True):
+    
+    
+    def show_fit(self, id, id_is_idx=False, zshow=None, show_fnu=0, get_spec=False, xlim=[0.3, 9], show_components=False, show_redshift_draws=False, draws_cmap=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], ndraws=100, fitter='nnls', show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=-20, max_stars=3, show_upperlimits=True, snr_thresh=2., with_tef=True, **kwargs):
         """
         Make plot of SED and p(z) of a single object
         
@@ -2549,6 +2549,8 @@ class PhotoZ(object):
             +---------------+----------------------------------------------+
             | z             | redshift (see `zshow`)                       |
             +---------------+----------------------------------------------+
+            | z_spec        | spectroscopic redshift                       |
+            +---------------+----------------------------------------------+
             | pivot         | pivot wavelengths of filter bandpasses       |
             +---------------+----------------------------------------------+
             | model         | best-fit template flux densities             |
@@ -2558,6 +2560,8 @@ class PhotoZ(object):
             | fobs          | observed photometry                          |
             +---------------+----------------------------------------------+
             | efobs         | observed uncertainties (sys_err but not TEF) |
+            +---------------+----------------------------------------------+
+            | valid         | fobs/efobs indicate valid data               |
             +---------------+----------------------------------------------+
             | tef           | TEF evaluated at `z`                         |
             +---------------+----------------------------------------------+
@@ -2589,11 +2593,27 @@ class PhotoZ(object):
         
         if id_is_idx:
             ix = id
-            z = self.zbest[ix]
         else:
             ix = self.idx[self.OBJID == id][0]
-            z = self.zbest[ix]
         
+        if hasattr(self, 'h5file'):
+            _data = self.get_object_data(ix)
+            z, fnu_i, efnu_i, ra_i, dec_i, chi2_i, zspec_i, ok_i = _data
+            lnp_i = -0.5*(chi2_i - np.nanmin(chi2_i))
+            log_prior_i = np.ones(self.NZ)
+            
+        else:
+            z = self.zbest[ix]
+            fnu_i = self.fnu[ix, :]
+            efnu_i = self.efnu[ix,:]
+            ra_i = self.RA[ix]
+            dec_i = self.DEC[ix]
+            lnp_i = self.lnp[ix,:]
+            log_prior_i = self.full_logprior[ix,:].flatten()
+            chi2_i = self.chi2_fit[ix,:]
+            zspec_i = self.ZSPEC[ix]
+            ok_i = self.ok_data[ix,:]
+            
         if zshow is not None:
             z = zshow
         
@@ -2605,15 +2625,15 @@ class PhotoZ(object):
             if ds9_sky:
                 #for c in ['ra','RA','x_world']:
                 pan = 'pan to {0} {1} fk5'
-                ds9.set(pan.format(self.RA[ix], self.DEC[ix]))
+                ds9.set(pan.format(ra_i, dec_i))
             else:
                 pan = 'pan to {0} {1}'
                 ds9.set(pan.format(self.cat[self.fixed_cols['x']][ix], 
                                    self.cat[self.fixed_cols['y']][ix]))
                 
-        ## SED
-        fnu_i = np.squeeze(self.fnu[ix, :])*self.ext_redden*self.zp
-        efnu_i = np.squeeze(self.efnu[ix,:])*self.ext_redden*self.zp
+        ## SED        
+        fnu_i = np.squeeze(fnu_i)*self.ext_redden*self.zp
+        efnu_i = np.squeeze(efnu_i)*self.ext_redden*self.zp
         ok_band = (fnu_i/self.zp > self.param['NOT_OBS_THRESHOLD']) 
         ok_band &= (efnu_i/self.zp > 0)
         efnu_i[~ok_band] = self.param['NOT_OBS_THRESHOLD'] - 9.
@@ -2682,11 +2702,13 @@ class PhotoZ(object):
                         
         try:
             data = OrderedDict(ix=ix, id=self.OBJID[ix], z=z,
+                           z_spec=zspec_i, 
                            pivot=self.pivot, 
                            model=fmodel*fnu_factor*flam_sed,
                            emodel=efmodel*fnu_factor*flam_sed,
                            fobs=fnu_i*fnu_factor*flam_sed, 
                            efobs=efnu_i*fnu_factor*flam_sed,
+                           valid=ok_i,
                            tef=tef_i,
                            templz=templz,
                            templf=templf*fnu_factor*flam_spec,
@@ -2731,7 +2753,7 @@ class PhotoZ(object):
                         marker='None', linestyle='None', label=None)
         
         # Missing data
-        missing = (fnu_i < self.param.params['NOT_OBS_THRESHOLD']) 
+        missing = (fnu_i < self.param['NOT_OBS_THRESHOLD']) 
         missing |= (efnu_i < 0)
         
         # Detection
@@ -2787,7 +2809,7 @@ class PhotoZ(object):
                 draws_cmap = plt.cm.rainbow
                 
             # Draw random values from p(z)
-            pz = np.exp(self.lnp[ix,:]).flatten()
+            pz = np.exp(lnp_i).flatten()
             pzcum = cumtrapz(pz, x=self.zgrid)
             
             if show_redshift_draws == 1:
@@ -2893,9 +2915,9 @@ class PhotoZ(object):
             ax.grid()
             
             if add_label:
-                txt = '{0}\nID={1}, mag={2:.1f}'
-                txt = txt.format(self.param.params['MAIN_OUTPUT_FILE'], 
-                                 self.OBJID[ix], self.prior_mag_cat[ix])
+                txt = '{0}\nID={1}'
+                txt = txt.format(self.param['MAIN_OUTPUT_FILE'], 
+                                 self.OBJID[ix]) #, self.prior_mag_cat[ix])
                                  
                 ax.text(0.95, 0.95, txt, ha='right', va='top', fontsize=7,
                         transform=ax.transAxes, 
@@ -2932,11 +2954,11 @@ class PhotoZ(object):
         else:
             ax = fig.add_subplot(fig_axes[1])
         
-        chi2 = np.squeeze(self.chi2_fit[ix,:])
-        prior = np.exp(self.full_logprior[ix,:].flatten())
+        chi2 = np.squeeze(chi2_i)
+        prior = np.exp(log_prior_i)
         #pz = np.exp(-(chi2-chi2.min())/2.)*prior
         #pz /= np.trapz(pz, self.zgrid)
-        pz = np.exp(self.lnp[ix,:]).flatten()
+        pz = np.exp(lnp_i).flatten()
         
         ax.plot(self.zgrid, pz, color='orange', label=None)
         if show_prior:
@@ -2945,9 +2967,9 @@ class PhotoZ(object):
         
         ax.fill_between(self.zgrid, pz, pz*0, color='yellow', alpha=0.5, 
                         label=None)
-        if self.ZSPEC[ix] > 0:
-            ax.vlines(self.ZSPEC[ix], 1.e-5, pz.max()*1.05, color='r',
-                      label='zsp={0:.3f}'.format(self.ZSPEC[ix]))
+        if zspec_i > 0:
+            ax.vlines(zspec_i, 1.e-5, pz.max()*1.05, color='r',
+                      label='zsp={0:.3f}'.format(zspec_i))
         
         if zshow is not None:
             ax.vlines(zshow, 1.e-5, pz.max()*1.05, color='purple', 
@@ -2972,7 +2994,7 @@ class PhotoZ(object):
             
             fig_axes.tight_layout(fig, pad=0.5)
             
-            if add_label & (self.ZSPEC[ix] > 0):
+            if add_label & (zspec_i > 0):
                 ax.legend(fontsize=7, loc='upper left')
                 
             return fig, data
@@ -2980,7 +3002,7 @@ class PhotoZ(object):
             return fig, data
 
 
-    def show_fit_plotly(self, id_i, show_fnu=0, row_heights=[0.6, 0.4], zrange=None, template='plotly_white', showlegend=False, show=False, vertical=True, panel_ratio=[0.5, 0.5], subplots_kwargs={}, layout_kwargs={'template':'plotly_white', 'showlegend':False}):
+    def show_fit_plotly(self, id_i, show_fnu=0, row_heights=[0.6, 0.4], zrange=None, template='plotly_white', showlegend=False, show=False, vertical=True, panel_ratio=[0.5, 0.5], subplots_kwargs={}, layout_kwargs={'template':'plotly_white', 'showlegend':False}, **kwargs):
 
         """
         Plot SED + p(z) using `plotly` interface
@@ -3039,7 +3061,7 @@ class PhotoZ(object):
         fig.update_layout(**layout_kwargs)
 
         ###### SED
-        valid = self.ok_data[data['ix'],:] # & (self.lc < 1.e4)
+        valid = data['valid'] # & (self.lc < 1.e4)
 
         ivalid = np.where(valid)[0]
         xivalid = np.where(~valid)[0]
@@ -3114,9 +3136,13 @@ class PhotoZ(object):
 
         ############                
         # P(z)
+        if hasattr(self, 'h5file'):
+            lnp_i = self.get_lnp(data['ix'])
+        else:
+            lnp_i = self.lnp[data['ix'],:]
+            
         _zpdf = go.Scatter(x=self.zgrid, 
-                           y=(self.lnp[data['ix'],:] -
-                              self.lnp[data['ix'],:].max()), 
+                           y=(lnp_i - np.nanmax(lnp_i)), 
                            name='p(z)',
                            mode='lines', 
                            line=dict(color=alpha_color(i=1)))
@@ -3133,13 +3159,13 @@ class PhotoZ(object):
                       x=0.95, y=0.95, showarrow=False, 
                       **pz_axis)
 
-        if self.ZSPEC[data['ix']] > 0:
-            fig.add_vline(x=self.ZSPEC[data['ix']], 
+        if data['z_spec'] > 0:
+            fig.add_vline(x=data['z_spec'], 
                           line=dict(color=alpha_color(i=3)),
                           name='zspec', **pz_axis)
 
             #label += f", z_spec={self.ZSPEC[data['ix']]:.3f}"
-            _text = f"z_spec={self.ZSPEC[data['ix']]:.3f}"
+            _text = f"z_spec={data['z_spec']:.3f}"
             fig.add_annotation(text=_text,
                                xref="x domain", yref="y domain", 
                                x=0.95, y=0.85, showarrow=False, 
@@ -5442,7 +5468,7 @@ class TemplateGrid(object):
 
             if tempfilt_data.shape != (self.NZ, self.NTEMP, self.NFILT):
                 msg = f'Precomputed `tempfilt_data` shape '
-                msg += f'({tempfilt.shape})'
+                msg += f'({tempfilt_data.shape})'
                 msg += f' is not ({self.NZ}, {self.NTEMP}, {self.NFILT})!'
                 raise ValueError(msg)
             
