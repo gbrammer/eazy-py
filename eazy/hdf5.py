@@ -506,6 +506,23 @@ class Viewer(object):
         self.idx = np.arange(self.NOBJ, dtype=int)
 
 
+    def set_attrs_for_dash(self):
+        """
+        Set additional attributes needed for the Dash/Plotly tool.  They're
+        not set automatically as they may be memory-intensive for large
+        catalogs and aren't explicitly necessary for just `show_fit`.
+        
+        """
+        with h5py.File(self.h5file,'r') as f:
+            self.RA = f['cat/ra'][:]
+            self.DEC = f['cat/dec'][:]
+            self.ZSPEC = f['cat/z_spec'][:]
+            self.nusefilt = f['cat/ok_data'][:].sum(axis=1)
+        
+        if not hasattr(self, 'cat'):
+            self.cat = self.get_catalog()
+
+
     def get_object_data(self, ix):
         """
         Pull out data for a given array index (not id!) corresponding 
