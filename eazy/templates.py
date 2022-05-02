@@ -737,7 +737,7 @@ class Template():
                             redshifts=self.redshifts)
 
 
-    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func='Bacon', to_air=True, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, clip_wavelengths=[4500,9400]):
+    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, clip_wavelengths=[4500,9400]):
         """
         Smooth and resample to observed-frame wavelengths, including an
         optional Line Spread Function (LSF)
@@ -1106,9 +1106,9 @@ class Template():
         
         fluxes = []
         for filt_i in filts:    
-            templ_filt = interp(filt_i.wave.astype(np.float),
-                                self.wave.astype(np.float)*(1+z),
-                                fnu.astype(np.float), left=0, right=0)
+            templ_filt = interp(filt_i.wave.astype(float),
+                                self.wave.astype(float)*(1+z),
+                                fnu.astype(float), left=0, right=0)
                 
             # f_nu/lam dlam == f_nu d (ln nu)    
             integrator = np.trapz
