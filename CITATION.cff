@@ -7,7 +7,7 @@ version: 0.5.2
 doi: 10.5281/zenodo.5012705
 date-released: 2021-06-22
 url: https://github.com/gbrammer/eazy-py
-publisher: GitHub
+publisher: Zenodo
 keywords: 
   - Astronomy software (1855)
 type: software
