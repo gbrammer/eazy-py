@@ -47,3 +47,8 @@ Demo
 
 .. image:: https://mybinder.org/badge_logo.svg
  :target: https://mybinder.org/v2/gh/gbrammer/eazy-py/HEAD?filepath=docs%2Fexamples%2FHDFN-demo.ipynb
+
+
+Citation
+~~~~~~~~~~~~~
+Please cite both this reposiotry and [Brammer et al. (2008)](https://ui.adsabs.harvard.edu/abs/2008ApJ...686.1503B/abstract). A BiBTeX for this repository can be generated via the `Cite this reposotory` link in the upper left corner of the [GitHub page](https://github.com/eazy-py).
