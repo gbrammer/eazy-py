@@ -195,7 +195,7 @@ class EazyExplorer(object):
         return olap
     
     
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_size=10, api_filters=None, api_size=2):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_size=10, api_filters=None, api_size=2, plot_types=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -242,12 +242,9 @@ class EazyExplorer(object):
                 
             app = JupyterDash(__name__, 
                               external_stylesheets=external_stylesheets)
-
-        PLOT_TYPES = ['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 
-                      'RA/Dec', 'UV-redshift', 'chi2-redshift']
         
         for _t in self.extra_plots:
-            PLOT_TYPES.append(_t)
+            plot_types.append(_t)
             
         COLOR_TYPES = ['z_phot', 'z_spec', 'mass', 'sSFR', 'chi2']
         
@@ -322,7 +319,7 @@ class EazyExplorer(object):
                     html.Div([
                         html.Div([dcc.Dropdown(id='plot-type',
                                      options=[{'label': i, 'value': i}
-                                              for i in PLOT_TYPES],
+                                              for i in plot_types],
                                      value='zphot-zspec', 
                                      clearable=False,
                                      style={'width':'120px', 
@@ -597,7 +594,7 @@ class EazyExplorer(object):
             for p in params:
                 if 'plot_type' in p:
                     val = p.split('=')[1]
-                    if val in PLOT_TYPES:
+                    if val in plot_types:
                         plot_type = val
 
                 elif 'color_type' in p:
