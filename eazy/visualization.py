@@ -272,7 +272,7 @@ class EazyExplorer(object):
             if cutout_rgb is None:
                 cutout_data = cutout_hdu.data
             else:
-                cutout_data = plt.imread(cutout_rgb)
+                cutout_data = np.flipud(plt.imread(cutout_rgb))
                 
             print('xxx', cutout_data.shape)
             
@@ -938,7 +938,7 @@ class EazyExplorer(object):
                     fig = px.imshow(cutout, color_continuous_scale='gray_r', 
                                 origin='lower')
                 else:
-                    cutout = np.flipud(cutout_data[sly, slx, :])
+                    cutout = cutout_data[sly, slx, :]
                     fig = px.imshow(cutout, origin='lower')
             except:
                 cutout = np.zeros((2*cutout_size, 2*cutout_size))
