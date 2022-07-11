@@ -195,7 +195,7 @@ class EazyExplorer(object):
         return olap
     
     
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -268,7 +268,11 @@ class EazyExplorer(object):
         
         if cutout_hdu is not None:
             cutout_wcs = pywcs.WCS(cutout_hdu.header, relax=True)
-            cutout_data = cutout_hdu.data
+            if cutout_rgb is None:
+                cutout_data = plt.imread(cutout_rgb)
+            else:
+                cutout_data = cutout_hdu.data
+                
             print('xxx', cutout_data.shape)
             
             cutout_div = html.Div([
@@ -928,11 +932,17 @@ class EazyExplorer(object):
             sly = slice(yp-cutout_size,yp+cutout_size+1)
 
             try:
-                cutout = cutout_data[sly, slx]
+                if cutout_data.ndim == 2:
+                    cutout = cutout_data[sly, slx]
+                    fig = px.imshow(cutout, color_continuous_scale='gray_r', 
+                                origin='lower')
+                else:
+                    cutout = np.flipud(cutout_data[sly, slx, :])
+                    fig = px.imshow(cutout, origin='lower')
             except:
                 cutout = np.zeros((2*cutout_size, 2*cutout_size))
-
-            fig = px.imshow(cutout, color_continuous_scale='gray_r', 
+                
+                fig = px.imshow(cutout, color_continuous_scale='gray_r', 
                             origin='lower')
 
             fig.update_coloraxes(showscale=False)
