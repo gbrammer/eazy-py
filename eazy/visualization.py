@@ -229,6 +229,7 @@ class EazyExplorer(object):
         from dash import  dcc
         from dash import html 
         import plotly.express as px
+        import matplotlib.pyplot as plt
         from urllib.parse import urlparse, parse_qsl, urlencode
         import astropy.wcs as pywcs
         
