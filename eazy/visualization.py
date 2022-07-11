@@ -195,7 +195,7 @@ class EazyExplorer(object):
         return olap
     
     
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_size=10, api_filters=None, api_size=2, plot_types=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -244,7 +244,7 @@ class EazyExplorer(object):
                               external_stylesheets=external_stylesheets)
         
         for _t in self.extra_plots:
-            plot_types.append(_t)
+            PLOT_TYPES.append(_t)
             
         COLOR_TYPES = ['z_phot', 'z_spec', 'mass', 'sSFR', 'chi2']
         
@@ -319,8 +319,8 @@ class EazyExplorer(object):
                     html.Div([
                         html.Div([dcc.Dropdown(id='plot-type',
                                      options=[{'label': i, 'value': i}
-                                              for i in plot_types],
-                                     value='zphot-zspec', 
+                                              for i in PLOT_TYPES],
+                                     value=PLOT_TYPES[0], 
                                      clearable=False,
                                      style={'width':'120px', 
                                             'margin-right':'5px',
@@ -571,7 +571,7 @@ class EazyExplorer(object):
                        dash.dependencies.Input('url', 'href')
                       ])
         def set_state_from_url(href):
-            plot_type = 'zphot-zspec'
+            plot_type = PLOT_TYPES[0]
             color_type = 'sSFR'
             mag_filter = self.DEFAULT_FILTER
             mag_range = [18, 27]
@@ -594,7 +594,7 @@ class EazyExplorer(object):
             for p in params:
                 if 'plot_type' in p:
                     val = p.split('=')[1]
-                    if val in plot_types:
+                    if val in PLOT_TYPES:
                         plot_type = val
 
                 elif 'color_type' in p:
