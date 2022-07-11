@@ -270,9 +270,9 @@ class EazyExplorer(object):
         if cutout_hdu is not None:
             cutout_wcs = pywcs.WCS(cutout_hdu.header, relax=True)
             if cutout_rgb is None:
-                cutout_data = plt.imread(cutout_rgb)
-            else:
                 cutout_data = cutout_hdu.data
+            else:
+                cutout_data = plt.imread(cutout_rgb)
                 
             print('xxx', cutout_data.shape)
             
