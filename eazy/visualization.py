@@ -195,7 +195,7 @@ class EazyExplorer(object):
         return olap
     
     
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -233,16 +233,17 @@ class EazyExplorer(object):
         from urllib.parse import urlparse, parse_qsl, urlencode
         import astropy.wcs as pywcs
         
-        if app_type == 'dash':
-            app = dash.Dash(__name__, 
-                            external_stylesheets=external_stylesheets)
-        else:
-            from jupyter_dash import JupyterDash
-            if infer_proxy:
-                JupyterDash.infer_jupyter_proxy_config()
+        if app is None:
+            if app_type == 'dash':
+                app = dash.Dash(__name__, 
+                                external_stylesheets=external_stylesheets)
+            else:
+                from jupyter_dash import JupyterDash
+                if infer_proxy:
+                    JupyterDash.infer_jupyter_proxy_config()
                 
-            app = JupyterDash(__name__, 
-                              external_stylesheets=external_stylesheets)
+                app = JupyterDash(__name__, 
+                                  external_stylesheets=external_stylesheets)
         
         for _t in self.extra_plots:
             PLOT_TYPES.append(_t)
