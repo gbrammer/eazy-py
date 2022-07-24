@@ -1723,5 +1723,124 @@ class ExtendedFsps(StellarPopulation):
             return -chi2/2
         else:
             return chi2
-            
-        
+
+
+    def fit_grism(self, mb, plist=['tage', 'zred'], func_kwargs={'lorentz':False}, verbose=True, lsq_kwargs={'method':'trf', 'max_nfev':200, 'loss':'huber', 'x_scale':1.0, 'verbose':True}, show=False, TEF=None, photoz_obj=None, flux_unit=u.erg/u.second/u.cm**2/u.Angstrom):
+        """
+        Fit models to grism spectrum
+        """
+        from scipy.optimize import least_squares
+        import matplotlib.pyplot as plt
+        import grizli.utils
+
+        x0 = np.array([self.meta[p] for p in plist])
+
+        # Initialize keywords   
+        kwargs = func_kwargs.copy()
+        for i_p, p in enumerate(plist):
+            kwargs[p] = x0[i_p]
+
+        # Initial model
+        margs = (self, plist, mb, TEF, kwargs, 'model')        
+        tfit, Anorm, chi2_init, templ = self.objfun_fitgrism(x0, *margs)
+
+        if show:                
+            _init_fig = mb.oned_figure(tfit=tfit, show_individual_templates=True)
+
+        # Parameter bounds    
+        bounds, steps = self.parameter_bounds(plist)
+        lsq_kwargs['diff_step'] = steps
+
+        # Run the optimization
+        lmargs = (self, plist, mb, TEF, kwargs, 'least_squares verbose')        
+        _res = least_squares(self.objfun_fitgrism, x0, bounds=bounds,
+                             args=lmargs, **lsq_kwargs)
+
+        _out = self.objfun_fitgrism(_res.x, *margs)
+
+        xtempl = _out[3]
+        xscale = _out[1]
+
+        _fit = {}
+        _fit['fmodel'] = _out[0]
+        _fit['scale'] = xscale
+        _fit['chi2'] = _out[2]
+        _fit['templ'] = xtempl
+        _fit['plist'] = plist
+        _fit['theta'] = _res.x
+        _fit['res'] = _res
+
+        # Stellar mass
+        #fit_model, Anorm, chi2_fit, templ = _phot
+
+        # Parameter scaling to observed frame.  
+        # e.g., stellar mass = self.stellar_mass * scale / to_obsframe
+        z = self.params['zred']
+        _obsfr = self.continuum_to_obsframe(zred=z, unit=flux_unit)
+        _fit['to_obsframe'] = _obsfr
+
+        scl = _fit['scale']/_fit['to_obsframe']
+        _fit['log_mass'] = np.log10(self.stellar_mass*scl)
+        _fit['sfr'] = self.sfr*scl
+        _fit['sfr10'] = self.sfr10*scl
+        _fit['sfr100'] = self.sfr100*scl
+        age_bands = ['i1500','v']
+        ages = self.light_age_band(bands=age_bands)
+        for i, b in enumerate(age_bands):
+            _fit['age_'+b] = ages[i]
+
+        _tfit = _out[0]
+
+        if show:
+            _fit_fig = mb.oned_figure(tfit=_tfit, show_individual_templates=True)
+            _figs = (_init_fig, _fit_fig)
+        else:
+            _figs = None
+
+        return _fit, _tfit, _figs
+
+    @staticmethod
+    def objfun_fitgrism(theta, self, plist, mb, TEF, kwargs, ret_type):
+        """
+        Objective function for fitting spectra
+        """
+        try:
+            from grizli.utils_c.interp import interp_conserve_c as interp_func
+        except:
+            interp_func = utils.interp_conserve
+
+        from grizli import utils
+
+        for i, p in enumerate(plist):
+            kwargs[p] = theta[i]
+
+        templ = self.get_full_spectrum(**kwargs)
+        tsp = utils.SpectrumTemplate(wave=templ.wave, flux=templ.flux_flam())
+        tx = {'fsps':tsp}
+
+        if 'least_squares' in ret_type:
+            out = mb.xfit_at_z(z=self.params['zred'],
+                               templates=tx, fitter='lstsq',
+                               fit_background=True, get_uncertainties=False,
+                               include_photometry=False, get_residuals=True,
+                               use_cached_templates=False)
+
+            chi, _coeffs, _, _ = out
+            chi2 = (chi**2).sum()
+            Anorm = _coeffs[-1]
+        else:
+            tfit = mb.template_at_z(z=self.params['zred'], templates=tx)
+            chi2 = tfit['chi2']
+            Anorm = tfit['cfit']['fsps'][0]
+
+        if 'verbose' in ret_type:
+            print('{0} {1:.4f}'.format(theta, chi2))
+
+        if 'model' in ret_type:
+            return tfit, Anorm, chi2, templ
+        elif 'least_squares' in ret_type:
+            return chi
+        elif 'logpdf' in ret_type:
+            return -chi2/2
+        else:
+            return chi2
