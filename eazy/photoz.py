@@ -859,7 +859,7 @@ class PhotoZ(object):
             
         """        
         if scale_to_ujy:
-            to_ujy = self.to_ujy
+            to_ujy = self.to_uJy
         else:
             to_ujy = 1.0
         
@@ -871,6 +871,7 @@ class PhotoZ(object):
                 self.f_numbers)
         
         tab, trans = self._csv_from_arrays(*args)
+        return tab, trans
 
 
     @staticmethod
@@ -1857,7 +1858,9 @@ class PhotoZ(object):
         upd &= (r > level*self.efnu) & (self.fmodel > 0)
         upd &= np.isfinite(self.fnu) & np.isfinite(self.efnu)
         
-        self.efnu[upd] = r[upd] #np.sqrt(var_new[upd])
+        self.error_residuals_update = upd
+        
+        self.efnu[upd] = r[upd]/level #np.sqrt(var_new[upd])
 
 
     def _check_uncertainties(self, apply_correction=False):
@@ -2673,6 +2676,7 @@ class PhotoZ(object):
             igmz = 1.
 
         templf = np.dot(coeffs_i, tempflux)*igmz
+                
         if draws is not None:
             templf_draws = np.dot(draws, tempflux)*igmz
                 
@@ -2688,7 +2692,7 @@ class PhotoZ(object):
             else:
                 templz_power = 0
                 flam_spec = 1.e29
-                flam_sed = 1.e29
+                flam_sed = 1.e29/self.ext_corr
                 ylabel = (r'$f_\nu$ [$\mu$Jy]')    
                 flux_unit = u.uJy
             
@@ -4711,7 +4715,8 @@ class PhotoZ(object):
             ('fsps_QSF_12_v3' in self.param['TEMPLATES_FILE'])):
             
             # Need old V-band normalization method for the NMF templates
-            warnings.warn(f"Setting template_fnu_units=None for" + 
+            if 0:
+                warnings.warn(f"Setting template_fnu_units=None for " + 
                           f"{self.param['TEMPLATES_FILE']} templates",
                           AstropyUserWarning)
             
