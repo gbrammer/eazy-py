@@ -411,7 +411,7 @@ class EazyExplorer(object):
                 html.Div([
                     html.Div([
                         dcc.RangeSlider(id='zphot-slider',
-                                        min=-0.5, max=12, step=0.1,
+                                        min=-0.5, max=self.ZMAX, step=0.1,
                                         value=[0, self.ZMAX],
                                         updatemode='drag',
                                         tooltip={"placement":'left'},
@@ -426,7 +426,7 @@ class EazyExplorer(object):
 
                     html.Div([
                         dcc.RangeSlider(id='zspec-slider',
-                                        min=-0.5, max=12, step=0.1,
+                                        min=-0.5, max=self.ZMAX, step=0.1,
                                         value=[-0.5, 6.5],
                                         updatemode='drag',
                                         tooltip={"placement":'left'},
