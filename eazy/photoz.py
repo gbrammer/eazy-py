@@ -1489,7 +1489,7 @@ class PhotoZ(object):
         
         pzt = np.exp(logpz).sum(axis=0)
         pznorm = np.trapz(pzt, self.zgrid, axis=1)
-        logpz -= pznorm[None,:,None]
+        logpz -= np.log(pznorm[None,:,None])
         
         return ampl, chi2, logpz
 
