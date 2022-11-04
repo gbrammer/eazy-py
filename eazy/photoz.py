@@ -5221,7 +5221,7 @@ class PhotoZ(object):
         self.set_sys_err(positive=True, in_place=True)
 
 
-    def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None):
+    def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None, stars=None):
         """
         Fit grid of Phoenix stars
         
@@ -5229,7 +5229,9 @@ class PhotoZ(object):
         "behind" MW extinction
         
         """
-        stars = templates_module.load_phoenix_stars(add_carbon_star=False)
+        if stars is None:
+            stars = templates_module.load_phoenix_stars(add_carbon_star=False)
+            
         self.star_templates = stars
         tflux = [t.integrate_filter(self.filters, z=0, include_igm=False)
                      for t in self.star_templates]
