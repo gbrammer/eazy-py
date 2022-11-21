@@ -1082,28 +1082,28 @@ class ExtendedFsps(StellarPopulation):
         if set_all_templates:
             
             # Original wavelength grid
-            owave = self.wavelengths
-            owave = owave[self.wg00lim]*u.Angstrom
-            self.wg00red[self.wg00lim] = self.redden(owave)
-            ofir = self.fir_template*self.energy_absorbed
-            fl_orig = _['flux_line']*self.wg00red + ofir
-            self.templ_orig = self.as_template(owave, fl_orig, meta=meta0)
+            # owave = self.wavelengths
+            # owave = owave[self.wg00lim]*u.Angstrom
+            # self.wg00red[self.wg00lim] = self.redden(owave)
+            # ofir = self.fir_template*self.energy_absorbed
+            # fl_orig = _['flux_line']*self.wg00red + ofir
+            # self.templ_orig = self.as_template(owave, fl_orig, meta=meta0)
             
             # No lines
             meta = meta0.copy()
             meta['add_neb_emission'] = False
             fl_cont = contin*red + dust_em
-            ocont = _['flux_clean']*self.wg00red + ofir
+            #ocont = _['flux_clean']*self.wg00red + ofir
             self.templ_cont = self.as_template(wave, fl_cont, meta=meta)
-            self.templ_cont_orig = self.as_template(owave, ocont, meta=meta)
+            #self.templ_cont_orig = self.as_template(owave, ocont, meta=meta)
             
             # No dust
             meta = meta0.copy()
             meta['add_neb_emission'] = True
             meta['Av'] = 0
             self.templ_unred = self.as_template(wave, flux, meta=meta)
-            self.templ_unred_orig = self.as_template(owave, _['flux_clean'],
-                                                     meta=meta)
+            #self.templ_unred_orig = self.as_template(owave, _['flux_clean'],
+            #                                         meta=meta)
             
         if get_template:
             return self.templ
