@@ -61,7 +61,7 @@ class EazyExplorer(object):
         except ImportError:
             print('Failed to import dash & plotly, so the interactive tool'
                   'won\t work.\n'
-                  'Install with `pip install dash==2.0` and also '
+                  'Install with `pip install dash>=2.5.1` and also '
                   '`pip install jupyter_dash` for running a server '
                   'through jupyter')
                   
@@ -166,8 +166,36 @@ class EazyExplorer(object):
     def dec_bounds(self):
         return (self.df['dec'].min(), self.df['dec'].max())
 
-
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_size=10):
+    
+    def get_filters_from_api(self):
+        """
+        Query available HST/JWST filters from the heroku API
+        """
+        import urllib
+        import urllib.request
+        import json 
+        import PIL.Image
+        
+        _ra = self.ra_bounds
+        _dec = self.dec_bounds
+        
+        cosd = np.cos(np.mean(_dec)/180*np.pi)
+        dx = np.diff(_ra)[0]*cosd
+        dy = np.diff(_dec)[0]
+        si = np.maximum(dx, dy)*3600
+        
+        furl = 'https://grizli-cutout.herokuapp.com/overlap?'
+        furl += f'ra={np.mean(_ra)}&dec={np.mean(_dec)}&size={si}'
+        with open('/tmp/thumb.log','a') as fp:
+            fp.write(furl+'\n')
+        
+        with urllib.request.urlopen(furl) as url:
+            olap = json.loads(url.read().decode())
+        
+        return olap
+    
+    
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -201,22 +229,21 @@ class EazyExplorer(object):
         from dash import  dcc
         from dash import html 
         import plotly.express as px
+        import matplotlib.pyplot as plt
         from urllib.parse import urlparse, parse_qsl, urlencode
         import astropy.wcs as pywcs
         
-        if app_type == 'dash':
-            app = dash.Dash(__name__, 
-                            external_stylesheets=external_stylesheets)
-        else:
-            from jupyter_dash import JupyterDash
-            if infer_proxy:
-                JupyterDash.infer_jupyter_proxy_config()
+        if app is None:
+            if app_type == 'dash':
+                app = dash.Dash(__name__, 
+                                external_stylesheets=external_stylesheets)
+            else:
+                from jupyter_dash import JupyterDash
+                if infer_proxy:
+                    JupyterDash.infer_jupyter_proxy_config()
                 
-            app = JupyterDash(__name__, 
-                              external_stylesheets=external_stylesheets)
-
-        PLOT_TYPES = ['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 
-                      'RA/Dec', 'UV-redshift', 'chi2-redshift']
+                app = JupyterDash(__name__, 
+                                  external_stylesheets=external_stylesheets)
         
         for _t in self.extra_plots:
             PLOT_TYPES.append(_t)
@@ -243,7 +270,11 @@ class EazyExplorer(object):
         
         if cutout_hdu is not None:
             cutout_wcs = pywcs.WCS(cutout_hdu.header, relax=True)
-            cutout_data = cutout_hdu.data
+            if cutout_rgb is None:
+                cutout_data = cutout_hdu.data
+            else:
+                cutout_data = np.flipud(plt.imread(cutout_rgb))
+                
             print('xxx', cutout_data.shape)
             
             cutout_div = html.Div([
@@ -256,6 +287,20 @@ class EazyExplorer(object):
                                            'top':'10px', 
                                            'position':'absolute'})
             cutout_target = 'figure'
+        elif api_filters is not None:
+            
+            cutout_div = html.Div([
+                             dcc.Graph(id='cutout-figure', 
+                                       style={})
+                                 ], style={'right':'70px', 
+                                           'width':'120px',
+                                           'height':'120px',
+                                        'border':'1px solid rgb(200,200,200)',
+                                           'top':'10px', 
+                                           'position':'absolute'})
+            cutout_target = 'figure'
+            cutout_data = None
+            
         else:
             cutout_div = html.Div(id='cutout-figure', 
                                    style={'left':'1px', 
@@ -281,7 +326,7 @@ class EazyExplorer(object):
                         html.Div([dcc.Dropdown(id='plot-type',
                                      options=[{'label': i, 'value': i}
                                               for i in PLOT_TYPES],
-                                     value='zphot-zspec', 
+                                     value=PLOT_TYPES[0], 
                                      clearable=False,
                                      style={'width':'120px', 
                                             'margin-right':'5px',
@@ -318,7 +363,8 @@ class EazyExplorer(object):
                                         min=12, max=32, step=0.2,
                                         value=[18, 27],
                                         updatemode='drag',
-                                        tooltip={"placement":'left'}), 
+                                        tooltip={"placement":'left'}, 
+                                        marks=None), 
 
                         dcc.Checklist(id='mag-checked', 
                                       options=[{'label':'AB mag', 
@@ -333,7 +379,8 @@ class EazyExplorer(object):
                                         min=0, max=20, step=0.1,
                                         value=[0, 6],
                                         updatemode='drag',
-                                        tooltip={"placement":'left'}),
+                                        tooltip={"placement":'left'},
+                                        marks=None),
 
                         dcc.Checklist(id='chi2-checked', 
                                       options=[{'label':'chi2',
@@ -348,7 +395,8 @@ class EazyExplorer(object):
                                         min=1, max=self.MAXNFILT, step=1,
                                         value=[3, self.MAXNFILT],
                                         updatemode='drag',
-                                        tooltip={"placement":'left'}),
+                                        tooltip={"placement":'left'},
+                                        marks=None),
 
                         dcc.Checklist(id='nfilt-checked', 
                                       options=[{'label':'nfilt', 
@@ -363,10 +411,11 @@ class EazyExplorer(object):
                 html.Div([
                     html.Div([
                         dcc.RangeSlider(id='zphot-slider',
-                                        min=-0.5, max=12, step=0.1,
+                                        min=-0.5, max=self.ZMAX, step=0.1,
                                         value=[0, self.ZMAX],
                                         updatemode='drag',
-                                        tooltip={"placement":'left'}),
+                                        tooltip={"placement":'left'},
+                                        marks=None),
                           
                          dcc.Checklist(id='zphot-checked', 
                                        options=[{'label':'z_phot', 
@@ -377,10 +426,11 @@ class EazyExplorer(object):
 
                     html.Div([
                         dcc.RangeSlider(id='zspec-slider',
-                                        min=-0.5, max=12, step=0.1,
+                                        min=-0.5, max=self.ZMAX, step=0.1,
                                         value=[-0.5, 6.5],
                                         updatemode='drag',
-                                        tooltip={"placement":'left'}),
+                                        tooltip={"placement":'left'},
+                                        marks=None),
                           
                         dcc.Checklist(id='zspec-checked', 
                                       options=[{'label':'z_spec', 
@@ -395,7 +445,8 @@ class EazyExplorer(object):
                                         min=7, max=13, step=0.1,
                                         value=[8, 11.8],
                                         updatemode='drag',
-                                        tooltip={"placement":'left'}),
+                                        tooltip={"placement":'left'},
+                                        marks=None),
 
                         dcc.Checklist(id='mass-checked', 
                                       options=[{'label':'mass', 
@@ -526,7 +577,7 @@ class EazyExplorer(object):
                        dash.dependencies.Input('url', 'href')
                       ])
         def set_state_from_url(href):
-            plot_type = 'zphot-zspec'
+            plot_type = PLOT_TYPES[0]
             color_type = 'sSFR'
             mag_filter = self.DEFAULT_FILTER
             mag_range = [18, 27]
@@ -818,39 +869,95 @@ class EazyExplorer(object):
             return fig
 
 
-        def sed_cutout_figure(id_i):
+        def heroku_thumbnail(id_i):
+            """
+            Thumbnail from grizli API
+            """
+            import urllib
+            import urllib.request
+            import json 
+            import PIL.Image
+            
+            ix = np.where(self.df['id'] == id_i)[0][0]
+            ri, di = self.df['ra'][ix], self.df['dec'][ix]
+            
+            turl = f'https://grizli-cutout.herokuapp.com/thumb?'
+            turl += f'ra={ri}&dec={di}&size={api_size}&filters={api_filters}'   
+            #print(turl)
+            # with open('/tmp/thumb.log','a') as fp:
+            #     fp.write(turl+'\n')
+                
+            req = urllib.request.urlopen(turl)
+                                                        
+            thumb = np.array(PIL.Image.open(req))
+            
+            return thumb
+
+        
+        def api_cutout_figure(id_i):
+            """
+            Thumbnail from grizli API
+            """
+            try:
+                cutout = heroku_thumbnail(id_i)
+            except:
+                cutout = np.zeros((10, 10))
+            
+            sh = cutout.shape
+            
+            fig = px.imshow(cutout, origin='upper')
+
+            fig.update_coloraxes(showscale=False)
+            fig.update_layout(width=120, height=120, 
+                              margin=dict(l=0,r=0,b=0,t=0,pad=0,
+                                              autoexpand=True))
+
+            fig.update_xaxes(range=(-0.5, sh[1]-0.5), 
+                             visible=False, showticklabels=False)
+            fig.update_yaxes(range=(-0.5, sh[0]-0.5),
+                             visible=False, showticklabels=False)
+            
+            return fig
+
+
+        def hdu_cutout_figure(id_i):
             """
             SED cutout
             """
-            from plotly.subplots import make_subplots
 
-            if cutout_data is not None:
-                ix = np.where(self.df['id'] == id_i)[0]
-                ri, di = self.df['ra'][ix], self.df['dec'][ix]
-                xi, yi = np.squeeze(cutout_wcs.all_world2pix([ri], [di], 0))
-                xp = int(np.round(xi))
-                yp = int(np.round(yi))
-                slx = slice(xp-cutout_size,xp+cutout_size+1)
-                sly = slice(yp-cutout_size,yp+cutout_size+1)
+            ix = np.where(self.df['id'] == id_i)[0]
+            ri, di = self.df['ra'][ix], self.df['dec'][ix]
+            xi, yi = np.squeeze(cutout_wcs.all_world2pix([ri], [di], 0))
+            xp = int(np.round(xi))
+            yp = int(np.round(yi))
+            slx = slice(xp-cutout_size,xp+cutout_size+1)
+            sly = slice(yp-cutout_size,yp+cutout_size+1)
 
-                try:
+            try:
+                if cutout_data.ndim == 2:
                     cutout = cutout_data[sly, slx]
-                except:
-                    cutout = np.zeros((2*cutout_size, 2*cutout_size))
+                    fig = px.imshow(cutout, color_continuous_scale='gray_r', 
+                                origin='lower')
+                else:
+                    cutout = cutout_data[sly, slx, :]
+                    fig = px.imshow(cutout, origin='lower')
+            except:
+                cutout = np.zeros((2*cutout_size, 2*cutout_size))
+                
+                fig = px.imshow(cutout, color_continuous_scale='gray_r', 
+                            origin='lower')
 
-                fig = px.imshow(cutout, color_continuous_scale='gray_r')
+            fig.update_coloraxes(showscale=False)
+            fig.update_layout(width=120, height=120, 
+                              margin=dict(l=0,r=0,b=0,t=0,pad=0,
+                                              autoexpand=True))
 
-                fig.update_coloraxes(showscale=False)
-                fig.update_layout(width=120, height=120, 
-                                  margin=dict(l=0,r=0,b=0,t=0,pad=0,
-                                                  autoexpand=True))
+            fig.update_xaxes(range=(0, 2*cutout_size), 
+                             visible=False, showticklabels=False)
+            fig.update_yaxes(range=(0, 2*cutout_size),
+                             visible=False, showticklabels=False)
 
-                fig.update_xaxes(range=(0, 2*cutout_size), 
-                                 visible=False, showticklabels=False)
-                fig.update_yaxes(range=(0, 2*cutout_size),
-                                 visible=False, showticklabels=False)
-
-                return fig
+            return fig
 
 
         def parse_id_input(id_input):
@@ -949,10 +1056,12 @@ class EazyExplorer(object):
                                html.Br()]
             
             
-            if cutout_data is None:
-                cutout_fig = ['']
+            if cutout_data is not None:
+                cutout_fig = hdu_cutout_figure(id_i)
+            elif api_filters is not None:
+                cutout_fig = api_cutout_figure(id_i)
             else:
-                cutout_fig = sed_cutout_figure(id_i)
+                cutout_fig = ['']
                 
             return fig, object_info, match_sep, cutout_fig
 

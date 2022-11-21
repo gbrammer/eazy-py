@@ -859,7 +859,7 @@ class PhotoZ(object):
             
         """        
         if scale_to_ujy:
-            to_ujy = self.to_ujy
+            to_ujy = self.to_uJy
         else:
             to_ujy = 1.0
         
@@ -871,6 +871,7 @@ class PhotoZ(object):
                 self.f_numbers)
         
         tab, trans = self._csv_from_arrays(*args)
+        return tab, trans
 
 
     @staticmethod
@@ -1488,7 +1489,7 @@ class PhotoZ(object):
         
         pzt = np.exp(logpz).sum(axis=0)
         pznorm = np.trapz(pzt, self.zgrid, axis=1)
-        logpz -= pznorm[None,:,None]
+        logpz -= np.log(pznorm[None,:,None])
         
         return ampl, chi2, logpz
 
@@ -1857,7 +1858,9 @@ class PhotoZ(object):
         upd &= (r > level*self.efnu) & (self.fmodel > 0)
         upd &= np.isfinite(self.fnu) & np.isfinite(self.efnu)
         
-        self.efnu[upd] = r[upd] #np.sqrt(var_new[upd])
+        self.error_residuals_update = upd
+        
+        self.efnu[upd] = r[upd]/level #np.sqrt(var_new[upd])
 
 
     def _check_uncertainties(self, apply_correction=False):
@@ -2673,6 +2676,7 @@ class PhotoZ(object):
             igmz = 1.
 
         templf = np.dot(coeffs_i, tempflux)*igmz
+                
         if draws is not None:
             templf_draws = np.dot(draws, tempflux)*igmz
                 
@@ -2688,7 +2692,7 @@ class PhotoZ(object):
             else:
                 templz_power = 0
                 flam_spec = 1.e29
-                flam_sed = 1.e29
+                flam_sed = 1.e29/self.ext_corr
                 ylabel = (r'$f_\nu$ [$\mu$Jy]')    
                 flux_unit = u.uJy
             
@@ -4711,7 +4715,8 @@ class PhotoZ(object):
             ('fsps_QSF_12_v3' in self.param['TEMPLATES_FILE'])):
             
             # Need old V-band normalization method for the NMF templates
-            warnings.warn(f"Setting template_fnu_units=None for" + 
+            if 0:
+                warnings.warn(f"Setting template_fnu_units=None for " + 
                           f"{self.param['TEMPLATES_FILE']} templates",
                           AstropyUserWarning)
             
@@ -5216,7 +5221,7 @@ class PhotoZ(object):
         self.set_sys_err(positive=True, in_place=True)
 
 
-    def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None):
+    def fit_phoenix_stars(self, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None, stars=None):
         """
         Fit grid of Phoenix stars
         
@@ -5224,7 +5229,9 @@ class PhotoZ(object):
         "behind" MW extinction
         
         """
-        stars = templates_module.load_phoenix_stars(add_carbon_star=False)
+        if stars is None:
+            stars = templates_module.load_phoenix_stars(add_carbon_star=False)
+            
         self.star_templates = stars
         tflux = [t.integrate_filter(self.filters, z=0, include_igm=False)
                      for t in self.star_templates]

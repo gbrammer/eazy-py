@@ -1306,7 +1306,7 @@ PHOENIX_TEFF = [400.,  420., 450., 500.,  550., 600.,  650., 700.,  750.,
 PHOENIX_ZMET_FULL = [-2.5, -2.0, -1.5, -1.0, -0.5, -0., 0.5]
 PHOENIX_ZMET = [-1.0, -0.5, -0.]
 
-def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list=PHOENIX_ZMET, add_carbon_star=True, file='bt-settl_t400-7000_g4.5.fits'):
+def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list=PHOENIX_ZMET, add_carbon_star=True, file='bt-settl_t400-7000_g4.5.fits', sonora_dwarfs=True):
     """
     Load Phoenix stellar templates
     
@@ -1372,8 +1372,41 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
 
         tstars.append(Template(arrays=(sp['wave'], cflux), 
                                name='carbon-lancon2002'))
-
+    
+    if sonora_dwarfs:
+        tstars += load_sonora_stars()
+        
     return tstars
+
+
+def load_sonora_stars():
+    """
+    Load Sonora brown dwarf models
+    """
+    import glob
+    
+    paths = ['/tmp', './templates/', './']
+    found = False
+    
+    for path in paths:
+        templ_path = os.path.join(path, 'sonora')
+        if os.path.exists(templ_path):
+            print(f'sonora_stars: {templ_path}')
+            found = True
+            break
+    
+    if not found:
+        return []
+    
+    files = glob.glob(os.path.join(templ_path, 'sonora*fits'))
+    files.sort()
+    
+    stars = []
+    for file in files:
+        name = ' ' + os.path.basename(file).split('.fits')[0]
+        stars.append(Template(file=file, name=name))
+
+    return stars
 
 
 def param_table(templates):
