@@ -1247,7 +1247,7 @@ def update_eazy_templates(force=False):
 
     shutil.unpack_archive('tmp/master.zip','tmp/',format='zip')
 
-    for directory in ['templates','filters']:
+    for directory in ['templates','filters','hdfn_fs99']:
         source_path = os.path.join('tmp/eazy-photoz-master',directory)
         dest_path = os.path.join(out_path,directory)
         if force:
