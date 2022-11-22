@@ -1218,3 +1218,54 @@ class emceeChain():
             ax.set_ylabel(labels[1])
             ax.set_xlim(limits[0])
             ax.set_ylim(limits[1])
+
+def update_eazy_templates(force=False):
+
+    """
+    Download tempates from eazy-photz.
+
+    Parameters
+    ----------
+    force : bool
+        Force link files even if they already exist.
+    """
+
+    import urllib.request   
+    import shutil
+    
+    # templates will be added to the eazy library data/ directory
+    module_path = os.path.dirname(__file__)
+    out_path = os.path.join(module_path, 'data/')
+
+    # make a tmp directory 
+    if not os.path.exists('tmp/'):
+        os.mkdir('tmp')
+    
+    url = "https://github.com/gbrammer/eazy-photoz/archive/refs/heads/master.zip"
+
+    result =  urllib.request.urlretrieve(url,'tmp/master.zip')
+
+    shutil.unpack_archive('tmp/master.zip','tmp/',format='zip')
+
+    for directory in ['templates','filters']:
+        source_path = os.path.join('tmp/eazy-photoz-master',directory)
+        dest_path = os.path.join(out_path,directory)
+        if force:
+            shutil.rmtree(dest_path)
+            shutil.copytree(source_path,dest_path)
+        else:
+            os.system(f'rsync -avz {source_path} {out_path}')
+
+    shutil.rmtree('tmp')
+
+
+    # maybe use dirsync: https://pypi.org/project/dirsync/
+    # or https://pypi.org/project/pyrsync/
+    # templates: https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/gbrammer/eazy-photoz/tree/master/templates
+
+    # filters: https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/gbrammer/eazy-photoz/tree/master/filters
+
+
+
+
+
