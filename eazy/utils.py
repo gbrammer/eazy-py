@@ -1265,13 +1265,5 @@ def update_eazy_templates(force=False):
     shutil.rmtree('tmp')
 
 
-    # maybe use dirsync: https://pypi.org/project/dirsync/
-    # or https://pypi.org/project/pyrsync/
-    # templates: https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/gbrammer/eazy-photoz/tree/master/templates
-
-    # filters: https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/gbrammer/eazy-photoz/tree/master/filters
-
-
-
 
 
