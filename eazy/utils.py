@@ -1251,10 +1251,16 @@ def update_eazy_templates(force=False):
         source_path = os.path.join('tmp/eazy-photoz-master',directory)
         dest_path = os.path.join(out_path,directory)
         if force:
+            # remove directory
             shutil.rmtree(dest_path)
+
+            # copy directory from eazy-phot to to eazy-py
+            print(f'Copying {source_path} to {dest_path}')
             shutil.copytree(source_path,dest_path)
         else:
-            os.system(f'rsync -avz {source_path} {out_path}')
+            # --ignore-existing will not overwrite existing files
+            # if files can be updates maybe this is not a good idea?
+            os.system(f'rsync --ignore-existing -avz {source_path} {out_path}')
 
     shutil.rmtree('tmp')
 
