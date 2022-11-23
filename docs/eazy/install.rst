@@ -1,14 +1,24 @@
 Installation instructions
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
+Install with `pip`
+==================
+.. code:: bash
+
+    pip install eazy
+    
+    # Forked dependencies that don't come with pip
+    pip install git+https://github.com/gbrammer/dust_attenuation.git
+    pip install git+https://github.com/gbrammer/dust_extinction.git
+
+Install from the repository
+===========================
 .. code:: bash
 
     cd /usr/local/share/python # or some other location
 
     ### Fetch the eazy-py repo
-    # --recurse-submodules pulls the eazy-code repository attached as a 
-    # submodule. If you're running git<2.1.13, use --recursive.  
-    git clone --recurse-submodules https://github.com/gbrammer/eazy-py.git
+    git clone https://github.com/gbrammer/eazy-py.git
     
     ### Build the python code
     cd eazy-py
