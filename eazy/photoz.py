@@ -2784,13 +2784,6 @@ class PhotoZ(object):
                         (efnu_i*fnu_factor*flam_sed)[sn2_not], color='k', 
                         marker='s', alpha=0.4, linestyle='None', label=None)
 
-        if show_missing:
-            ax.errorbar(self.pivot[missing]/1.e4, 
-                        (fnu_i*fnu_factor*flam_sed)[missing]*0, 
-                        (efnu_i*fnu_factor*flam_sed)[missing], 
-                        color='0.7', marker='x', linestyle='None', 
-                        alpha=0.4, label=None)
-        
         pl = ax.plot(templz/1.e4, templf*fnu_factor*flam_spec, alpha=0.5, 
                      zorder=-1, color=template_color, 
                      label='z={0:.2f}'.format(z))
@@ -2945,7 +2938,16 @@ class PhotoZ(object):
             ytv = np.arange(maglim[0], maglim[1], -1, dtype=int)
             axm.set_yticks(np.interp(ytv, maglim[::-1], [1,0]))
             axm.set_yticklabels(ytv)
-                        
+        
+        if show_missing:
+            yl = ax.get_ylim()
+            ax.scatter(self.pivot[missing]/1.e4,
+                       self.pivot[missing]*0.+yl[0],
+                       marker='h', s=120,
+                       fc='None', ec='0.7',
+                       alpha=0.6,
+                       zorder=-100)
+        
         ## P(z)
         if not showpz:
             return fig, data
