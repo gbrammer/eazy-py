@@ -6,7 +6,47 @@ from . import templates
 from . import filters
 from . import photoz
 
-from .version import __version__, __long_version__, __version_hash__
+from .version import __version__
+
+try:
+    import dust_attenuation
+except ImportError:
+    print('Failed to `import dust_attenuation`')
+    print('Install my fork with $ pip install ' +
+          'git+https://github.com/gbrammer/dust_attenuation.git')
+
+try:
+    import dust_extinction
+except ImportError:
+    print('Failed to `import dust_extinction`')
+    print('Install my fork with $ pip install ' +
+          'git+https://github.com/gbrammer/dust_extinction.git')
+
+
+def fetch_eazy_photoz():
+    """
+    If necessary, clone the eazy-photoz repository to get templates and filters
+    """
+    module_path = os.path.dirname(__file__)
+    data_path = os.path.join(module_path, 'data/')
+    os.chdir(data_path)
+    
+    eazy_photoz = os.path.join(data_path, 'eazy-photoz')
+    git_url = 'https://github.com/gbrammer/eazy-photoz.git'
+    
+    if not os.path.exists(eazy_photoz):
+        os.system(f'git clone {git_url}')
+        print(f'cloning {git_url} to {data_path}')
+        
+    if not os.path.exists('filters'):
+        os.symlink(os.path.join('eazy-photoz','filters'), 'filters')
+
+    if not os.path.exists('templates'):
+        os.symlink(os.path.join('eazy-photoz','templates'), 'templates')
+
+    if not os.path.exists('hdfn_fs99'):
+        os.symlink(os.path.join('eazy-photoz','inputs'), 'hdfn_fs99')
+
 
 def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=False):
     """
@@ -47,7 +87,9 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=Fals
     if path is None:
         # Use the code attached to the repository
         path = os.path.join(os.path.dirname(__file__), 'data/')
-        
+        if not os.path.exists(os.path.join(path, 'templates')):
+            fetch_eazy_photoz()
+            
     if not os.path.exists(path):
         print('Couldn\'t find path {0}'.format(path))
         return False
