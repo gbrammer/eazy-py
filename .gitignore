@@ -1,5 +1,14 @@
 eazy/version.py
 
+# now cloned by the pytest script 
+eazy/data/eazy-photoz
+eazy/data/filters
+eazy/data/templates
+eazy/data/hdfn_fs99
+
+# created by pytest
+eazy/data/test.hdf5
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

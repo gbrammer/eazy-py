@@ -5,7 +5,7 @@ import numpy as np
 
 from astropy.utils.exceptions import AstropyWarning
 
-from .. import filters
+from .. import filters, fetch_eazy_photoz
 
 def test_array_filter():
     """
@@ -47,6 +47,10 @@ def test_data_path():
     """
     path = os.path.join(os.path.dirname(__file__), '../data/')
     assert(os.path.exists(path))
+    
+    if not os.path.exists(os.path.join(path, 'filters', 'FILTER.RES.latest')):
+        fetch_eazy_photoz()
+        
     return path
 
 
