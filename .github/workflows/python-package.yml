@@ -60,7 +60,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install package
       run: |
-        pip install -e .[test]
+        pip install -e .[test] -r requirements.txt
     - name: Test with pytest
       run: |
         pytest

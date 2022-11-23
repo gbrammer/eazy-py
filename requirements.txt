@@ -13,8 +13,8 @@
 # dustmaps
 
 # My clones of the dust modules
-git+https://github.com/gbrammer/dust_extinction.git
-git+https://github.com/gbrammer/dust_attenuation.git
+#git+https://github.com/gbrammer/dust_extinction.git
+#git+https://github.com/gbrammer/dust_attenuation.git
 
 # Needed for template smoothing, doesn't bring whole fsps distro
 # astro-sedpy

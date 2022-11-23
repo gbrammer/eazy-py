@@ -8,6 +8,21 @@ from . import photoz
 
 from .version import __version__
 
+try:
+    import dust_attenuation
+except ImportError:
+    print('Failed to `import dust_attenuation`')
+    print('Install my fork with $ pip install ' +
+          'git+https://github.com/gbrammer/dust_attenuation.git')
+
+try:
+    import dust_extinction
+except ImportError:
+    print('Failed to `import dust_extinction`')
+    print('Install my fork with $ pip install ' +
+          'git+https://github.com/gbrammer/dust_extinction.git')
+
+
 def fetch_eazy_photoz():
     """
     If necessary, clone the eazy-photoz repository to get templates and filters
