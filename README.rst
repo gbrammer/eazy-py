@@ -24,6 +24,10 @@ Installation instructions
 
     pip install eazy
 
+    # Forked dependencies that don't come with pip
+    pip install git+https://github.com/gbrammer/dust_attenuation.git
+    pip install git+https://github.com/gbrammer/dust_extinction.git
+
 Demo
 ~~~~
 
