@@ -39,13 +39,16 @@ def fetch_eazy_photoz():
         print(f'cloning {git_url} to {data_path}')
 
     if not os.path.exists('filters'):
-        os.symlink(os.path.join('eazy-photoz','filters'), 'filters')
+        os.symlink(os.path.join(data_path, 'eazy-photoz','filters'),
+                   'filters')
 
     if not os.path.exists('templates'):
-        os.symlink(os.path.join('eazy-photoz','templates'), 'templates')
+        os.symlink(os.path.join(data_path, 'eazy-photoz','templates'),
+                   'templates')
 
     if not os.path.exists('hdfn_fs99'):
-        os.symlink(os.path.join('eazy-photoz','inputs'), 'hdfn_fs99')
+        os.symlink(os.path.join(data_path, 'eazy-photoz','inputs'),
+                   'hdfn_fs99')
 
 
 def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=False):
