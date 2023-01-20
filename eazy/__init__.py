@@ -27,6 +27,8 @@ def fetch_eazy_photoz():
     """
     If necessary, clone the eazy-photoz repository to get templates and filters
     """
+    current_path = os.getcwd()
+    
     module_path = os.path.dirname(__file__)
     data_path = os.path.join(module_path, 'data/')
     os.chdir(data_path)
@@ -49,6 +51,9 @@ def fetch_eazy_photoz():
     if not os.path.exists('hdfn_fs99'):
         os.symlink(os.path.join(data_path, 'eazy-photoz','inputs'),
                    'hdfn_fs99')
+    
+    # Back to working directory
+    os.chdir(current_path)
 
 
 def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=False):
@@ -87,13 +92,15 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=Fals
     if path.startswith('$'):
         path = os.getenv(path)
 
+    current_path = os.getcwd()
+
     if path is None:
         # Use the code attached to the repository
-        current_path = os.getcwd()
         path = os.path.join(os.path.dirname(__file__), 'data/')
         if not os.path.exists(os.path.join(path, 'templates')):
             fetch_eazy_photoz()
-        os.chdir(current_path)
+    
+    os.chdir(current_path)
 
     if not os.path.exists(path):
         print('Couldn\'t find path {0}'.format(path))
