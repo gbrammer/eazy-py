@@ -9,6 +9,10 @@ on:
       - master
   pull_request:
 
+env:
+    # Dummy to make prospector work
+    SPS_HOME: $HOME/eazy/data/emlines_info.dat
+    
 jobs:
   build:
     runs-on: ${{ matrix.os }}

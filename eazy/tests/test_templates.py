@@ -24,17 +24,20 @@ def test_templates_path():
     return os.path.join(path, 'templates')
 
 
+def read_template_ascii():
+    path = test_templates_path()
+    ascii_file = os.path.join(path, 'fsps_full/fsps_QSF_12_v3_001.dat')
+    templ = templates.Template(file=ascii_file)
+    return templ
+
+
 def test_read_template_ascii():
     """
     Test interpolation function
     """
-    path = test_templates_path()
-    ascii_file = os.path.join(path, 'fsps_full/fsps_QSF_12_v3_001.dat')
-    
-    templ = templates.Template(file=ascii_file)
+    templ = read_template_ascii()
     assert(templ.name == 'fsps_QSF_12_v3_001.dat')
     assert(np.allclose(templ.flux.shape, [1,5994]))
-    return templ
 
 
 def test_read_template_fits():
