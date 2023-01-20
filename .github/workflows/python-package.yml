@@ -11,7 +11,7 @@ on:
 
 env:
     # Dummy to make prospector work
-    SPS_HOME: $HOME/eazy/data/emlines_info.dat
+    SPS_HOME: xxxxdummyxxxx
     
 jobs:
   build:

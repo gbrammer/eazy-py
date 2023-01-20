@@ -23,6 +23,17 @@ except ImportError:
           'git+https://github.com/gbrammer/dust_extinction.git')
 
 
+# Hot fix for importing prospector without SPS_HOME variable set
+try:
+    from prospect.utils.smoothing import smoothspec
+except (FileNotFoundError, TypeError):
+    if 'SPS_HOME' not in os.environ:
+        sps_home = 'xxxxdummyxxxx' #os.path.dirname(__file__)
+        print(f'Warning: setting environment variable SPS_HOME={sps_home} '
+              'to be able to import prospect.')
+        os.environ['SPS_HOME'] = sps_home
+
+
 def fetch_eazy_photoz():
     """
     If necessary, clone the eazy-photoz repository to get templates and filters
