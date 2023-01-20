@@ -37,7 +37,7 @@ def make_fake_catalog(SN=20):
     
     #### Generate data
     res = filters.FilterFile('filters/FILTER.RES.latest')
-    templ = test_templates.test_read_template_ascii()
+    templ = test_templates.read_template_ascii()
     
     ### WFC3 SED + K + IRAC
     f_numbers = [209, 211, 214, 217, 202, 203, 205, 269, 18, 19]
