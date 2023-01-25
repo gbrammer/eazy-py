@@ -553,6 +553,10 @@ class ExtendedFsps(StellarPopulation):
     
     line_av_func = None
     
+    # Smoothing parameters for fitting
+    lsf_func = None
+    FFT_SMOOTH = False
+    
     #_meta_bands = ['v']
     
     @property
@@ -1389,7 +1393,9 @@ class ExtendedFsps(StellarPopulation):
             kwargs[p] = theta0[i]
         
         # Model test
-        margs = (self, plist, wave_obs, flux_obs, err_obs, mask, bspl, kwargs, 'model')        
+        margs = (self, plist, wave_obs, flux_obs, err_obs,
+                 mask, bspl, kwargs, 'model')
+        
         flux_model, Anorm, chi2_init = self.objfun_fitspec(theta0, *margs)
         
         if show:                
@@ -1398,7 +1404,14 @@ class ExtendedFsps(StellarPopulation):
             plt.close('all')
             
             fig = plt.figure(figsize=(12, 6))
-            plt.errorbar(wave_obs[mask], flux_obs[mask], err_obs[mask], color='k', alpha=0.5, linestyle='None', marker='.')
+            plt.errorbar(wave_obs[mask],
+                         flux_obs[mask],
+                         err_obs[mask],
+                         color='k',
+                         alpha=0.5,
+                         linestyle='None',
+                         marker='.')
+                         
             plt.plot(wave_obs, flux_model, color='pink', linewidth=2, alpha=0.8)
         else:
             fig = None
@@ -1407,8 +1420,14 @@ class ExtendedFsps(StellarPopulation):
         #lsq_kwargs['diff_step'] = np.array(steps)/2.
         #lsq_kwargs['diff_step'] = 0.05
         lsq_kwargs['diff_step'] = steps
-        lmargs = (self, plist, wave_obs, flux_obs, err_obs, mask, bspl, kwargs, 'least_squares verbose')        
-        _res = least_squares(self.objfun_fitspec, theta0, bounds=bounds, args=lmargs, **lsq_kwargs)
+        lmargs = (self, plist, wave_obs, flux_obs, err_obs,
+                  mask, bspl, kwargs, 'least_squares verbose')
+        
+        _res = least_squares(self.objfun_fitspec,
+                             theta0,bounds=bounds,
+                             args=lmargs,
+                             **lsq_kwargs,
+                             )
         
         fit_model, Anorm, chi2_fit = self.objfun_fitspec(_res.x, *margs)
         
@@ -1441,11 +1460,18 @@ class ExtendedFsps(StellarPopulation):
             kwargs[p] = theta[i]
                     
         templ = self.get_full_spectrum(**kwargs)
-        flux_model = templ.resample(wave_obs, z=self.params['zred'],
-                                   in_place=False,
-                                   return_array=True, interp_func=interp_func)
+                
+        flux_model = templ.to_observed_frame(z=self.params['zred'],
+                                             lsf_func=self.lsf_func,
+                                             clip_wavelengths=None,
+                                             wavelengths=wave_obs,
+                                             smoothspec_kwargs={'fftsmooth':self.FFT_SMOOTH},
+                                             )
+        # flux_model = templ.resample(wave_obs, z=self.params['zred'],
+        #                            in_place=False,
+        #                            return_array=True, interp_func=interp_func)
         
-        flux_model = flux_model.flatten()
+        flux_model = np.squeeze(flux_model.flux_flam())
         
         if mask is None:
             mask = np.isfinite(flux_model+flux_obs+err_obs) & (err_obs > 0)

@@ -4539,7 +4539,9 @@ class PhotoZ(object):
                                          pad_width=rf_pad_width, 
                                          max_err=rf_max_err, 
                                          percentiles=[16,50,84], 
-                                         verbose=False, simple=simple) 
+                                         verbose=False,
+                                         n_proc=n_proc,
+                                         simple=simple) 
             
             extra_tempfilt, extra_lc, extra_rest = _ex
             
