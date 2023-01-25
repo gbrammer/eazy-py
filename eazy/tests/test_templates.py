@@ -307,9 +307,7 @@ def test_template_smoothing():
         
     """
     from astropy.stats import gaussian_sigma_to_fwhm
-    
-    from prospect.utils.smoothing import smooth_vel
-    
+        
     #### Template with delta function line
     xtest = np.linspace(6550, 6576, 1024)
     ytest = xtest*0; ytest[len(xtest)//2] = 1

@@ -17,7 +17,7 @@ git+https://github.com/gbrammer/dust_extinction.git
 git+https://github.com/gbrammer/dust_attenuation.git
 
 # Needed for template smoothing, doesn't bring whole fsps distro
-# astro-sedpy
+astro-sedpy>=0.3
 # astro-prospector
 
 

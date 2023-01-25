@@ -688,9 +688,9 @@ class Template():
         pass
 
 
-    def smooth_velocity(self, velocity_smooth, in_place=True, raise_error=False):
+    def smooth_velocity(self, velocity_smooth, in_place=True, raise_error=False, smoothspec_kwargs={'fftsmooth':True}):
         """
-        Smooth template in velocity using ``astro-prospector``
+        Smooth template in velocity using ``sedpy`` (formerly in ``astro-prospector``)
         
         Parameters
         ----------
@@ -702,15 +702,15 @@ class Template():
             return a new `~eazy.templates.Template` object.
         
         raise_error : bool
-            If ``from prospect.utils.smoothing import smooth_vel`` fails, 
+            If ``from sedpy.smoothing import smooth_vel`` fails, 
             raise an exception or die quietly.
             
         """
         try:
-            from prospect.utils.smoothing import smooth_vel
+            from sedpy.smoothing import smoothspec
         except:
             if raise_error:
-                raise ImportError("Couldn't import `prospect.utils.smoothing")
+                raise ImportError("Couldn't import `sedpy.smoothing")
             else:
                 return None
         
@@ -720,8 +720,13 @@ class Template():
             else:
                 return self
                 
-        sm_flux = np.array([smooth_vel(self.wave, self.flux[i,:], self.wave, 
-                                       velocity_smooth) 
+        sm_flux = np.array([smoothspec(self.wave,
+                                       self.flux[i,:],
+                                       outwave=self.wave,
+                                       resolution=velocity_smooth,
+                                       smoothtype='vel',
+                                       **smoothspec_kwargs
+                                      ) 
                              for i in range(self.NZ)])
                              
         sm_flux[~np.isfinite(sm_flux)] = 0.
@@ -737,13 +742,13 @@ class Template():
                             redshifts=self.redshifts)
 
 
-    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, clip_wavelengths=[4500,9400]):
+    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, clip_wavelengths=[4500,9400], as_template=True):
         """
         Smooth and resample to observed-frame wavelengths, including an
         optional Line Spread Function (LSF)
                 
         Note that the smoothing is performed with 
-        `prospect.utils.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html>`_, 
+        `sedpy.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html>`_, 
         which doesn't integrate precisely over "pixels" for spectral
         resolutions that are similar to or less than the target smoothing
         factor.
@@ -780,8 +785,8 @@ class Template():
             (e.g., MUSE) spectrum
         
         smoothspec_kwargs : dict
-            Extra keyword arguments to pass to the Prospector smoothing 
-            function `prospect.utils.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html>`_.  
+            Extra keyword arguments to pass to the `sedpy`/`prospector` smoothing 
+            function `sedpy.smoothing.smoothspec <https://prospect.readthedocs.io/en/latest/api/utils_api.html>`_.  
             When testing with very high resolution templates around a specific
             wavelength, ``smoothspec_kwargs = {'fftsmooth':True}`` did not
             always work as expected, so be careful with this option (which is
@@ -793,15 +798,16 @@ class Template():
         clip_wavelengths : [float, float]
             Trim the full observed-frame wavelength array before convolving.  
             The defaults bracket the nominal MUSE range.
-            
+        
         Returns
         -------
-        tobs : `~eazy.template.Template`
-            Smoothed and resampled `~eazy.template.Template` object
+        tobs : `~eazy.template.Template` or array-like
+            Smoothed and resampled `~eazy.template.Template` object or flux array,
+            depending on ``is_array``
             
         """
         from astropy.stats import gaussian_sigma_to_fwhm
-        from prospect.utils.smoothing import smoothspec
+        from sedpy.smoothing import smoothspec
         
         wobs = self.wave*(1+z)
         
@@ -829,7 +835,10 @@ class Template():
                                  'Angstroms')
         else:
             clip = wobs > 0
-            
+            if wavelengths is not None:
+                clip &= wobs > 0.95*wavelengths.min()
+                clip &= wobs < 1.05*wavelengths.max()
+                
         if lsf_func in ['Bacon']:
             # UDF-10 LSF from Bacon et al. 2017
             bacon_lsf_fwhm = lambda w: 5.866e-8 * w**2 - 9.187e-4*w + 6.04
@@ -841,7 +850,7 @@ class Template():
         elif hasattr(lsf_func, '__call__'):
             lsf_sigma = lsf_func(wobs[clip])/wobs[clip]*3.e5
             lsf_func_name = 'user'
-        
+            
         else:
             lsf_sigma = 0.
             lsf_func_name = None
@@ -852,22 +861,30 @@ class Template():
         # In Angstroms
         smooth_lambda = vel_sigma / 3.e5 * wobs[clip]
         
-        # Do the smoothing
-        flux_smooth = smoothspec(wobs[clip], 
-                                 (self.flux_flam(z=z)*igmz*scalar)[clip], 
-                                 resolution=smooth_lambda, 
-                                 smoothtype='lsf', **smoothspec_kwargs)
+        _templ_flux = self.flux_flam(z=z)
         
+        if np.allclose(smooth_lambda, 0.):
+            flux_smooth = (_templ_flux*igmz*scalar)[clip]
+        else:
+            flux_smooth = smoothspec(wobs[clip], 
+                                 (_templ_flux*igmz*scalar)[clip], 
+                                 resolution=smooth_lambda, 
+                                 smoothtype='lsf',
+                                 **smoothspec_kwargs,
+                                 )
+
         newname = self.name + f' z={z:.3f}' 
         if lsf_func_name is not None:
             newname += ' + ' + lsf_func_name
         
         if extra_sigma > 0:
             newname += ' + {extra_sigma:.1f} km/s'
-            
+        
         tobs = Template(arrays=(wobs[clip], flux_smooth), 
-                        name=newname, resample_wave=wavelengths, 
-                        redshifts=[z])
+                        name=newname,
+                        resample_wave=wavelengths, 
+                        redshifts=[z],
+                        )
         
         return tobs
 
