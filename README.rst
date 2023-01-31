@@ -1,6 +1,9 @@
 .. image:: https://github.com/gbrammer/eazy-py/actions/workflows/python-package.yml/badge.svg
    :target: https://github.com/gbrammer/eazy-py/actions
-    
+
+.. image:: https://badge.fury.io/py/eazy.svg
+    :target: https://badge.fury.io/py/eazy
+        
 .. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.5012705.svg
    :target: https://doi.org/10.5281/zenodo.5012705
    
