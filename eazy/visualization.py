@@ -54,14 +54,13 @@ class EazyExplorer(object):
         
         try:
             import dash
-            from dash import  dcc
-            from dash import html 
+            from dash import  dcc, html
             import plotly.express as px
             
         except ImportError:
             print('Failed to import dash & plotly, so the interactive tool'
-                  'won\t work.\n'
-                  'Install with `pip install dash>=2.5.1` and also '
+                  'won\'t work.\n'
+                  'Install with `pip install "dash>=2.5.1"` and also '
                   '`pip install jupyter_dash` for running a server '
                   'through jupyter')
                   
@@ -195,7 +194,7 @@ class EazyExplorer(object):
         return olap
     
     
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift']):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift'], get_content=False):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -226,12 +225,18 @@ class EazyExplorer(object):
             
         """
         import dash
-        from dash import  dcc
-        from dash import html 
+        from dash import  dcc, html, callback
+        from dash.dependencies import Input, Output
         import plotly.express as px
+        
         import matplotlib.pyplot as plt
         from urllib.parse import urlparse, parse_qsl, urlencode
         import astropy.wcs as pywcs
+        
+        self.template = template
+        self.plot_height = plot_height
+        self.slider_width = slider_width
+        self.cutout_size = cutout_size
         
         if app is None:
             if app_type == 'dash':
@@ -249,6 +254,10 @@ class EazyExplorer(object):
             PLOT_TYPES.append(_t)
             
         COLOR_TYPES = ['z_phot', 'z_spec', 'mass', 'sSFR', 'chi2']
+        self.COLOR_TYPES = COLOR_TYPES
+        self.PLOT_TYPES = PLOT_TYPES
+        self.cutout_data = None
+        self.api_filters = api_filters
         
         #_title = f"{self.photoz.param['MAIN_OUTPUT_FILE']}"
         #_subhead = f"Nobj={self.photoz.NOBJ}  Nfilt={self.photoz.NFILT}"
@@ -271,11 +280,11 @@ class EazyExplorer(object):
         if cutout_hdu is not None:
             cutout_wcs = pywcs.WCS(cutout_hdu.header, relax=True)
             if cutout_rgb is None:
-                cutout_data = cutout_hdu.data
+                self.cutout_data = cutout_hdu.data
             else:
-                cutout_data = np.flipud(plt.imread(cutout_rgb))
+                self.cutout_data = np.flipud(plt.imread(cutout_rgb))
                 
-            print('xxx', cutout_data.shape)
+            print('xxx', self.cutout_data.shape)
             
             cutout_div = html.Div([
                              dcc.Graph(id='cutout-figure', 
@@ -299,7 +308,7 @@ class EazyExplorer(object):
                                            'top':'10px', 
                                            'position':'absolute'})
             cutout_target = 'figure'
-            cutout_data = None
+            self.cutout_data = None
             
         else:
             cutout_div = html.Div(id='cutout-figure', 
@@ -308,16 +317,16 @@ class EazyExplorer(object):
                                            'height':'1px',
                                            'bottom':'1px', 
                                            'position':'absolute'})
-            cutout_data = None
+            self.cutout_data = None
             cutout_target = 'children'
                 
-            
-        ####### App layout
-        app.layout = html.Div([
+        
+        ####### Main content
+        content = [
             # Selectors
             html.Div([
                 dcc.Location(id='url', refresh=False), 
-
+                
                 html.Div([
                     html.Div(_title, id='title-bar', 
                              style={'float':'left', 'margin-top':'4pt'}),
@@ -530,22 +539,24 @@ class EazyExplorer(object):
             ], style={'float':'right', 'width':'49%', 'height':'70%'}),
             
             cutout_div
-        ])
+        ]
 
-
+        if get_content:
+            return content
+        
         ##### Callback functions
         @app.callback(
-             dash.dependencies.Output('url', 'search'),
-            [dash.dependencies.Input('plot-type', 'value'),
-             dash.dependencies.Input('color-type', 'value'),
-             dash.dependencies.Input('mag-filter', 'value'),
-             dash.dependencies.Input('mag-slider', 'value'),
-             dash.dependencies.Input('mass-slider', 'value'),
-             dash.dependencies.Input('chi2-slider', 'value'),
-             dash.dependencies.Input('nfilt-slider', 'value'),
-             dash.dependencies.Input('zphot-slider', 'value'),
-             dash.dependencies.Input('zspec-slider', 'value'),
-             dash.dependencies.Input('id-input', 'value')])
+             Output('url', 'search'),
+            [Input('plot-type', 'value'),
+             Input('color-type', 'value'),
+             Input('mag-filter', 'value'),
+             Input('mag-slider', 'value'),
+             Input('mass-slider', 'value'),
+             Input('chi2-slider', 'value'),
+             Input('nfilt-slider', 'value'),
+             Input('zphot-slider', 'value'),
+             Input('zspec-slider', 'value'),
+             Input('id-input', 'value')])
         def update_url_state(plot_type, color_type, mag_filter, mag_range, mass_range, chi2_range, nfilt_range, zphot_range, zspec_range, id_input):
             search = f'?plot_type={plot_type}&color_type={color_type}'
             search += f'&mag_filter={mag_filter}'
@@ -561,22 +572,22 @@ class EazyExplorer(object):
             return search
 
 
-        @app.callback([dash.dependencies.Output('plot-type', 'value'),
-                       dash.dependencies.Output('color-type', 'value'),
-                       dash.dependencies.Output('mag-filter', 'value'),
-                       dash.dependencies.Output('mag-slider', 'value'),
-                       dash.dependencies.Output('mass-slider', 'value'),
-                       dash.dependencies.Output('chi2-slider', 'value'),
-                       dash.dependencies.Output('nfilt-slider', 'value'),
-                       dash.dependencies.Output('zphot-slider', 
+        @app.callback([Output('plot-type', 'value'),
+                       Output('color-type', 'value'),
+                       Output('mag-filter', 'value'),
+                       Output('mag-slider', 'value'),
+                       Output('mass-slider', 'value'),
+                       Output('chi2-slider', 'value'),
+                       Output('nfilt-slider', 'value'),
+                       Output('zphot-slider', 
                                                 'value'),
-                       dash.dependencies.Output('zspec-slider', 
+                       Output('zspec-slider', 
                                                 'value'),
-                       dash.dependencies.Output('id-input', 'value'),
+                       Output('id-input', 'value'),
                       ],[
-                       dash.dependencies.Input('url', 'href')
+                       Input('url', 'search')
                       ])
-        def set_state_from_url(href):
+        def set_state_from_url(search):
             plot_type = PLOT_TYPES[0]
             color_type = 'sSFR'
             mag_filter = self.DEFAULT_FILTER
@@ -588,13 +599,14 @@ class EazyExplorer(object):
             zspec_range = [-0.5, 6.5]
             id_input = None
 
-            if '?' not in href:
+            # if '?' not in href:
+            if not search:
                 return (plot_type, color_type, mag_filter, mag_range,
                         mass_range, chi2_range, nfilt_range,
                         zphot_range, zspec_range,
                         id_input)
 
-            search = href.split('?')[1]
+            # search = href.split('?')[1]
             params = search.split('&')
 
             for p in params:
@@ -669,23 +681,23 @@ class EazyExplorer(object):
 
 
         @app.callback(
-            dash.dependencies.Output('sample-selection-scatter', 'figure'),
-            [dash.dependencies.Input('plot-type', 'value'),
-             dash.dependencies.Input('color-type', 'value'), 
-             dash.dependencies.Input('mag-filter', 'value'),
-             dash.dependencies.Input('mag-slider', 'value'),
-             dash.dependencies.Input('mag-checked', 'value'),
-             dash.dependencies.Input('mass-slider', 'value'),
-             dash.dependencies.Input('mass-checked', 'value'),
-             dash.dependencies.Input('chi2-slider', 'value'),
-             dash.dependencies.Input('chi2-checked', 'value'),
-             dash.dependencies.Input('nfilt-slider', 'value'),
-             dash.dependencies.Input('nfilt-checked', 'value'),
-             dash.dependencies.Input('zphot-slider', 'value'),
-             dash.dependencies.Input('zphot-checked', 'value'),
-             dash.dependencies.Input('zspec-slider', 'value'),
-             dash.dependencies.Input('zspec-checked', 'value'),
-             dash.dependencies.Input('id-input', 'value')])
+            Output('sample-selection-scatter', 'figure'),
+            [Input('plot-type', 'value'),
+             Input('color-type', 'value'), 
+             Input('mag-filter', 'value'),
+             Input('mag-slider', 'value'),
+             Input('mag-checked', 'value'),
+             Input('mass-slider', 'value'),
+             Input('mass-checked', 'value'),
+             Input('chi2-slider', 'value'),
+             Input('chi2-checked', 'value'),
+             Input('nfilt-slider', 'value'),
+             Input('nfilt-checked', 'value'),
+             Input('zphot-slider', 'value'),
+             Input('zphot-checked', 'value'),
+             Input('zspec-slider', 'value'),
+             Input('zspec-checked', 'value'),
+             Input('id-input', 'value')])
         def update_selection(plot_type, color_type, mag_filter, mag_range, mag_checked, mass_range, mass_checked, chi2_range, chi2_checked, nfilt_range, nfilt_checked, zphot_range, zphot_checked, zspec_range, zspec_checked, id_input):
             """
             Apply slider selections
@@ -818,6 +830,7 @@ class EazyExplorer(object):
             """
             import plotly.graph_objects as go
             
+            print('update_sample_scatter xxx', xcol, len(dff[xcol]))
             fig = px.scatter(data_frame=dff, x=xcol, y=ycol, 
                              custom_data=['id','z_phot','mass','ssfr','mag'], 
                              **color_kwargs)
@@ -826,7 +839,7 @@ class EazyExplorer(object):
             htempl += 'id: %{customdata[0]:0d}  z_phot: %{customdata[1]:.2f}'
             htempl += '<br> mag: %{customdata[4]:.1f}  '
             htempl += 'mass: %{customdata[2]:.2f}  ssfr: %{customdata[3]:.2f}'
-
+                
             fig.update_traces(hovertemplate=htempl, opacity=0.7)
 
             if dff['is_selected'].sum() > 0:
@@ -934,12 +947,12 @@ class EazyExplorer(object):
             sly = slice(yp-cutout_size,yp+cutout_size+1)
 
             try:
-                if cutout_data.ndim == 2:
-                    cutout = cutout_data[sly, slx]
+                if self.cutout_data.ndim == 2:
+                    cutout = self.cutout_data[sly, slx]
                     fig = px.imshow(cutout, color_continuous_scale='gray_r', 
                                 origin='lower')
                 else:
-                    cutout = cutout_data[sly, slx, :]
+                    cutout = self.cutout_data[sly, slx, :]
                     fig = px.imshow(cutout, origin='lower')
             except:
                 cutout = np.zeros((2*cutout_size, 2*cutout_size))
@@ -983,16 +996,15 @@ class EazyExplorer(object):
             return self.df['id'][imin], dr[imin]
             
 
-        @app.callback([dash.dependencies.Output('object-sed-figure', 
-                                                'figure'),
-                       dash.dependencies.Output('object-info', 'children'), 
-                       dash.dependencies.Output('match-sep', 'children'), 
-                       dash.dependencies.Output('cutout-figure', 
+        @app.callback([Output('object-sed-figure', 'figure'),
+                       Output('object-info', 'children'), 
+                       Output('match-sep', 'children'), 
+                       Output('cutout-figure', 
                                                 cutout_target)], 
-                      [dash.dependencies.Input('sample-selection-scatter', 
+                      [Input('sample-selection-scatter', 
                                                'hoverData'), 
-                       dash.dependencies.Input('sed-unit-selector', 'value'),
-                       dash.dependencies.Input('id-input', 'value')])
+                       Input('sed-unit-selector', 'value'),
+                       Input('id-input', 'value')])
         def update_object_sed(hoverData, sed_unit, id_input):
             """
             SED + p(z) plot
@@ -1056,7 +1068,7 @@ class EazyExplorer(object):
                                html.Br()]
             
             
-            if cutout_data is not None:
+            if self.cutout_data is not None:
                 cutout_fig = hdu_cutout_figure(id_i)
             elif api_filters is not None:
                 cutout_fig = api_cutout_figure(id_i)
@@ -1064,11 +1076,13 @@ class EazyExplorer(object):
                 cutout_fig = ['']
                 
             return fig, object_info, match_sep, cutout_fig
-
-
+        
+        ####### App layout
+        app.layout = html.Div(content)
+        
         if server_mode is not None:
             app.run_server(mode=server_mode, port=port)
-            
+        
         return app    
 
 
