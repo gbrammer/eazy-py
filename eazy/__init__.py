@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from . import igm
 from . import param
@@ -120,7 +121,7 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=Fals
     # Templates directory
     if os.path.exists('./templates'):
         try:
-            os.remove('./templates')
+            shutil.rmtree('./templates')
         except PermissionError:
             os.system('rm -rf templates')
 
@@ -134,7 +135,7 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=Fals
 
     # Filter file
     if os.path.exists('./FILTER.RES.latest'):
-        os.remove('./FILTER.RES.latest')
+        shutil.rmtree('./FILTER.RES.latest')
 
     res_path = os.path.join(path, 'filters/FILTER.RES.latest')
     if copy:
