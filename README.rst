@@ -27,10 +27,6 @@ Installation instructions
 
     pip install eazy
 
-    # Forked dependencies that don't come with pip
-    pip install git+https://github.com/gbrammer/dust_attenuation.git
-    pip install git+https://github.com/gbrammer/dust_extinction.git
-
 Demo
 ~~~~
 
@@ -42,5 +38,5 @@ Demo
 
 
 Citation
-~~~~~~~~~~~~~
-Please cite both this reposiotry and `Brammer et al. (2008) <https://ui.adsabs.harvard.edu/abs/2008ApJ...686.1503B/abstract>`_. A BiBTeX for this repository can be generated via the *Cite this repository* link in the upper left corner of the `GitHub page <https://github.com/gbrammer/eazy-py>`_.
+~~~~~~~~
+Please cite both this repository and `Brammer et al. (2008) <https://ui.adsabs.harvard.edu/abs/2008ApJ...686.1503B/abstract>`_. A BiBTeX for this repository can be generated via the *Cite this repository* link in the upper left corner of the `GitHub page <https://github.com/gbrammer/eazy-py>`_.
