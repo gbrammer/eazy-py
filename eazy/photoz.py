@@ -623,7 +623,7 @@ class PhotoZ(object):
             self.cat = self.param['CATALOG_FILE']
         elif 'fits' in self.param['CATALOG_FILE'].lower():
             self.cat = Table.read(self.param['CATALOG_FILE'], format='fits')
-        elif self.param['CATALOG_FILE'].lower().endswith('csv'):
+        elif self.param['CATALOG_FILE'].lower().endswith('.csv'):
             self.cat = Table.read(self.param['CATALOG_FILE'], format='csv')        
         else:
             self.cat = Table.read(self.param['CATALOG_FILE'], 
