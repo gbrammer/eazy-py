@@ -1400,6 +1400,9 @@ def load_sonora_stars():
     """
     Load Sonora brown dwarf models: Marley et al. (2018, 
     https://zenodo.org/record/1309035)
+    
+    Get the templates from https://github.com/gbrammer/eazy-py/pull/33
+    
     """
     import glob
     
