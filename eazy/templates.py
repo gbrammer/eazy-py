@@ -1398,7 +1398,8 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
 
 def load_sonora_stars():
     """
-    Load Sonora brown dwarf models
+    Load Sonora brown dwarf models: Marley et al. (2018, 
+    https://zenodo.org/record/1309035)
     """
     import glob
     
