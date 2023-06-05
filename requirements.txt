@@ -7,14 +7,13 @@
 # tqdm
 # h5py
 
-# dustmaps needs healpy in environment.yml since 
+# dustmaps needs healpy in environment.yml since
 # often can't compile on Mac with pip
 # ... removing requirement so that can distribute just with requirements.txt
 # dustmaps
 
-# My clones of the dust modules
-git+https://github.com/gbrammer/dust_extinction.git
-git+https://github.com/gbrammer/dust_attenuation.git
+# git+https://github.com/gbrammer/dust_extinction.git
+# git+https://github.com/gbrammer/dust_attenuation.git
 
 # Needed for template smoothing, doesn't bring whole fsps distro
 astro-sedpy>=0.3
