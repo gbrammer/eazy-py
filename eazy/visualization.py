@@ -194,7 +194,7 @@ class EazyExplorer(object):
         return olap
     
     
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift'], get_content=False):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, api_args='', PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift'], get_content=False):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -257,6 +257,7 @@ class EazyExplorer(object):
         self.COLOR_TYPES = COLOR_TYPES
         self.PLOT_TYPES = PLOT_TYPES
         self.cutout_data = None
+        self.cutout_wcs = None
         self.api_filters = api_filters
         
         #_title = f"{self.photoz.param['MAIN_OUTPUT_FILE']}"
@@ -278,7 +279,7 @@ class EazyExplorer(object):
         #                 'use': 'Use == 1'}
         
         if cutout_hdu is not None:
-            cutout_wcs = pywcs.WCS(cutout_hdu.header, relax=True)
+            self.cutout_wcs = pywcs.WCS(cutout_hdu.header, relax=True)
             if cutout_rgb is None:
                 self.cutout_data = cutout_hdu.data
             else:
@@ -296,6 +297,7 @@ class EazyExplorer(object):
                                            'top':'10px', 
                                            'position':'absolute'})
             cutout_target = 'figure'
+            
         elif api_filters is not None:
             
             cutout_div = html.Div([
@@ -895,7 +897,8 @@ class EazyExplorer(object):
             ri, di = self.df['ra'][ix], self.df['dec'][ix]
             
             turl = f'https://grizli-cutout.herokuapp.com/thumb?'
-            turl += f'ra={ri}&dec={di}&size={api_size}&filters={api_filters}'   
+            turl += f'ra={ri}&dec={di}&size={api_size}'
+            turl += f'{api_args}&filters={api_filters}'   
             #print(turl)
             # with open('/tmp/thumb.log','a') as fp:
             #     fp.write(turl+'\n')
