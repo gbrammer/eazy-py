@@ -943,7 +943,7 @@ class EazyExplorer(object):
 
             ix = np.where(self.df['id'] == id_i)[0]
             ri, di = self.df['ra'][ix], self.df['dec'][ix]
-            xi, yi = np.squeeze(cutout_wcs.all_world2pix([ri], [di], 0))
+            xi, yi = np.squeeze(self.cutout_wcs.all_world2pix([ri], [di], 0))
             xp = int(np.round(xi))
             yp = int(np.round(yi))
             slx = slice(xp-cutout_size,xp+cutout_size+1)
