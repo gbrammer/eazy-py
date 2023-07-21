@@ -3,14 +3,14 @@
 
 .. image:: https://badge.fury.io/py/eazy.svg
     :target: https://badge.fury.io/py/eazy
-        
+
 .. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.5012705.svg
    :target: https://doi.org/10.5281/zenodo.5012705
-   
+
 
 eazy-py: Pythonic photometric redshift tools based on EAZY
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-   
+
 Under heavy construction....
 
 Documentation will be here: https://eazy-py.readthedocs.io/, though it's essentially just the module API for now.
@@ -26,6 +26,9 @@ Installation instructions
 .. code:: bash
 
     pip install eazy
+
+    # Forked dependencies that are not yet released on PyPI
+    pip install git+https://github.com/gbrammer/dust_attenuation.git
 
 Demo
 ~~~~
