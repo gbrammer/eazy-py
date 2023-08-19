@@ -1323,12 +1323,44 @@ PHOENIX_TEFF = [400.,  420., 450., 500.,  550., 600.,  650., 700.,  750.,
 PHOENIX_ZMET_FULL = [-2.5, -2.0, -1.5, -1.0, -0.5, -0., 0.5]
 PHOENIX_ZMET = [-1.0, -0.5, -0.]
 
-def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list=PHOENIX_ZMET, add_carbon_star=True, file='bt-settl_t400-7000_g4.5.fits', sonora_dwarfs=True):
+def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list=PHOENIX_ZMET, add_carbon_star=True, file='bt-settl_t400-7000_g4.5.fits', sonora_dwarfs=True, lowz_dwarfs=False, lowz_kwargs={}):
     """
     Load Phoenix stellar templates
     
-    `file` is available at
-    https://s3.amazonaws.com/grizli/CONF/bt-settl_t400-7000_g4.5.fits
+    Parameters
+    ----------
+    logg_list : list
+        List of logg values of the PHOENIX grid
+    
+    teff_list : list
+        List of Teff values of the PHOENIX grid
+    
+    zmet_list : list
+        List of ZMET metallicities of the PHOENIX grid
+    
+    add_carbon_star : bool
+        Include ``templates/stars/carbon_star.txt`` template
+    
+    file : str
+        PHOENIX grid file, available at
+        https://s3.amazonaws.com/grizli/CONF/bt-settl_t400-7000_g4.5.fits
+    
+    sonora_dwarfs : bool
+        Include Sonora dwarf models (Marley et al. 2018), see
+        `~eazy.templates.load_sonora_stars`
+    
+    lowz_dwarfs : bool
+        Include LOWZ dwarf models (Meisner et al. 2021), see
+        `~eazy.templates.load_LOWZ_templates`
+    
+    lowz_kwargs : dict
+        Keyword arguments for `~eazy.templates.load_LOWZ_templates`
+    
+    Returns
+    -------
+    stars : list
+        List of `~eazy.templates.Template` objects of the stellar models
+    
     """
     try:
         from urllib.request import urlretrieve
@@ -1393,6 +1425,9 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
     if sonora_dwarfs:
         tstars += load_sonora_stars()
         
+    if lowz_dwarfs:
+        tstars += load_LOWZ_templates(**lowz_kwargs)
+    
     return tstars
 
 
@@ -1428,6 +1463,113 @@ def load_sonora_stars():
         stars.append(Template(file=file, name=name))
 
     return stars
+
+
+def download_LOWZ_templates(verbose=True):
+    """
+    Download LOWZ brown dwarf templates from Meisner et al. (2021)
+    """
+    import tarfile
+    from astropy.utils.data import download_file
+    from astropy.table import Table
+    
+    module_path = os.path.dirname(__file__)
+    data_path = os.path.join(module_path, 'data/templates/lowz')
+    
+    csv_file = os.path.join(data_path, 'LOWZ_models_index.csv')
+    
+    if verbose:
+        print(f'LOWZ (Meisner et al.) templates in {data_path}')
+        
+    if os.path.exists(data_path):
+        return data_path, csv_file
+    
+    os.makedirs(data_path)
+    
+    # models.tar.gz
+    remote_url = 'https://dataverse.harvard.edu/api/access/datafile/4571308'
+    if verbose:
+        print(f"Download LOWZ models.tar.gz")
+        
+    file_path = download_file(remote_url, cache=True)
+
+    with tarfile.open(file_path, 'r:gz') as fp:
+        fp.extractall(path=data_path)
+        
+    if not os.path.exists(csv_file):
+        if verbose:
+            print(f"Download LOWZ_models_index.csv")
+            
+        csv = Table.read('https://dataverse.harvard.edu/api/access/datafile/4570758', 
+                         format='ascii.tab')
+        csv.write(csv_file, overwrite=True, format='csv')
+    
+    return data_path, csv_file
+
+
+def load_LOWZ_templates(metallicity=[-2.5, 1.0], logg=[3.5, 5.25], teff=[500, 1600], ctoo=[0.1, 0.55, 0.85], logkzz=[-1.,2.,10.], verbose=True, **kwargs):
+    """
+    Read LOWZ templates (Meisner et al. 2021)
+    
+    Parameters
+    ----------
+    metallicity : (float, float)
+        Range of metallicities from [-2.5, 1.0], inclusive of limits
+
+    logg : (float, float)
+        Range of log g from [2.5, 5.25], inclusive of limits
+    
+    teff : (float, float)
+        Range of effective temperature from [500, 1600], inclusive of limits
+    
+    ctoo : list
+        Discrete values of the CTOO grid [0.1, 0.55, 0.85]
+    
+    logkzz : list
+        Discrete values of the LOGKZZ grid [-1, 2, 10]
+    
+    Returns
+    -------
+    csv : `~astropy.table.Table`
+        Summary table with the parameter selections
+    
+    stars : list
+        List of `~eazy.templates.Template` objects
+    
+    """
+    from tqdm import tqdm
+    from astropy.table import Table
+    
+    data_path, csv_file = download_LOWZ_templates(verbose=verbose)
+    csv = Table.read(csv_file)
+    for c in list(csv.colnames):
+        csv.rename_column(c, c.lower())
+        
+    subset = csv['metallicity'] >= metallicity[0]
+    subset &= csv['metallicity'] <= metallicity[1]
+
+    subset &= csv['logg'] >= logg[0]
+    subset &= csv['logg'] <= logg[1]
+
+    subset &= csv['teff'] >= teff[0]
+    subset &= csv['teff'] <= teff[1]
+
+    subset &= np.in1d(csv['ctoo'], ctoo)
+    subset &= np.in1d(csv['logkzz'], logkzz)
+    
+    if verbose:
+        print(f'Load {subset.sum()} LOWZ BD templates')
+    
+    name_str = 'LOWZ_t{teff:04.0f}_g{logg:.1f}_m{metallicity:.1f}'
+    name_str += '_ctoo{ctoo:.2f}_kz{logkzz:.0f}'
+    
+    stars = []
+    for row in tqdm(csv[subset]):
+        file_path = os.path.join(data_path, 'models', row['filename'])
+        name = name_str.format(**row)
+        stars.append(Template(file=file_path, name=name, to_angstrom=1.e4))
+    
+    return csv[subset], stars
 
 
 def param_table(templates):
