@@ -9,9 +9,16 @@ from . import utils
 
 __all__ = ['EazyExplorer']
 
+CUTOUT_URL = "https://grizli-cutout.herokuapp.com/thumb?all_filters=True&size=4&scl=1.0&asinh=True&filters=f115w-clear,f277w-clear,f444w-clear&rgb_scl=1.5,0.74,1.3&pl=2&ra={ra}&dec={dec}"
+
+EXTRA_SLIDER_KWS = {'column':'id', 'label':'ID',
+                    'min':0, 'max':10, 'step':1,
+                    'value':[1,5], 'checked':[],
+                    }
+
 class EazyExplorer(object):
     def __init__(self, photoz, zout, extra_zout_columns=[], selection=None, 
-                 extra_plots={}):
+                 extra_plots={}, extra_slider_kws=EXTRA_SLIDER_KWS):
         """
         Generating a tool for interactive visualization of `eazy` outputs with 
         the `dash` + `plotly` libraries.
@@ -80,7 +87,14 @@ class EazyExplorer(object):
                     return _data.filled(fill_value)
             else:
                 return _data
-                
+        
+        self.extra_slider_kws = extra_slider_kws
+        if 'flux_radius' in zout.colnames:
+            self.extra_slider_kws = {'column':'flux_radius', 'label':'R50',
+                                     'min':0, 'max':20, 'step':0.2,
+                                     'value':[1,10], 'checked':[],
+                                     }
+                                
         #df = pd.DataFrame()
         df = Table()
         df['id'] = fill_masked(zout['id'])
@@ -94,9 +108,43 @@ class EazyExplorer(object):
         df['ra'] = fill_masked(photoz.RA)
         df['dec'] = fill_masked(photoz.DEC)
         df['chi2'] = fill_masked(zout['z_phot_chi2']/zout['nusefilt'])
+        
+        self.zp = photoz.zp*1
+        
         for c in extra_zout_columns:
             if c in zout.colnames:
                 df[c] = fill_masked(zout[c])
+        
+        col = self.extra_slider_kws['column']
+        if col in zout.colnames:
+            if col not in df.columns:
+                df[col] = fill_masked(zout[col])
+        else:
+            if col not in df.columns:
+                df[col] = df['id']
+        
+        _red_ix = np.argmax(photoz.pivot*(photoz.pivot < 3.e4))
+        self.DEFAULT_FILTER = photoz.flux_columns[_red_ix]
+                
+        ZP = photoz.param['PRIOR_ABZP']*1.
+        fmin = 10**(-0.4*(33-ZP))
+        fmax = 10**(-0.4*(12-ZP))
+        #print('flux limits', fmin, fmax)
+        
+        for i, f in enumerate(photoz.flux_columns):
+            key = f'mag_{f}'
+            df[key] = ZP - 2.5*np.log10(np.clip(fill_masked(photoz.cat[f]*self.zp[i]), 
+                                                fmin, fmax))
+            # if hasattr(photoz.cat[f], 'mask'):
+            #     
+            #     df[key] = ZP - 2.5*np.log10(np.clip(photoz.cat[f].filled(-99), 
+            #                                         fmin, fmax))
+            # else:
+            #     df[key] = ZP - 2.5*np.log10(np.clip(photoz.cat[f], 
+            #                                         fmin, fmax))
+        
+        df['mag'] = df[f'mag_{self.DEFAULT_FILTER}']
+        df['mag1mag2'] = df['mag']*0
         
         self.extra_plots = {}
         
@@ -121,28 +169,6 @@ class EazyExplorer(object):
             else:
                 print(f'Expected 2,4 or 6 elements in extra_plots[{k}], '
                       f'found {len(_plot_args)}')
-                
-        _red_ix = np.argmax(photoz.pivot*(photoz.pivot < 3.e4))
-        self.DEFAULT_FILTER = photoz.flux_columns[_red_ix]
-                
-        ZP = photoz.param['PRIOR_ABZP']*1.
-        fmin = 10**(-0.4*(33-ZP))
-        fmax = 10**(-0.4*(12-ZP))
-        #print('flux limits', fmin, fmax)
-        
-        for f in photoz.flux_columns:
-            key = f'mag_{f}'
-            df[key] = ZP - 2.5*np.log10(np.clip(fill_masked(photoz.cat[f]), 
-                                                fmin, fmax))
-            # if hasattr(photoz.cat[f], 'mask'):
-            #     
-            #     df[key] = ZP - 2.5*np.log10(np.clip(photoz.cat[f].filled(-99), 
-            #                                         fmin, fmax))
-            # else:
-            #     df[key] = ZP - 2.5*np.log10(np.clip(photoz.cat[f], 
-            #                                         fmin, fmax))
-        
-        df['mag'] = df[f'mag_{self.DEFAULT_FILTER}']
         
         if selection is not None:
             self.df = df[selection].to_pandas()
@@ -194,7 +220,7 @@ class EazyExplorer(object):
         return olap
     
     
-    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, api_args='', PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift'], get_content=False):
+    def make_dash_app(self, template='plotly_white', server_mode='external', port=8050, app=None, app_type='jupyter', plot_height=680, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], infer_proxy=False, slider_width=140, cutout_hdu=None, cutout_rgb=None, cutout_size=10, api_filters=None, api_size=2, api_args='', PLOT_TYPES=['zphot-zspec', 'Mag-redshift', 'Mag-color', 'redshift-color', 'Mass-redshift', 'UVJ', 'RA/Dec', 'UV-redshift', 'chi2-redshift'], get_content=False, fitsmap_url=None, cutout_url=CUTOUT_URL):
         """
         Create a Plotly/Dash app for interactive exploration
         
@@ -238,6 +264,10 @@ class EazyExplorer(object):
         self.slider_width = slider_width
         self.cutout_size = cutout_size
         
+        pivots = {}
+        for f, w in zip(self.photoz.flux_columns, self.photoz.pivot):
+            pivots[f] = w
+        
         if app is None:
             if app_type == 'dash':
                 app = dash.Dash(__name__, 
@@ -259,6 +289,8 @@ class EazyExplorer(object):
         self.cutout_data = None
         self.cutout_wcs = None
         self.api_filters = api_filters
+        self.fitsmap_url = fitsmap_url
+        self.cutout_url = cutout_url
         
         #_title = f"{self.photoz.param['MAIN_OUTPUT_FILE']}"
         #_subhead = f"Nobj={self.photoz.NOBJ}  Nfilt={self.photoz.NFILT}"
@@ -368,7 +400,7 @@ class EazyExplorer(object):
                                         'font-size':'8pt'},
                                  clearable=False),
                     ], style={'float':'left'}),
-
+                                        
                     html.Div([
                         dcc.RangeSlider(id='mag-slider',
                                         min=12, max=32, step=0.2,
@@ -384,21 +416,32 @@ class EazyExplorer(object):
                               
                     ], style=dict(display='inline-block',
                                   **slider_container)),
-                    #
+                    
+                    # Mag2 for color
+                    html.Div([dcc.Dropdown(id='mag2-filter',
+                                 options=[{'label': i, 'value': i}
+                                          for i in self.photoz.flux_columns],
+                                 value=self.photoz.flux_columns[0], 
+                                 style={'width': f'{slider_width-45}px', 
+                                        'margin-right':'20px',
+                                        'font-size':'8pt'},
+                                 clearable=False),
+                    ], style={'float':'left'}),
+                    
                     html.Div([
-                        dcc.RangeSlider(id='chi2-slider',
-                                        min=0, max=20, step=0.1,
-                                        value=[0, 6],
+                        dcc.RangeSlider(id='color-slider',
+                                        min=-2, max=5, step=0.1,
+                                        value=[-1, 3],
                                         updatemode='drag',
-                                        tooltip={"placement":'left'},
-                                        marks=None),
+                                        tooltip={"placement":'left'}, 
+                                        marks=None), 
 
-                        dcc.Checklist(id='chi2-checked', 
-                                      options=[{'label':'chi2',
+                        dcc.Checklist(id='color-checked', 
+                                      options=[{'label':'Mag1 - Mag2', 
                                                 'value':'checked'}], 
                                       value=[], **check_kwargs),
-
-                    ], style=dict(display='inline-block', 
+                              
+                    ], style=dict(display='inline-block',
                                   **slider_container)),
                     
                     html.Div([
@@ -416,7 +459,7 @@ class EazyExplorer(object):
 
                     ], style=dict(display='inline-block', 
                                   **slider_container)),
-
+                    
                 ], style=slider_row_style),
                 
                 html.Div([
@@ -463,6 +506,42 @@ class EazyExplorer(object):
                                       options=[{'label':'mass', 
                                                 'value':'checked'}], 
                                       value=['checked'], **check_kwargs),
+
+                    ], style=dict(display='inline-block', 
+                                  **slider_container)),
+                    
+                    html.Div([
+                        dcc.RangeSlider(id='chi2-slider',
+                                        min=0, max=20, step=0.1,
+                                        value=[0, 6],
+                                        updatemode='drag',
+                                        tooltip={"placement":'left'},
+                                        marks=None),
+
+                        dcc.Checklist(id='chi2-checked', 
+                                      options=[{'label':'chi2',
+                                                'value':'checked'}], 
+                                      value=[], **check_kwargs),
+
+                    ], style=dict(display='inline-block', 
+                                  **slider_container)),
+                    
+                    # Customizable slider
+                    html.Div([
+                        dcc.RangeSlider(id='extra-slider',
+                                        min=self.extra_slider_kws['min'], 
+                                        max=self.extra_slider_kws['max'],
+                                        step=self.extra_slider_kws['step'],
+                                        value=self.extra_slider_kws['value'],
+                                        updatemode='drag',
+                                        tooltip={"placement":'left'},
+                                        marks=None),
+
+                        dcc.Checklist(id='extra-checked', 
+                                      options=[{'label':self.extra_slider_kws['label'], 
+                                                'value':'checked'}], 
+                                      value=self.extra_slider_kws['checked'], 
+                                      **check_kwargs),
 
                     ], style=dict(display='inline-block', 
                                   **slider_container)),
@@ -553,16 +632,20 @@ class EazyExplorer(object):
              Input('color-type', 'value'),
              Input('mag-filter', 'value'),
              Input('mag-slider', 'value'),
+             Input('mag2-filter', 'value'),
+             Input('color-slider', 'value'),
              Input('mass-slider', 'value'),
              Input('chi2-slider', 'value'),
              Input('nfilt-slider', 'value'),
              Input('zphot-slider', 'value'),
              Input('zspec-slider', 'value'),
              Input('id-input', 'value')])
-        def update_url_state(plot_type, color_type, mag_filter, mag_range, mass_range, chi2_range, nfilt_range, zphot_range, zspec_range, id_input):
+        def update_url_state(plot_type, color_type, mag_filter, mag_range, mag2_filter, color_range, mass_range, chi2_range, nfilt_range, zphot_range, zspec_range, id_input):
             search = f'?plot_type={plot_type}&color_type={color_type}'
             search += f'&mag_filter={mag_filter}'
             search += f'&mag={mag_range[0]},{mag_range[1]}'
+            search += f'&mag2_filter={mag2_filter}'
+            search += f'&color={color_range[0]},{color_range[1]}'
             search += f'&mass={mass_range[0]},{mass_range[1]}'
             search += f'&chi2={chi2_range[0]},{chi2_range[1]}'
             search += f'&nfilt={nfilt_range[0]},{nfilt_range[1]}'
@@ -578,6 +661,8 @@ class EazyExplorer(object):
                        Output('color-type', 'value'),
                        Output('mag-filter', 'value'),
                        Output('mag-slider', 'value'),
+                       Output('mag2-filter', 'value'),
+                       Output('color-slider', 'value'),
                        Output('mass-slider', 'value'),
                        Output('chi2-slider', 'value'),
                        Output('nfilt-slider', 'value'),
@@ -594,6 +679,8 @@ class EazyExplorer(object):
             color_type = 'sSFR'
             mag_filter = self.DEFAULT_FILTER
             mag_range = [18, 27]
+            mag2_filter = self.DEFAULT_FILTER
+            color_range = [-0.5, 3]
             mass_range = [8, 11.6]
             chi2_range = [0, 4]
             nfilt_range = [1, self.MAXNFILT]
@@ -604,6 +691,7 @@ class EazyExplorer(object):
             # if '?' not in href:
             if not search:
                 return (plot_type, color_type, mag_filter, mag_range,
+                        mag2_filter, color_range,
                         mass_range, chi2_range, nfilt_range,
                         zphot_range, zspec_range,
                         id_input)
@@ -635,6 +723,19 @@ class EazyExplorer(object):
                     except ValueError:
                         pass
                         
+                elif 'mag2_filter' in p:
+                    val = p.split('=')[1]
+                    if val in self.photoz.flux_columns:
+                        mag2_filter = val
+
+                elif 'color=' in p:
+                    try:
+                        vals = [float(v) for v in p.split('=')[1].split(',')]
+                        if len(vals) == 2:
+                            color_range = vals
+                    except ValueError:
+                        pass
+
                 elif 'mass' in p:
                     try:
                         vals = [float(v) for v in p.split('=')[1].split(',')]
@@ -677,11 +778,52 @@ class EazyExplorer(object):
                         id_input = None
                         
             return (plot_type, color_type, mag_filter, mag_range,
+                    mag2_filter, color_range,
                     mass_range, chi2_range, nfilt_range,
                     zphot_range, zspec_range,
                     id_input)
 
-
+        @app.callback(
+            Output('nfilt-checked', 'label'),
+            Input('sample-selection-scatter', 'selectedData'))
+        def update_selected_data(selectedData):
+            
+            if selectedData is not None:
+                #print('selectedData', len(selectedData['points']))
+                
+                #print('y0', self.df['in_selectedData'].sum())
+                
+                if len(selectedData['points']) == 1:
+                    # Reset
+                    self.df['in_selectedData'] = self.df['z_phot'] > 0
+                    print('One point selected: reset selection!')
+                    
+                elif len(selectedData['points']) > 0:
+                    selected_ids = []
+                    for p in selectedData['points']:
+                        if "customdata" in p.keys():
+                            selected_ids.append(p['customdata'][0])
+                    
+                    #print(len(selected_ids), p)
+                    
+                    if len(selected_ids) == 1:
+                        # Reset
+                        self.df['in_selectedData'] = self.df['z_phot'] > 0
+                        print('One point selected: reset selection!')
+                        
+                    elif len(selected_ids) > 0:
+                        self.df['in_selectedData'] = np.isin(self.df['id'], 
+                                                             selected_ids)
+                
+                #print('y1', self.df['in_selectedData'].sum())
+                
+            else:
+                # print('selectedData None')
+                self.df['in_selectedData'] = self.df['z_phot'] > 0
+                
+            return 'nfilt' #f"N: {self.df['in_selectedData'].sum()}"
+        
+        
         @app.callback(
             Output('sample-selection-scatter', 'figure'),
             [Input('plot-type', 'value'),
@@ -689,8 +831,13 @@ class EazyExplorer(object):
              Input('mag-filter', 'value'),
              Input('mag-slider', 'value'),
              Input('mag-checked', 'value'),
+             Input('mag2-filter', 'value'),
+             Input('color-slider', 'value'),
+             Input('color-checked', 'value'),
              Input('mass-slider', 'value'),
              Input('mass-checked', 'value'),
+             Input('extra-slider', 'value'),
+             Input('extra-checked', 'value'),
              Input('chi2-slider', 'value'),
              Input('chi2-checked', 'value'),
              Input('nfilt-slider', 'value'),
@@ -699,8 +846,9 @@ class EazyExplorer(object):
              Input('zphot-checked', 'value'),
              Input('zspec-slider', 'value'),
              Input('zspec-checked', 'value'),
-             Input('id-input', 'value')])
-        def update_selection(plot_type, color_type, mag_filter, mag_range, mag_checked, mass_range, mass_checked, chi2_range, chi2_checked, nfilt_range, nfilt_checked, zphot_range, zphot_checked, zspec_range, zspec_checked, id_input):
+             Input('id-input', 'value')
+         ])
+        def update_selection(plot_type, color_type, mag_filter, mag_range, mag_checked, mag2_filter, color_range, color_checked, mass_range, mass_checked, extra_range, extra_checked, chi2_range, chi2_checked, nfilt_range, nfilt_checked, zphot_range, zphot_checked, zspec_range, zspec_checked, id_input):
             """
             Apply slider selections
             """
@@ -724,20 +872,39 @@ class EazyExplorer(object):
             if 'checked' in nfilt_checked:
                 sel &= (self.df['nusefilt'] >= nfilt_range[0])
                 sel &= (self.df['nusefilt'] <= nfilt_range[1])
+
+            if 'checked' in extra_checked:
+                _col = self.extra_slider_kws['column']
+                sel &= (self.df[_col] >= extra_range[0])
+                sel &= (self.df[_col] <= extra_range[1])
             
             #print('redshift: ', sel.sum())
             
             if mag_filter is None:
                 mag_filter = self.DEFAULT_FILTER
-
+            
+            if mag2_filter is None:
+                mag2_filter = self.DEFAULT_FILTER
+            
             #self.self.df['mag'] = self.ABZP 
             #self.self.df['mag'] -= 2.5*np.log10(self.photoz.cat[mag_filter])
             mag_col = 'mag_'+mag_filter            
             if 'checked' in mag_checked:
                 sel &= (self.df[mag_col] > mag_range[0]) 
                 sel &= (self.df[mag_col] < mag_range[1])
-                
+            
+            mag2_col = 'mag_'+mag2_filter
+            
+            fblue, fred = get_sorted_mag_columns(mag_filter, mag2_filter)
+            
+            mag1mag2 = self.df['mag_'+fblue] - self.df['mag_'+fred]
+            
+            if 'checked' in color_checked:
+                sel &= (mag1mag2 > color_range[0]) 
+                sel &= (mag1mag2 < color_range[1])
+            
             self.df['mag'] = self.df[mag_col]
+            self.df['mag1mag2'] = mag1mag2
             
             #print('mag: ', sel.sum())
             
@@ -755,59 +922,76 @@ class EazyExplorer(object):
                     self.df['is_selected'] = False
             else:
                 self.df['is_selected'] = False
-
+            
+            xsel = self.df['in_selectedData'][sel]
             dff = self.df[sel]
             
             # Color-coding by color-type pulldown
             if color_type == 'z_phot':
-                color_kwargs = dict(color=np.clip(dff['z_phot'], 
+                color_kwargs = dict(color=np.clip(dff['z_phot'][xsel], 
                                                   *zphot_range),
                                     color_continuous_scale='portland')
             elif color_type == 'z_spec':
-                color_kwargs = dict(color=np.clip(dff['z_spec'], 
+                color_kwargs = dict(color=np.clip(dff['z_spec'][xsel], 
                                                   *zspec_range), 
                                     color_continuous_scale='portland')
             elif color_type == 'mass':
-                color_kwargs = dict(color=np.clip(dff['mass'], *mass_range), 
+                color_kwargs = dict(color=np.clip(dff['mass'][xsel], *mass_range), 
                                     color_continuous_scale='magma_r')
             elif color_type == 'chi2':
-                color_kwargs = dict(color=np.clip(dff['chi2'], *chi2_range), 
+                color_kwargs = dict(color=np.clip(dff['chi2'][xsel], *chi2_range), 
                                     color_continuous_scale='viridis')            
             else:
-                color_kwargs = dict(color=np.clip(dff['ssfr'], -12., -8.), 
+                color_kwargs = dict(color=np.clip(dff['ssfr'][xsel], -12., -8.), 
                                     color_continuous_scale='portland_r')
             
             # Scatter plot  
-            plot_defs = {'Mass-redshift':('z_phot','mass',
+            plot_defs = {'Mass-redshift':['z_phot','mass',
                                      'z<sub>phot</sub>', 'log Stellar mass', 
-                                     (-0.1, self.ZMAX), (7.5, 12.5)), 
-                         'Mag-redshift': ('z_phot','mag',
+                                     (-0.1, self.ZMAX), (7.5, 12.5)], 
+                         'Mag-redshift': ['z_phot','mag',
                                 'z<sub>phot</sub>', f'AB mag ({mag_filter})', 
-                                (-0.1, self.ZMAX), (18, 28)),
-                         'RA/Dec': ('ra','dec',
+                                (-0.1, self.ZMAX), (18, 28)],
+                         'Mag-color': ['mag','mag1mag2',
+                                f'AB mag ({mag_filter})',
+                                f'{fblue} - {fred}'.replace('_tot_1',''),
+                                (18, 28),
+                                (-0.5, 3)],
+                         'redshift-color': ['z_phot','mag1mag2',
+                                f'z_phot',
+                                f'{fblue} - {fred}'.replace('_tot_1',''),
+                                (-0.1, self.ZMAX),
+                                (-0.5, 3)],
+                         'RA/Dec': ['ra','dec',
                                     'R.A.', 'Dec.', 
-                                    self.ra_bounds, self.dec_bounds), 
-                         'zphot-zspec': ('z_spec','z_phot',
+                                    self.ra_bounds, self.dec_bounds], 
+                         'zphot-zspec': ['z_spec','z_phot',
                                    'z<sub>spec</sub>', 'z<sub>phot</sub>', 
-                                    (0, 4.5), (0, 4.5)), 
-                         'UVJ': ('vj','uv',
+                                    (0, 4.5), (0, 4.5)], 
+                         'UVJ': ['vj','uv',
                                   '(V-J)', '(U-V)', 
-                                  (-0.1, 2.5), (-0.1, 2.5)), 
-                         'UV-redshift': ('z_phot','uv',
+                                  (-0.1, 2.5), (-0.1, 2.5)], 
+                         'UV-redshift': ['z_phot','uv',
                                  'z<sub>phot</sub>', '(U-V)<sub>rest</sub>', 
-                                 (0, 4), (-0.1, 2.50)), 
-                         'chi2-redshift': ('z_phot','chi2',
+                                 (0, 4), (-0.1, 2.50)], 
+                         'chi2-redshift': ['z_phot','chi2',
                                  'z<sub>phot</sub>', 'chi<sup>2</sup>',
-                                 (0, 4), (0.1, 30))
+                                 (0, 4), (0.1, 30)]
                          }
             
             if plot_type in self.extra_plots:
-                args = (*self.extra_plots[plot_type], {}, color_kwargs)
+                args = [*self.extra_plots[plot_type], {}, color_kwargs]
             elif plot_type in plot_defs:
-                args = (*plot_defs[plot_type], {}, color_kwargs)
+                args = [*plot_defs[plot_type], {}, color_kwargs]
             else:
-                args = (*plot_defs['zphot-zspec'], {}, color_kwargs)
-
+                args = [*plot_defs['zphot-zspec'], {}, color_kwargs]
+            
+            if args[0] == 'mag':
+                args[2] = f'AB mag ({mag_filter})'
+            
+            if args[1] == 'mag':
+                args[3] = f'AB mag ({mag_filter})'
+                
             fig = update_sample_scatter(dff, *args)
             
             # Update ranges for some parameters
@@ -815,12 +999,27 @@ class EazyExplorer(object):
                 fig.update_yaxes(range=mass_range)
 
             if ('Mag' in plot_type) & ('checked' in mag_checked):
-                fig.update_yaxes(range=mag_range)
-            
+                if args[0] == 'mag':
+                    fig.update_xaxes(range=mag_range)
+                else:
+                    fig.update_yaxes(range=mag_range)
+                    
+            if ('color' in plot_type) & ('checked' in color_checked):
+                if args[0] == 'mag1mag2':
+                    fig.update_xaxes(range=color_range)
+                else:
+                    fig.update_yaxes(range=color_range)
+                    
             if ('redshift' in plot_type) & ('checked' in zphot_checked):
-                fig.update_xaxes(range=zphot_range)
-            
+                if args[0] == 'z_phot':
+                    fig.update_xaxes(range=zphot_range)
+                else:
+                    fig.update_yaxes(range=zphot_range)
+                    
             if ('zspec' in plot_type) & ('checked' in zspec_checked):
+                if args[0] == 'z_spec':
+                    fig.update_xaxes(range=zspec_range)
+                else:
                     fig.update_yaxes(range=zspec_range)
             
             return fig
@@ -832,17 +1031,29 @@ class EazyExplorer(object):
             """
             import plotly.graph_objects as go
             
-            print('update_sample_scatter xxx', xcol, len(dff[xcol]))
-            fig = px.scatter(data_frame=dff, x=xcol, y=ycol, 
+            # print('update_sample_scatter xxx', xcol, len(dff[xcol]))
+            is_sel = dff['in_selectedData']
+            fig = px.scatter(data_frame=dff[is_sel], x=xcol, y=ycol, 
                              custom_data=['id','z_phot','mass','ssfr','mag'], 
                              **color_kwargs)
-                        
+                            
             htempl = '(%{x:.2f}, %{y:.2f}) <br>'
             htempl += 'id: %{customdata[0]:0d}  z_phot: %{customdata[1]:.2f}'
             htempl += '<br> mag: %{customdata[4]:.1f}  '
             htempl += 'mass: %{customdata[2]:.2f}  ssfr: %{customdata[3]:.2f}'
                 
             fig.update_traces(hovertemplate=htempl, opacity=0.7)
+
+            if (~is_sel).sum() > 0:
+                _xsel = go.Scatter(x=dff[~is_sel][xcol],
+                                   y=dff[~is_sel][ycol], 
+                                   mode="markers", 
+                                   marker=dict(color='rgba(180,180,180,0.2)',
+                                               size=5, symbol='circle'),
+                                   hoverinfo='skip',
+                               )
+                fig.add_trace(_xsel)
+                fig.data = fig.data[::-1]
 
             if dff['is_selected'].sum() > 0:
                 dffs = dff[dff['is_selected']]
@@ -855,6 +1066,7 @@ class EazyExplorer(object):
                                               symbol='circle-open'))
                                   
                 fig.add_trace(_sel)
+            
             
             fig.update_xaxes(range=x_range, title_text=x_label)
             fig.update_yaxes(range=y_range, title_text=y_label)
@@ -899,7 +1111,7 @@ class EazyExplorer(object):
             turl = f'https://grizli-cutout.herokuapp.com/thumb?'
             turl += f'ra={ri}&dec={di}&size={api_size}'
             turl += f'{api_args}&filters={api_filters}'   
-            #print(turl)
+            print(turl)
             # with open('/tmp/thumb.log','a') as fp:
             #     fp.write(turl+'\n')
                 
@@ -975,7 +1187,31 @@ class EazyExplorer(object):
 
             return fig
 
-
+        
+        def get_sorted_mag_columns(mag_filter, mag2_filter):
+            """
+            """
+            if pivots[mag_filter] > pivots[mag2_filter]:
+                return mag2_filter, mag_filter
+            else:
+                return mag_filter, mag2_filter
+        
+        def get_map_link(ra, dec):
+            """
+            Return an html.A object with a link to a FITSMap or LegacySurvey map
+            """
+            from dash import html
+            
+            if self.fitsmap_url is None:
+                link = html.A('LegacySurvey', 
+                              href=utils.show_legacysurvey(ra, dec, layer='ls-dr9'))
+            else:
+                href = self.fitsmap_url.format(ra=ra, dec=dec)
+                link = html.A('FitsMap', href=href)
+            
+            return link
+        
+        
         def parse_id_input(id_input):
             """
             Parse input as id or (ra dec)
@@ -1002,8 +1238,7 @@ class EazyExplorer(object):
         @app.callback([Output('object-sed-figure', 'figure'),
                        Output('object-info', 'children'), 
                        Output('match-sep', 'children'), 
-                       Output('cutout-figure', 
-                                                cutout_target)], 
+                       Output('cutout-figure', cutout_target)], 
                       [Input('sample-selection-scatter', 
                                                'hoverData'), 
                        Input('sed-unit-selector', 'value'),
@@ -1050,17 +1285,17 @@ class EazyExplorer(object):
                 ix = np.where(ix)[0][0]
                 ra, dec = self.df['ra'][ix], self.df['dec'][ix]
                 object_info = [f'ID: {id_i}  |  α, δ = {ra:.6f} {dec:.6f} ',
-                               ' | ', html.A('ESO', 
-                                             href=utils.eso_query(ra, dec, 
-                                                           radius=1.0,
-                                                           unit='s')),
+                               # ' | ', html.A('ESO',
+                               #               href=utils.eso_query(ra, dec,
+                               #                             radius=1.0,
+                               #                             unit='s')),
                                ' | ', html.A('CDS', 
                                              href=utils.cds_query(ra, dec, 
                                                            radius=1.0,
                                                            unit='s')),
-                               ' | ', html.A('LegacySurvey', 
-                                        href=utils.show_legacysurvey(ra, dec, 
-                                                           layer='ls-dr9')),
+                               ' | ', html.A('Cutout',
+                                          href=self.cutout_url.format(ra=ra, dec=dec)),
+                               ' | ', get_map_link(ra, dec),
                                html.Br(), 
                                f"z_phot: {self.df['z_phot'][ix]:.3f}  ", 
                                f" | z_spec: {self.df['z_spec'][ix]:.3f}", 
