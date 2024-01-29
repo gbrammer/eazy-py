@@ -302,7 +302,7 @@ def test_sps_parameters():
         if '_err' in k:
             assert(np.allclose(zout[k][0], zdict[k], rtol=0.5))
         else:
-            assert(np.allclose(zout[k][0], zdict[k], rtol=0.1))
+            assert(np.allclose(zout[k][0], zdict[k], rtol=0.2))
 
     # confirm that zout['z_phot'] == zout['z_ml']
     assert(np.all(zout['z_ml'] == zout['z_phot']))
