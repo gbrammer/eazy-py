@@ -13,15 +13,19 @@ try:
     import dust_attenuation
 except ImportError:
     print('Failed to `import dust_attenuation`')
-    print('Install my fork with $ pip install ' +
-          'git+https://github.com/gbrammer/dust_attenuation.git')
+    print('Install from the repo with $ pip install ' +
+          'git+https://github.com/karllark/dust_attenuation.git')
+    # print('Install my fork with $ pip install ' +
+    #       'git+https://github.com/gbrammer/dust_attenuation.git')
 
-try:
-    import dust_extinction
-except ImportError:
-    print('Failed to `import dust_extinction`')
-    print('Install my fork with $ pip install ' +
-          'git+https://github.com/gbrammer/dust_extinction.git')
+### dust_extinction is now in dependencies and should be installed from PyPI
+
+# try:
+#     import dust_extinction
+# except ImportError:
+#     print('Failed to `import dust_extinction`')
+#     print('Install from the forked repo with $ pip install ' +
+#           'git+https://github.com/gbrammer/dust_extinction.git')
 
 
 ## Hot fix for importing prospector without SPS_HOME variable set
