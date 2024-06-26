@@ -2587,8 +2587,11 @@ class PhotoZ(object):
         """
         import matplotlib.pyplot as plt
         from matplotlib.gridspec import GridSpec
-        from scipy.integrate import cumtrapz
-        
+        try:
+            from scipy.integrate import cumtrapz
+        except ImportError:
+            from scipy.integrate import cumulative_trapezoid as cumtrapz
+
         import astropy.units as u
         from cycler import cycler
         
@@ -3824,7 +3827,10 @@ class PhotoZ(object):
             
         """
         import scipy.interpolate 
-        from scipy.integrate import cumtrapz
+        try:
+            from scipy.integrate import cumtrapz
+        except ImportError:
+            from scipy.integrate import cumulative_trapezoid as cumtrapz
         
         interpolator = scipy.interpolate.Akima1DInterpolator
         
