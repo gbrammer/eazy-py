@@ -1138,8 +1138,8 @@ class emceeChain():
         Draw random sets of parameters from the chain
         """
         #ok_walk = self.sampler.acceptance_fraction > min_acceptance
-        iwalk = np.cast[int](np.random.rand(N)*self.nwalkers)
-        istep = self.nburn + np.cast[int](np.random.rand(N)*(self.nstep-self.nburn))
+        iwalk = np.asarray(np.random.rand(N)*self.nwalkers,dtype=int)
+        istep = self.nburn + np.asarray(np.random.rand(N)*(self.nstep-self.nburn),dtype=int)
         draw = self.chain[iwalk, istep, :]
         return draw
         

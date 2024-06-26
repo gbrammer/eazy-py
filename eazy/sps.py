@@ -567,7 +567,7 @@ class ExtendedFsps(StellarPopulation):
         NZ = len(self.zlegend)
         logzsol = self.params['logzsol']
         zi = np.interp(logzsol, np.log10(self.zlegend/0.019), np.arange(NZ))
-        return np.clip(np.cast[int](np.round(zi)), 0, NZ-1)
+        return np.clip(np.asarray(np.round(zi),dtype=int), 0, NZ-1)
     
     @property
     def fsps_ages(self):

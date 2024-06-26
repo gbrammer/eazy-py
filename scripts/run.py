@@ -90,8 +90,8 @@ def go():
     Lj = Ltot[:,2]
     
     lines = open('templates/uvista_nmf/spectra_kc13_12_tweak.param').readlines()
-    MLv_template = np.cast[float]([line.split()[3] for line in lines if ('MLv' in line) & (line.startswith('# '))])
-    SFRv_template = np.cast[float]([line.split()[5] for line in lines if ('MLv' in line) & (line.startswith('# '))])
+    MLv_template = np.asarray([line.split()[3] for line in lines if ('MLv' in line) & (line.startswith('# '))],dtype=float)
+    SFRv_template = np.asarray([line.split()[5] for line in lines if ('MLv' in line) & (line.startswith('# '))],dtype=float)
 
     irest = 1 # V
     #irest = 2 # J
@@ -103,8 +103,8 @@ def go():
 
         # These are masses
         lines = open(self.param['TEMPLATES_FILE']).readlines()
-        MLv_template = np.cast[float]([line.split()[4] for line in lines if line.startswith('# ')])
-        SFRv_template = np.cast[float]([line.split()[5] for line in lines if line.startswith('# ')])
+        MLv_template = np.asarray([line.split()[4] for line in lines if line.startswith('# ')],dtype=float)
+        SFRv_template = np.asarray([line.split()[5] for line in lines if line.startswith('# ')],dtype=float)
 
         MLv_template /= Lvt
         SFRv_template /= Lvt
