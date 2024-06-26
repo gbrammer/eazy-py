@@ -1224,7 +1224,7 @@ class EazyExplorer(object):
             if len(inp_split) == 1:
                 return int(inp_split[0]), None
                 
-            ra, dec = np.asarray(inp_split, dtype=float)float
+            ra, dec = np.asarray(inp_split, dtype=float)
             
             cosd = np.cos(self.df['dec']/180*np.pi)
             dx = (self.df['ra'] - ra)*cosd
