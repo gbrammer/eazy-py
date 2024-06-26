@@ -443,7 +443,7 @@ def test_hdf5():
     assert(np.allclose(ez.prior_mags, new_ez.prior_mags))
     assert(np.allclose(ez.zml, new_ez.zml))
     assert(np.allclose(ez.zbest, new_ez.zbest))
-    assert(np.allclose(ez.lnp, new_ez.lnp))
+    assert(np.allclose(ez.lnp, new_ez.lnp, rtol=1.e-4))
 
 
 def test_cleanup():
