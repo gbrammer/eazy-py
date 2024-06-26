@@ -184,8 +184,8 @@ class FilterDefinition:
         """
         integrator = np.trapz
         
-        num = integrator(self.wave, self.wave*self.throughput)
-        den = integrator(self.wave, self.throughput/self.wave)
+        num = integrator(self.wave*self.throughput, self.wave)
+        den = integrator(self.throughput/self.wave, self.wave)
         pivot = np.sqrt(num/den)
         return pivot
     
