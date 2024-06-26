@@ -56,8 +56,8 @@ class FilterDefinition:
 
         # pysynphot Bandpass
         if bp is not None:
-            self.wave = np.cast[np.double](bp.wave)
-            self._throughput =  np.cast[np.double](bp.throughput)
+            self.wave = np.asarray(bp.wave, dtype=np.double)
+            self._throughput =  np.asarray(bp.throughput, dtype=np.double)
             self.name = bp.name
         
         # Set throughput accounting for photon_counter
@@ -291,11 +291,11 @@ class FilterFile:
                 if len(wave) > 0:
                     # Make filter from lines already read in
                     new_filter = FilterDefinition(name=header,
-                                                  wave=np.cast[float](wave), 
-                                            throughput=np.cast[float](trans))
+                                                  wave=np.asarray(wave,dtype=float), 
+                                            throughput=np.asarray(trans,dtype=float))
                     # new_filter.name = header
-                    # new_filter.wave = np.cast[float](wave)
-                    # new_filter.throughput = np.cast[float](trans)
+                    # new_filter.wave = np.asarray(wave,dtype=float)
+                    # new_filter.throughput = np.asarray(trans,dtype=float)
                     filters.append(new_filter)
 
                 # Initialize filter
@@ -303,18 +303,18 @@ class FilterFile:
                 wave = []
                 trans = []
             else:
-                lspl = np.cast[float](line.split())
+                lspl = np.asarray(line.split(),dtype=float)
                 wave.append(lspl[1])
                 trans.append(lspl[2])
                 
         # last one
         # new_filter = FilterDefinition()
         # new_filter.name = header
-        # new_filter.wave = np.cast[float](wave)
-        # new_filter.throughput = np.cast[float](trans)
+        # new_filter.wave = np.asarray(wave,dtype=float)
+        # new_filter.throughput = np.asarray(trans,dtype=float)
         new_filter = FilterDefinition(name=header,
-                                      wave=np.cast[float](wave), 
-                                throughput=np.cast[float](trans))
+                                      wave=np.asarray(wave,dtype=float), 
+                                throughput=np.asarray(trans,dtype=float))
 
         filters.append(new_filter)
            

@@ -470,8 +470,8 @@ class Template():
         
         if sp is not None:
             # Prospector        
-            self.wave = np.cast[float](sp.wave)
-            self.flux = np.cast[float](sp.flux)
+            self.wave = np.asarray(sp.wave,dtype=float)
+            self.flux = np.asarray(sp.flux,dtype=float)
             # already fnu
             self.flux *= utils.CLIGHT*1.e10 / self.wave**2
             

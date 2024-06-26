@@ -1229,7 +1229,7 @@ class PhotoZ(object):
         prior_raw = np.loadtxt(prior_file)
         prior_header = open(prior_file).readline()
         
-        prior_mags = np.cast[float](prior_header.split()[2:])
+        prior_mags = np.asarray(prior_header.split()[2:],dtype=float)
         NZ = len(zgrid)
         prior_data = np.zeros((NZ, len(prior_mags)))
                                    
@@ -1290,7 +1290,7 @@ class PhotoZ(object):
         # prior_raw = np.loadtxt(self.param['PRIOR_FILE'])
         # prior_header = open(self.param['PRIOR_FILE']).readline()
         # 
-        # self.prior_mags = np.cast[float](prior_header.split()[2:])
+        # self.prior_mags = np.asarray(prior_header.split()[2:],dtype=float)
         # self.prior_data = np.zeros((self.NZ, len(self.prior_mags)))
         #                            
         # for i in range(self.prior_data.shape[1]):
@@ -5206,8 +5206,8 @@ class PhotoZ(object):
         ex = np.arange(nx)
         ey = np.arange(ny)
         
-        ix = np.cast[int](np.interp(xc, bin2d.x_edge, ex))
-        iy = np.cast[int](np.interp(yc, bin2d.y_edge, ey))
+        ix = np.asarray(np.interp(xc, bin2d.x_edge, ex),dtype=int)
+        iy = np.asarray(np.interp(yc, bin2d.y_edge, ey),dtype=int)
         
         corr = bin2d.statistic[ix, iy]
         corr[~np.isfinite(corr)] = 1

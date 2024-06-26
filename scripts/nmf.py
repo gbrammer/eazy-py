@@ -114,7 +114,7 @@ def build_matrices():
     
     ##############
     ## Build NMF matrix
-    izbest = np.cast[int](np.round(np.interp(self.zbest, self.tempfilt.zgrid, np.arange(self.NZ))))
+    izbest = np.asarray(np.round(np.interp(self.zbest, self.tempfilt.zgrid, np.arange(self.NZ))),dtype=int)
     
     NOBJ = len(idx)
     data = np.zeros((NOBJ, self.NFILT, self.NZ))
