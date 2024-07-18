@@ -794,6 +794,15 @@ class Template():
         
         include_igm : bool
             Include IGM absorption at indicated redshift
+            
+        sigmoid_params : 3-tuple float
+            Sigmoid function parameters used in `~eazy.igm.Asada24`
+        
+        scale_tau : float
+            Scalar multiplied to tau_igm
+            
+        add_cgm : bool
+            Add CGM component in IGM transmission
         
         clip_wavelengths : [float, float]
             Trim the full observed-frame wavelength array before convolving.  
@@ -812,7 +821,7 @@ class Template():
         wobs = self.wave*(1+z)
         
         if include_igm:
-            igmz = self.igm_absorption(z, pow=include_igm)
+            igmz = self.igm_absorption(z, sigmoid_params=sigmoid_params,scale_tau=scale_tau, add_cgm=add_cgm)
         else:
             igmz = 1.
         
@@ -1017,7 +1026,7 @@ class Template():
         return iz
 
 
-    def zscale(self, z, scalar=1, include_igm=True, **kwargs):
+    def zscale(self, z, scalar=1, include_igm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, **kwargs):
         """Redshift the template and multiply by a scalar.
 
         Parameters
@@ -1029,8 +1038,17 @@ class Template():
             Multiplicative factor.  Additional factor of 1./(1+z) is implicit.
         
         include_igm : bool
-            Include Inoue (2014) IGM absorption (also can be passed as 
+            Include Asada (2024) IGM absorption (also can be passed as
             ``apply_igm`` in ``kwargs``.)
+            
+        sigmoid_params : 3-tuple float
+            Sigmoid function parameters used in `~eazy.igm.Asada24`
+        
+        scale_tau : float
+            Scalar multiplied to tau_igm
+            
+        add_cgm : bool
+            Add CGM component in IGM transmission
         
         Returns
         -------
@@ -1041,8 +1059,15 @@ class Template():
         if 'apply_igm' in kwargs:
             include_igm = kwargs['apply_igm']
             
+            if 'sigmoid_params' in kwargs:
+                sigmoid_params = kwargs['sigmoid_params']
+            if 'add_cgm' in kwargs:
+                add_cgm = kwargs['add_cgm']
+            if 'scale_tau' in kwards:
+                scale_tau = kwards['scale_tau']
+            
         if include_igm:
-            igmz = self.igm_absorption(z, pow=include_igm)
+            igmz = self.igm_absorption(z, sigmoid_params=sigmoid_params,scale_tau=scale_tau, add_cgm=add_cgm)
         else:
             igmz = 1.
         
@@ -1051,7 +1076,7 @@ class Template():
                         name=f'{self.name} z={z}')
 
 
-    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, redshift_type='nearest', iz=None):
+    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, redshift_type='nearest', iz=None):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -1077,6 +1102,15 @@ class Template():
         
         include_igm : bool
             Include IGM absorption
+            
+        sigmoid_params : 3-tuple float
+            Sigmoid function parameters used in `~eazy.igm.Asada24`
+        
+        scale_tau : float
+            Scalar multiplied to tau_igm
+            
+        add_cgm : bool
+            Add CGM component in IGM transmission
         
         redshift_type : str
             See `~eazy.templates.Template.zindex`.
@@ -1109,7 +1143,7 @@ class Template():
             single = True
         
         if include_igm > 0:
-            igmz = self.igm_absorption(z, pow=include_igm)
+            igmz = self.igm_absorption(z, sigmoid_params=sigmoid_params,scale_tau=scale_tau, add_cgm=add_cgm)
         else:
             igmz = 1.
         
@@ -1144,9 +1178,9 @@ class Template():
             return np.array(fluxes)
 
 
-    def igm_absorption(self, z, scale_tau=1., pow=1):
+    def igm_absorption(self, z, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True):
         """
-        Compute IGM absorption with `eazy.igm.Inoue14`.
+        Compute IGM absorption with `eazy.igm.Asada24`.
         
         Parameters
         ----------
@@ -1164,9 +1198,9 @@ class Template():
         except:
             from eazy import igm as igm_module
         
-        igm = igm_module.Inoue14(scale_tau=scale_tau)
+        igm = igm_module.Asada24(sigmoid_params=sigmoid_params, scale_tau=scale_tau, add_cgm=add_cgm)
         igmz = self.wave*0.+1
-        lyman = self.wave < 1300
+        lyman = self.wave < 2000
         igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])**pow
         return igmz
 

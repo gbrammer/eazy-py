@@ -30,7 +30,7 @@ from .templates import gaussian_templates, bspline_templates
 
 from . import utils 
 
-IGM_OBJECT = igm_module.Inoue14()
+IGM_OBJECT = igm_module.Asada24()
 
 __all__ = ["PhotoZ", "TemplateGrid", "template_lsq", "fit_by_redshift"]
 
@@ -272,6 +272,15 @@ class PhotoZ(object):
         
         if 'IGM_SCALE_TAU' in self.param.params:
             IGM_OBJECT.scale_tau = self.param['IGM_SCALE_TAU']
+        
+        if self.param['ADD_CGM'] in utils.TRUE_VALUES:
+            IGM_OBJECT.add_cgm = True
+        else:
+            IGM_OBJECT.add_cgm = False
+        
+        sigmoid_params = (self.param.params['SIGMOID_PARAM1'], self.param.params['SIGMOID_PARAM2'], self.param.params['SIGMOID_PARAM3'])
+        IGM_OBJECT.sigmoid_params = sigmoid_params
+        
                             
         ### Read templates
         kws = dict(templates_file=self.param['TEMPLATES_FILE'], 
@@ -2673,7 +2682,7 @@ class PhotoZ(object):
 
         if self.tempfilt.add_igm:
             igmz = templ.wave*0.+1
-            lyman = templ.wave < 1300
+            lyman = templ.wave < 2000
             igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
         else:
             igmz = 1.
@@ -2832,7 +2841,7 @@ class PhotoZ(object):
                 templzi = templ.wave*(1+zi)
                 if self.tempfilt.add_igm:
                     igmz = templ.wave*0.+1
-                    lyman = templ.wave < 1300
+                    lyman = templ.wave < 2000
                     igmz[lyman] = IGM_OBJECT.full_IGM(zi, templzi[lyman])
                 else:
                     igmz = 1.
@@ -5688,7 +5697,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
         # IGM absorption
         if add_igm:
             igmz = templ.wave*0.+1
-            lyman = templ.wave < 1300
+            lyman = templ.wave < 2000
             igmz[lyman] = igm.full_IGM(zgrid[iz], lz[lyman])
         else:
             igmz = 1.
