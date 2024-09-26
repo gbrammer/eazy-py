@@ -1576,6 +1576,7 @@ class PhotoZ(object):
 
         fitter = self.param['FITTER']
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
+        hess_threshold = self.param['HESS_THRESHOLD']
 
         t0 = time.time()
         if (n_proc == 0) | (mp.cpu_count() == 1):
@@ -1592,7 +1593,8 @@ class PhotoZ(object):
                     self.zp, 
                     self.param.params['VERBOSITY'], 
                     fitter,
-                    renorm_t
+                    renorm_t,
+                    hess_threshold
                 )
                 
                 self.chi2_fit[idx_fit,iz] = _res[1]
@@ -1619,7 +1621,8 @@ class PhotoZ(object):
                      self.zp,
                      self.param.params['VERBOSITY'],
                      fitter,
-                     renorm_t
+                     renorm_t,
+                     hess_threshold
                     )
                 ) 
                 for iz, z in enumerate(self.zgrid)
@@ -1657,6 +1660,7 @@ class PhotoZ(object):
         """
         fitter = self.param['FITTER']
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
+        hess_threshold = self.param['HESS_THRESHOLD']
         
         fnu_i = np.squeeze(self.fnu[iobj, :])*self.ext_redden*self.zp
         efnu_i = np.squeeze(self.efnu[iobj,:])*self.ext_redden*self.zp
@@ -1675,7 +1679,8 @@ class PhotoZ(object):
             self.zp,
             0,
             fitter,
-            renorm_t
+            renorm_t,
+            hess_threshold
         )
         
         return chi2_i, coeffs_i, fmodel
@@ -1690,12 +1695,19 @@ class PhotoZ(object):
         """
         fitter = self.param['FITTER']
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
+        hess_threshold = self.param['HESS_THRESHOLD']
         
         chi2 = np.zeros(self.NZ, dtype=self.ARRAY_DTYPE)
         coeffs = np.zeros((self.NZ, self.NTEMP), dtype=self.ARRAY_DTYPE)
     
         for iz, z in enumerate(self.zgrid):
-            _ = self.fit_at_redshift(iobj, z=z, fitter=fitter, renorm_t=renorm_t)
+            _ = self.fit_at_redshift(
+                iobj,
+                z=z,
+                fitter=fitter,
+                renorm_t=renorm_t,
+                hess_threshold=hess_threshold
+            )
             chi2[iz,:], coeffs[iz] = _[:2]
         
         return iobj, chi2, coeffs
@@ -1749,7 +1761,8 @@ class PhotoZ(object):
         
         fitter = self.param['FITTER']
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
-         
+        hess_threshold = self.param['HESS_THRESHOLD']
+
         #izbest = np.argmin(self.chi2_fit, axis=1)
         izbest = self.izbest*1
         has_chi2 = (self.chi2_fit != 0).sum(axis=1) > 0 
@@ -1826,6 +1839,7 @@ class PhotoZ(object):
                 get_err,
                 fitter,
                 renorm_t,
+                hess_threshold,
                 self.tempfilt,
                 self.TEF,
                 self.ARRAY_DTYPE,
@@ -1854,6 +1868,7 @@ class PhotoZ(object):
                         get_err, 
                         fitter,
                         renorm_t,
+                        hess_threshold,
                         self.tempfilt,
                         self.TEF,
                         self.ARRAY_DTYPE,
@@ -2475,7 +2490,7 @@ class PhotoZ(object):
         fp.close()
     
     
-    def show_fit(self, id, id_is_idx=False, zshow=None, show_fnu=0, get_spec=False, xlim=[0.3, 9], show_components=False, show_redshift_draws=False, draws_cmap=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], ndraws=100, fitter=None, renorm_t=None, show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=-20, max_stars=3, show_upperlimits=True, snr_thresh=2., with_tef=True, **kwargs):
+    def show_fit(self, id, id_is_idx=False, zshow=None, show_fnu=0, get_spec=False, xlim=[0.3, 9], show_components=False, show_redshift_draws=False, draws_cmap=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], ndraws=100, fitter=None, renorm_t=None, hess_threshold=None, show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=-20, max_stars=3, show_upperlimits=True, snr_thresh=2., with_tef=True, **kwargs):
         """
         Make plot of SED and p(z) of a single object
         
@@ -2545,6 +2560,9 @@ class PhotoZ(object):
 
         renorm_t : bool
             Renormalize templates before fitting
+        
+        hess_threshold : float
+            Hessian threshold for removing degenerate templates
 
         show_missing : bool
             Show points for "missing" data
@@ -2647,6 +2665,9 @@ class PhotoZ(object):
         if renorm_t is None:
             renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
         
+        if hess_threshold is None:
+            hess_threshold = self.param['HESS_THRESHOLD']
+        
         if id_is_idx:
             ix = id
         else:
@@ -2705,7 +2726,8 @@ class PhotoZ(object):
             self.zp,
             ndraws,
             fitter,
-            renorm_t
+            renorm_t,
+            hess_threshold
         )
         if draws is None:
             efmodel = 0
@@ -2892,7 +2914,8 @@ class PhotoZ(object):
                     self.zp,
                     0,
                     fitter,
-                    renorm_t
+                    renorm_t,
+                    hess_threshold,
                 )
                                                        
                 c_i = np.interp(zi, self.zgrid, np.arange(self.NZ)/self.NZ)
@@ -3414,6 +3437,9 @@ class PhotoZ(object):
         
         renorm_t : bool
             Renormalize templates before fitting
+        
+        hess_threshold : float
+            Hessian threshold
 
         n_proc, par_skip : int, int
             Number of processes to use.  If zero, then run in serial mode.  
@@ -3437,6 +3463,7 @@ class PhotoZ(object):
         
         fitter = self.param['FITTER']
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
+        hess_threshold = self.param['HESS_THRESHOLD']
         
         NREST = len(f_numbers)
         if isinstance(f_numbers[0], int):
@@ -3510,6 +3537,7 @@ class PhotoZ(object):
                                 ndraws, 
                                 fitter,
                                 renorm_t,
+                                hess_threshold,
                                 self.tempfilt,
                                 self.ARRAY_DTYPE, 
                                 rf_tempfilt, 
@@ -3547,6 +3575,7 @@ class PhotoZ(object):
                         ndraws, 
                         fitter,
                         renorm_t,
+                        hess_threshold,
                         self.tempfilt,
                         self.ARRAY_DTYPE, 
                         rf_tempfilt,
@@ -4726,6 +4755,7 @@ class PhotoZ(object):
         
         fitter = self.param['FITTER']
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
+        hess_threshold = self.param['HESS_THRESHOLD']
         
         if self.param['VERBOSITY'] >= 1:
             print('Get best fit coeffs & best redshifts')
@@ -4740,9 +4770,17 @@ class PhotoZ(object):
 
         # Fit at max-lnp (default if zbest = None) first and record this 
         # information no matter what.          
-        self.fit_at_zbest(zbest=None, prior=prior, beta_prior=beta_prior, 
-                      get_err=get_err, fitter=fitter, renorm_t=renorm_t, n_proc=n_proc, 
-                      clip_wavelength=clip_wavelength)
+        self.fit_at_zbest(
+            zbest=None,
+            prior=prior,
+            beta_prior=beta_prior,
+            get_err=get_err,
+            fitter=fitter,
+            renorm_t=renorm_t,
+            hess_threshold=hess_threshold,
+            n_proc=n_proc, 
+            clip_wavelength=clip_wavelength
+        )
         
         tab['z_ml'] = self.zbest
         tab['z_ml_chi2'] = self.chi2_best 
@@ -4751,10 +4789,17 @@ class PhotoZ(object):
         # Fit at the user's requested zbest, which defaults to 
         # z_pdf if zbest is None
         if zbest is not None:
-            self.fit_at_zbest(zbest=zbest, prior=prior, beta_prior=beta_prior, 
-                          get_err=get_err, fitter=fitter, renorm_t=renorm_t,
-                          n_proc=n_proc, 
-                          clip_wavelength=clip_wavelength)
+            self.fit_at_zbest(
+                zbest=zbest,
+                prior=prior,
+                beta_prior=beta_prior,
+                get_err=get_err,
+                fitter=fitter,
+                renorm_t=renorm_t,
+                hess_threshold=hess_threshold,
+                n_proc=n_proc,
+                clip_wavelength=clip_wavelength
+            )
                
         try:
             zlimits = self.pz_percentiles(percentiles=[2.5,16,50,84,97.5],
@@ -5798,7 +5843,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
     return itemp, tempfilt
 
 
-def fit_by_redshift(iz, z, A, fnu_corr, efnu_corr, TEFz, zp, verbose, fitter, renorm_t):
+def fit_by_redshift(iz, z, A, fnu_corr, efnu_corr, TEFz, zp, verbose, fitter, renorm_t, hess_threshold):
     """
     Fit all objects in the catalog at a given reshift for parallelization
     
@@ -5832,6 +5877,8 @@ def fit_by_redshift(iz, z, A, fnu_corr, efnu_corr, TEFz, zp, verbose, fitter, re
     
     renorm_t : bool
         Renormalize templates before fitting
+    
+    hess_threshold : float
     
     Returns
     -------
@@ -5871,14 +5918,15 @@ def fit_by_redshift(iz, z, A, fnu_corr, efnu_corr, TEFz, zp, verbose, fitter, re
             zp,
             False,
             fitter,
-            renorm_t
+            renorm_t,
+            hess_threshold
         )
         chi2[iobj], coeffs[iobj], fmodel, draws = _res
             
     return iz, chi2, coeffs
 
 
-def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, renorm_t, tempfilt, TEF, ARRAY_DTYPE, _self):
+def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, renorm_t, hess_threshold, tempfilt, TEF, ARRAY_DTYPE, _self):
     """
     Standalone function for fitting individual objects and getting 
     coefficients and random draws
@@ -5923,7 +5971,7 @@ def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, ren
         fnu_i = fnu_corr[iobj, :]
         efnu_i = efnu_corr[iobj,:]
         if get_err:
-            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, NDRAWS, fitter, renorm_t)
+            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, NDRAWS, fitter, renorm_t, hess_threshold)
             chi2, coeffs_best[iobj,:], fmodel[iobj,:], draws = _
             if draws is None:
                 efmodel[iobj,:] = -1
@@ -5934,7 +5982,7 @@ def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, ren
                 efmodel[iobj,:] = efm
                 coeffs_draws[iobj, :, :] = draws
         else:
-            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, False, fitter, renorm_t)
+            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, False, fitter, renorm_t, hess_threshold)
             chi2, coeffs_best[iobj,:], fmodel[iobj,:], draws = _
 
         chi2_best[iobj] = chi2
@@ -5945,7 +5993,7 @@ def _fit_at_zbest_group(ix, fnu_corr, efnu_corr, zbest, zp, get_err, fitter, ren
         return True
 
 
-def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter, renorm_t, tempfilt, ARRAY_DTYPE, rf_tempfilt, percentiles, rf_lc, pad_width, max_err, threads):
+def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter, renorm_t, hess_threshold, tempfilt, ARRAY_DTYPE, rf_tempfilt, percentiles, rf_lc, pad_width, max_err, threads):
     """
     Standalone function for fitting rest-frame fluxes for individual objects
     """
@@ -5992,7 +6040,7 @@ def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter,
 
             TEFz = (2/(1+grow/grow.max())-1)*max_err
         
-            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, NDRAWS, fitter, renorm_t)
+            _ = template_lsq(fnu_i, efnu_i, A, TEFz, zp, NDRAWS, fitter, renorm_t, hess_threshold)
             chi2_i, coeffs_i, fmodel_i, draws = _
             
             if draws is None:
@@ -6008,17 +6056,17 @@ def _fit_rest_group(ix, fnu_corr, efnu_corr, izbest, zbest, zp, get_err, fitter,
 #BOUNDED_DEFAULTS = {'bounds':(1.e3, 1.e18), 'method': 'bvls', 'tol': 1.e-8, 'verbose': 0}
 BOUNDED_DEFAULTS = {'bound_range':[0.05, 20], 'method': 'trf', 'tol': 1.e-8, 'verbose': 0, 'normalize_type':0}
 
-def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter, renorm_t):
+def _fit_obj(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter, renorm_t, hess_threshold):
     """
     Wrapper for back-compatibility
     """
     warnings.warn(f'_fit_obj is deprecated, use template_lsq',
                   AstropyUserWarning)
     
-    return template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter, renorm_t)
+    return template_lsq(fnu_i, efnu_i, A, TEFz, zp, ndraws, fitter, renorm_t, hess_threshold)
 
 
-def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t):
+def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t, hess_threshold):
     """
     This is the main least-squares function for fitting templates to 
     photometry at a given redshift
@@ -6053,6 +6101,13 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t):
     
     renorm_t : bool
         Normalize template arrays
+
+    hess_threshold : float
+        Calculate Hessian of the design matrix ``A.T.dot(A)``
+        and remove templates where the cross term is greater than this value to reduce
+        some fitting degeneracies. The cross terms of the error-weighted, normalized
+        template vectors will be equal to 1 when they are perfectly degenerate and
+        zero when they are strictly orthogonal. Ignored if ``hess_threshold >= 1``.
 
     Returns
     -------
@@ -6089,7 +6144,7 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t):
     
     # Nonzero templates
     # ok_temp = (np.sum(A, axis=1) > 0)
-    Anorm = np.linalg.norm(Ain, axis=1, ord=2)
+    Anorm = np.linalg.norm((Ain/rms)[:,ok_band], axis=1, ord=2)
     ok_temp = Anorm > 0
     Anorm[~ok_temp] = 1.0
 
@@ -6104,9 +6159,23 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t):
         coeffs_i = np.zeros(sh[0])
         fmodel = np.dot(coeffs_i, A)
         return np.inf, np.zeros(A.shape[0]), fmodel, None
-    
-    # Least-squares fit    
+
     Ax = (A/rms).T[ok_band,:]*1
+
+    NTEMP = A.shape[0]
+
+    if hess_threshold < 1:
+        Hess = Ax.T.dot(Ax)
+        for i in range(NTEMP):
+            if ~ok_temp[i]:
+                continue
+
+            msk = np.where(Hess[i,:] > hess_threshold)[0]
+            for j in msk:
+                if (i != j):
+                    ok_temp[j] = False
+    
+    # Least-squares fits
     try:
         if fitter == 'nnls':
             coeffs_x, rnorm = nnls(Ax[:,ok_temp], (fnu_i/rms)[ok_band])
