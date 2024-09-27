@@ -4617,10 +4617,20 @@ class PhotoZ(object):
             bad = ~np.isfinite(tab[col])
             tab[col][bad] = -9e29
         
-        for k in ['SYS_ERR', 'TEMP_ERR_FILE', 'TEMP_ERR_A2', 
-                  'PRIOR_FILTER', 'PRIOR_ABZP', 
-                  'IGM_SCALE_TAU', 'APPLY_IGM', 'TEMPLATES_FILE']:
-            tab.meta[k] = self.param[k]
+        for k in [
+            'SYS_ERR',
+            'TEMP_ERR_FILE',
+            'TEMP_ERR_A2',
+            'PRIOR_FILTER',
+            'PRIOR_ABZP',
+            'IGM_SCALE_TAU',
+            'APPLY_IGM',
+            'TEMPLATES_FILE',
+            'RENORM_TEMPLATES',
+            'HESS_THRESHOLD',
+        ]:
+            if k in self.param:
+                tab.meta[k] = self.param[k]
         
         for i, templ in enumerate(self.templates):
             tab.meta[f'TEMPL{i:03d}'] = templ.name
@@ -6179,7 +6189,7 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t, hess_th
     try:
         if fitter == 'nnls':
             coeffs_x, rnorm = nnls(Ax[:,ok_temp], (fnu_i/rms)[ok_band])
-        
+
         elif fitter == 'nnls0':
             Ai = A[ok_temp,:][:,ok_band].T
             LHS = (Ai.T/var).dot(Ai)            
@@ -6231,6 +6241,8 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t, hess_th
             Ai = A[:,ok_band].T
             if '-1' in fitter:
                 An = np.ones(A.shape[0])
+            if '-2' in fitter:
+                An = np.linalg.norm(Ai, ord=2, axis=0)
             elif '-p' in fitter:
                 # Normalize each template to the *photometry* in a given band
                 band_index = int(fitter.split('-p')[1].split('_')[0])
@@ -6288,8 +6300,11 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t, hess_th
             
         
         elif fitter == 'lstsq':
-            _res  = np.linalg.lstsq(Ax[:,ok_temp], (fnu_i/rms)[ok_band], 
-                                         rcond=None)
+            _res  = np.linalg.lstsq(
+                        Ax[:,ok_temp],
+                        (fnu_i/rms)[ok_band],
+                        rcond=None
+            )
             coeffs_x = _res[0]
         else:
             raise ValueError(f'fitter {fitter} not recognized')
