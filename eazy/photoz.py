@@ -4629,7 +4629,7 @@ class PhotoZ(object):
             'RENORM_TEMPLATES',
             'HESS_THRESHOLD',
         ]:
-            if k in self.param:
+            if k in self.param.params:
                 tab.meta[k] = self.param[k]
         
         for i, templ in enumerate(self.templates):
@@ -6301,9 +6301,9 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t, hess_th
         
         elif fitter == 'lstsq':
             _res  = np.linalg.lstsq(
-                        Ax[:,ok_temp],
-                        (fnu_i/rms)[ok_band],
-                        rcond=None
+                Ax[:,ok_temp],
+                (fnu_i/rms)[ok_band],
+                rcond=None
             )
             coeffs_x = _res[0]
         else:
