@@ -48,9 +48,15 @@ class TemplateError(object):
 
         """
 
-        self.file = file
+        if file.startswith('templates') & (not os.path.exists('templates')):
+            _file = os.path.join(utils.DATA_PATH, file)
+        else:
+            _file = file
+            
+        self.file = _file
+        
         if arrays is None:
-            self.te_x, self.te_y = np.loadtxt(file, unpack=True)
+            self.te_x, self.te_y = np.loadtxt(self.file, unpack=True)
         else:
             self.te_x, self.te_y = arrays
                    
@@ -353,7 +359,12 @@ def read_templates_file(templates_file=None, as_dict=False, **kwargs):
         List of `eazy.templates.Template` objects (`dict` if ``as_dict``)
         
     """
-    lines = open(templates_file).readlines()
+    if templates_file.startswith('templates') & (not os.path.exists('templates')):
+        _file = os.path.join(utils.DATA_PATH, templates_file)
+    else:
+        _file = templates_file
+
+    lines = open(_file).readlines()
     templates = []
     
     for line in lines:
@@ -366,7 +377,10 @@ def read_templates_file(templates_file=None, as_dict=False, **kwargs):
             to_angstrom = float(lspl[2])
         else:
             to_angstrom = 1.
-            
+        
+        if template_file.startswith('templates') & (not os.path.exists('templates')):
+            template_file = os.path.join(utils.DATA_PATH, template_file)
+        
         templ = Template(file=template_file, to_angstrom=to_angstrom, 
                          **kwargs)
         
@@ -1370,7 +1384,7 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
     from astropy.table import Table
     import astropy.io.fits as pyfits
     
-    paths = ['/tmp', './templates/', './']
+    paths = ['/tmp', './templates/', './', os.path.join(utils.DATA_PATH, 'templates')]
     hdu = None
     for path in paths:
         templ_path = os.path.join(path, file)
@@ -1411,6 +1425,9 @@ def load_phoenix_stars(logg_list=PHOENIX_LOGG, teff_list=PHOENIX_TEFF, zmet_list
         tstars.append(Template(arrays=arrays, name=label, redfunc=None))
 
     cfile = 'templates/stars/carbon_star.txt'
+    if not os.path.exists('templates'):
+        cfile = os.path.join(utils.DATA_PATH, cfile)
+    
     if add_carbon_star & os.path.exists(cfile):
         sp = Table.read(cfile, format='ascii.commented_header')
         if add_carbon_star > 1:
@@ -1441,7 +1458,7 @@ def load_sonora_stars():
     """
     import glob
     
-    paths = ['/tmp', './templates/', './']
+    paths = ['/tmp', './templates/', './', os.path.join(utils.DATA_PATH, 'templates')]
     found = False
     
     for path in paths:

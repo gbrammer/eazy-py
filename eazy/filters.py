@@ -242,7 +242,7 @@ class FilterDefinition:
 
 
 class FilterFile:
-    def __init__(self, file='FILTER.RES.latest', path='./'):
+    def __init__(self, file='FILTER.RES.latest', path=None):
         """
         Read a EAZY filter file.
         
@@ -271,8 +271,10 @@ class FilterFile:
             
         
         """
-        if path is None:
-            file_path = os.path.join(os.getenv('EAZYCODE'), 'filters', file)
+        if os.path.exists(file):
+            file_path = file
+        elif path is None:
+            file_path = os.path.join(utils.DATA_PATH, 'filters', file)
         else:
             file_path = os.path.join(path, file)
             

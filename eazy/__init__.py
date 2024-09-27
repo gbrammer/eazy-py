@@ -38,7 +38,6 @@ except ImportError:
 #               'to be able to import prospect.')
 #         os.environ['SPS_HOME'] = sps_home
 
-
 def fetch_eazy_photoz():
     """
     If necessary, clone the eazy-photoz repository to get templates and filters
