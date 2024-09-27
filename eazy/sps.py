@@ -835,6 +835,8 @@ class ExtendedFsps(StellarPopulation):
         """
         Set the far-IR template for reprocessed dust emission
         """
+        if file.startswith('templates') & (not os.path.exists('templates')):
+            file = os.path.join(utils.DATA_PATH, file)
         
         if unset:
             if verbose:
