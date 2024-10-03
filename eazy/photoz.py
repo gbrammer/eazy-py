@@ -5367,13 +5367,62 @@ class PhotoZ(object):
         self.set_sys_err(positive=True, in_place=True)
 
 
-    def fit_phoenix_stars(self, filter_mask=None, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None, stars=None, sonora=True, just_dwarfs=False, lowz_kwargs={}):
+    def fit_phoenix_stars(self, filter_mask=None, wave_lim=[3000, 4.e4], apply_extcorr=False, sys_err=None, stars=None, sonora=True, just_dwarfs=False, lowz_kwargs={}, subset=None):
         """
         Fit grid of Phoenix stars
         
-        `apply_extcorr` defaults to False because stars not necessarily 
-        "behind" MW extinction
+        Parameters
+        ----------
+        filter_mask : bool array
+            Optional mask array for a subset of the available filters to include
         
+        wave_lim : (float, float)
+            Only include filters with pivot wavelengths in this range available for
+            the stellar templates
+        
+        apply_extcorr : bool
+            Apply the MW extinction correction before fitting the templates.  This
+            is False by default because likely stars are within the MW and therefore
+            not subject to the full extinction used for extragalactic sources
+        
+        sys_err : float
+            Explicit systematic uncertainty to use, other than ``params['SYS_ERR']``
+        
+        stars : list
+            List of templates to fit
+        
+        sonora : bool
+            Use Sonora templates from `eazy.templates.load_sonora_stars`
+        
+        just_dwarfs : bool
+            Use the dwarf star template grids from Sonora and LOWZ
+        
+        lowz_kwargs : dict
+            Keyword arguments passed to `eazy.templates.load_LOWZ_templates`
+        
+        subset : array-like, None
+            Either a bool or index array of an optional subset of sources to fit.  If
+            None, then set object attributes along with the returned dictionary
+        
+        Returns
+        -------
+        
+        Sets/updates ``NSTAR``, ``star_templates``, ``star_teff``, ``star_logg``,
+        ``star_zmet``, ``star_flux`` attributes independent of ``subset``.
+        
+        result : dict
+            Result dictionary where ``NOBJ`` is the full catalog or the number of
+            sources in the ``subset``.
+            
+                - ``star_tnorm`` : (NOBJ, NSTAR) template normalizations
+                - ``star_chi2`` : (NOBJ, NSTAR) chi-squared of the star template fits
+                - ``star_min_ix`` : (NOBJ) Index of the template list at star_min_chi2
+                - ``star_min_chi2`` : (NOBJ) Minimum chi-squared of the template fits
+                - ``star_min_chinu``: (NOBJ) ``star_min_chi2 / (nusefilt - 1)``
+                - ``star_gal_chi2``: (NOBJ) chi-squared of the best-fitting galaxy model
+                                     with the same uncertainty weights as the stellar 
+                                     template fit
+
         """
         if stars is None:
             if just_dwarfs:
@@ -5387,15 +5436,21 @@ class PhotoZ(object):
                 stars = sonora_templates + lowz_templates
                 
             else:
-                stars = templates_module.load_phoenix_stars(add_carbon_star=False,
-                                                            sonora_dwarfs=sonora)
-            
+                stars = templates_module.load_phoenix_stars(
+                    add_carbon_star=False,
+                    sonora_dwarfs=sonora
+                )
+
         self.star_templates = stars
-        tflux = [t.integrate_filter(self.filters, z=0, include_igm=False)
-                     for t in self.star_templates]
-        
+
+        tflux = [
+            t.integrate_filter(self.filters, z=0, include_igm=False)
+            for t in self.star_templates
+        ]
+
         templ_params = [[float(s[1:]) for s in t.name.split('_')[1:4]] 
                          for t in stars]
+
         self.star_teff = np.array(templ_params)[:,0]
         self.star_logg = np.array(templ_params)[:,1]
         self.star_zmet = np.array(templ_params)[:,2]
@@ -5404,42 +5459,97 @@ class PhotoZ(object):
             self.star_flux = (np.array(tflux)*self.ext_corr).T
         else:
             self.star_flux = np.array(tflux).T
-            
+
         self.NSTAR = self.star_flux.shape[1]
-        
+
         # Least squares normalization of stellar templates
-        if sys_err is None:
-            _wht = 1/(self.efnu**2+(self.param.params['SYS_ERR']*self.fnu)**2)
-        else:
-            _wht = 1/(self.efnu**2+(sys_err*self.fnu)**2)
+        if subset is None:
+
+            if sys_err is None:
+                _wht = 1/(self.efnu**2+(self.param.params['SYS_ERR']*self.fnu)**2)
+            else:
+                _wht = 1/(self.efnu**2+(sys_err*self.fnu)**2)
         
-        _wht /= self.zp**2
-        _wht[(~self.ok_data) | (self.efnu <= 0)] = 0
-                    
+            _wht /= self.zp**2
+            _wht[(~self.ok_data) | (self.efnu <= 0)] = 0
+
+        else:
+            if sys_err is None:
+                _wht = 1.0/(
+                    self.efnu[subset,:]**2 
+                    + (self.param.params['SYS_ERR'] * self.fnu[subset,:])**2
+                )
+            else:
+                _wht = 1.0 / (
+                    self.efnu[subset,:]**2 + (sys_err * self.fnu[subset,:])**2
+                )
+        
+            _wht /= self.zp**2
+            _wht[(~self.ok_data[subset,:]) | (self.efnu[subset,:] <= 0)] = 0
+            
         clip_filter = (self.pivot < wave_lim[0]) | (self.pivot > wave_lim[1])
         if filter_mask is not None:
              clip_filter &= filter_mask
              
         _wht[:, clip_filter] = 0
             
-        _num = np.dot(self.fnu*self.zp*_wht, self.star_flux)
+        if subset is None:
+            _num = np.dot(self.fnu*self.zp*_wht, self.star_flux)
+        else:
+            _num = np.dot(self.fnu[subset,:] * self.zp*_wht, self.star_flux)
+            
         _den= np.dot(1*_wht, self.star_flux**2)
         _den[_den == 0] = 0
-        self.star_tnorm = _num/_den
+        star_tnorm = _num/_den
         
         # Chi-squared
-        self.star_chi2 = np.zeros(self.star_tnorm.shape, dtype=np.float32)
+        star_chi2 = np.zeros(star_tnorm.shape, dtype=np.float32)
         for i in range(self.NSTAR):
-            _m = self.star_tnorm[:,i:i+1]*self.star_flux[:,i]
-            self.star_chi2[:,i] = ((self.fnu*self.zp - _m)**2*_wht).sum(axis=1)
+            _m = star_tnorm[:,i:i+1]*self.star_flux[:,i]
+            if subset is None:
+                star_chi2[:,i] = (
+                    (self.fnu * self.zp - _m)**2 * _wht
+                ).sum(axis=1)
+            else:
+                star_chi2[:,i] = (
+                    (self.fnu[subset,:] * self.zp - _m)**2 * _wht
+                ).sum(axis=1)
         
-        self.star_min_ix = np.argmin(self.star_chi2, axis=1)
+        # "Best" stellar template
+        star_min_ix = np.argmin(star_chi2, axis=1)
+        star_min_chi2 = star_chi2.min(axis=1)
         
-        self.star_min_chi2 = self.star_chi2.min(axis=1)
-        self.star_min_chinu = self.star_min_chi2 / (self.nusefilt - 1)
-        
-        self.star_gal_chi2 = ((self.fnu*self.zp - self.fmodel)**2*_wht).sum(axis=1)
+        if subset is None:
+            star_min_chinu = star_min_chi2 / (self.nusefilt - 1)
+            star_gal_chi2 = (
+                (self.fnu * self.zp - self.fmodel)**2 *_wht
+            ).sum(axis=1)
+        else:
+            star_min_chinu = star_min_chi2 / (self.nusefilt[subset] - 1)
+            star_gal_chi2 = (
+                (self.fnu[subset,:] * self.zp - self.fmodel[subset,:])**2 * _wht
+            ).sum(axis=1)
 
+        if subset is None:
+            # Set attributes
+            self.star_tnorm = star_tnorm
+            self.star_chi2 = star_chi2
+            self.star_min_ix = star_min_ix
+            self.star_min_chi2 = star_min_chi2
+            self.star_min_chinu = star_min_chinu
+            self.star_gal_chi2 = star_gal_chi2
+
+        result = dict(
+            subset = subset,
+            star_tnorm = star_tnorm,
+            star_chi2 = star_chi2,
+            star_min_ix = star_min_ix,
+            star_min_chi2 = star_min_chi2,
+            star_min_chinu = star_min_chinu,
+            star_gal_chi2 = star_gal_chi2,
+        )
+
+        return result
 
     def _redshift_pairs(self, rix=None):
         """
