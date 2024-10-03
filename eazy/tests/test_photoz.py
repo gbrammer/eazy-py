@@ -378,8 +378,19 @@ def test_fit_stars():
     Fit phoenix star library for Star/Galaxy separation
     """
     global ez
-    ez.fit_phoenix_stars()
-    assert(np.allclose(ez.star_chi2[0,0], 3191.3662))
+    res = ez.fit_phoenix_stars()
+    assert (np.allclose(ez.star_chi2[0,0], 3191.3662))
+    
+    sub_index = np.array([0,1])
+    sub_bool = np.zeros(ez.NOBJ, dtype=bool)
+    sub_bool[:2] = True
+    
+    for subset in [sub_index, sub_bool]:
+        res = ez.fit_phoenix_stars(subset=subset)
+        assert 'subset' in res
+        assert res['star_min_ix'].shape == (2,)
+        assert res['star_tnorm'].shape == (2, ez.NSTAR)
+        assert (np.allclose(res['star_chi2'][0,0], 3191.3662))
 
 
 def test_photoz_figures():
