@@ -2,6 +2,8 @@ import os
 import collections
 import numpy as np
 
+from . import utils
+
 __all__ = ["EazyParam", "TranslateFile", "read_param_file"]
 
 def read_param_file(param_file=None, verbose=True):
@@ -157,8 +159,14 @@ class EazyParam(object):
         for k in ['TEMPLATES_FILE', 'TEMP_ERR_FILE', 'CATALOG_FILE', 
                   'FILTERS_RES']:
             if isinstance(self[k], str):
-                if not os.path.exists(self[k]):
-                    raise FileNotFoundError(f'{k} ({self[k]}) not found')        
+                file_path = self[k]
+                if not os.path.exists(file_path):
+                    file_path = os.path.join(utils.DATA_PATH, file_path)
+
+                if not os.path.exists(file_path):
+                    raise FileNotFoundError(
+                        f'{k} ({self[k]}) not found in ./ or {utils.DATA_PATH}'
+                    )
 
         assert(int(self['ARRAY_NBITS']) in [32,64])
         
