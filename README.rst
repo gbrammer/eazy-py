@@ -25,10 +25,7 @@ Installation instructions
 
 .. code:: bash
 
-    pip install eazy
-
-    # Forked dependencies that are not yet released on PyPI
-    pip install git+https://github.com/gbrammer/dust_attenuation.git
+    $ pip install eazy
 
 Demo
 ~~~~
