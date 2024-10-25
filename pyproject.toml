@@ -30,14 +30,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dust = [
-    "dust_attenuation @ git+https://github.com/karllark/dust_attenuation.git",
-]
+# dust = [
+#     "dust_attenuation @ git+https://github.com/karllark/dust_attenuation.git",
+# ]
 docs = [
     "sphinx",
     "sphinx-astropy",
     "toml",
-    "dust_attenuation @ git+https://github.com/karllark/dust_attenuation.git",
+#    "dust_attenuation @ git+https://github.com/karllark/dust_attenuation.git",
 ]
 test = [
     "flake8",

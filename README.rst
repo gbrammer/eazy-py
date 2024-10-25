@@ -25,7 +25,8 @@ Installation instructions
 
 .. code:: bash
 
-    $ pip install eazy[dust]
+    $ pip install eazy
+    $ pip install git+https://github.com/karllark/dust_attenuation.git
 
 Demo
 ~~~~
