@@ -1450,53 +1450,101 @@ class PhotoZ(object):
                 partab.write(new_parfits, overwrite=True)
 
 
-    def fit_single_templates(self, verbose=True):
+    def fit_single_templates(self, templates=None, tempfilt=None, include_igm=True, norm_deg=2, verbose=True):
         """
         Fit individual templates on the redshift grid
+
+        Parameters
+        ----------
+        templates : list, None
+            List of `~eazy.templates.Template` objects
+
+        include_igm : bool
+            Include IGM absorption if ``templates`` provided
+
+        norm_deg : int
+            If > 0, normalization of the template grid with
+            `numpy.linalg.norm(ord=norm)`.
+
+        tempfilt : array (NZ, NTEMP, NFILT)
+            Template(s) integrated through bandpasses.  If not provided, use the
+            internal templates generated upon initialization.
+
+        Returns
+        -------
+        tempfilt : array (NZ, NTEMP, NFILT)
+            Integrated template grid
+
+        ampl : array (NTEMP, NOBJ, NZ)
+            Fit amplitudes
+
+        chi2 : array (NTEMP, NOBJ, NZ)
+            Chi-squared of the fit
+
+        logpz : array(NTEMP, NOBJ, NZ)
+            Log probability
+
         """
-        
-        ampl = np.zeros((self.NTEMP, self.NOBJ, self.NZ), 
-                        dtype=self.ARRAY_DTYPE)
-        chi2 = np.zeros((self.NTEMP, self.NOBJ, self.NZ),
-                        dtype=self.ARRAY_DTYPE)
-        
-        chiz = np.zeros((self.NZ, self.NOBJ),
-                        dtype=self.ARRAY_DTYPE)
-        amplz = np.zeros((self.NZ, self.NOBJ),
-                         dtype=self.ARRAY_DTYPE)
-                
-        for i in range(self.NTEMP):
+
+        if templates is not None:
+            # Integrate templates through bandpasses
+            NTEMP = len(templates)
+
+            tempfilt = np.zeros((self.NZ, NTEMP, self.NFILT), dtype=self.ARRAY_DTYPE)
+
+            for i, temp_i in enumerate(templates):
+                grid_i = np.array([
+                    temp_i.integrate_filter(self.filters, z=zi, include_igm=include_igm)
+                    for zi in tqdm(self.zgrid)
+                ])
+
+                if norm_deg >= 0:
+                    grid_i = (grid_i.T / np.linalg.norm(grid_i, ord=norm_deg, axis=1)).T
+
+                tempfilt[:,i,:] = grid_i
+
+        elif tempfilt is None:
+            tempfilt = self.tempfilt.tempfilt
+
+        NTEMP = tempfilt.shape[1]
+
+        ampl = np.zeros((NTEMP, self.NOBJ, self.NZ), dtype=self.ARRAY_DTYPE)
+        chi2 = np.zeros((NTEMP, self.NOBJ, self.NZ), dtype=self.ARRAY_DTYPE)
+        chiz = np.zeros((self.NZ, self.NOBJ), dtype=self.ARRAY_DTYPE)
+        amplz = np.zeros((self.NZ, self.NOBJ), dtype=self.ARRAY_DTYPE)
+
+        for i in range(NTEMP):
             print('Process template ', i)
-            templ_i = self.tempfilt.tempfilt[:,i,:].T
-            
+            templ_i = tempfilt[:,i,:].T
+
             for j in tqdm(range(self.NZ)):
                 #print(j)
                 tefz = self.TEF(self.zgrid[j])
-                full_err = np.sqrt(self.efnu**2+(self.fnu*tefz)**2)
+                full_err = np.sqrt(self.efnu**2 + (self.fnu*tefz)**2)
                 templ_iz = templ_i[:,j]
-                num = (self.fnu/self.zp/full_err*self.ok_data).dot(templ_iz)
-                den = (1./full_err*self.ok_data).dot(templ_iz**2)
+                num = (self.fnu * self.zp / full_err**2 * self.ok_data).dot(templ_iz)
+                den = (1. / full_err**2 * self.ok_data).dot(templ_iz**2)
                 ampl_j = num/den
                 amplz[j,:] = ampl_j
-                
+
                 mz = ampl_j[:,None]*templ_iz[None,:]
-                chi = ((mz-self.fnu/self.zp)*self.ok_data)**2/full_err**2
+                chi = ((mz - self.fnu *self.zp)*self.ok_data)**2/full_err**2
                 chiz[j,:] = chi.sum(axis=1)
-        
+
             chi2[i,:,:] = chiz.T
             ampl[i,:,:] = amplz.T
-            
+
         chimin = chi2.min(axis=2).min(axis=0)
         if verbose:
             print('Compute p(z|T)')
-            
+
         logpz = -(chi2 - chimin[None,:,None])/2
         
         pzt = np.exp(logpz).sum(axis=0)
         pznorm = np.trapz(pzt, self.zgrid, axis=1)
         logpz -= np.log(pznorm[None,:,None])
         
-        return ampl, chi2, logpz
+        return tempfilt, ampl, chi2, logpz
 
 
     def fit_parallel(self, *args, **kwargs):
@@ -5494,9 +5542,9 @@ class PhotoZ(object):
         _wht[:, clip_filter] = 0
             
         if subset is None:
-            _num = np.dot(self.fnu*self.zp*_wht, self.star_flux)
+            _num = np.dot(self.fnu * self.zp * _wht, self.star_flux)
         else:
-            _num = np.dot(self.fnu[subset,:] * self.zp*_wht, self.star_flux)
+            _num = np.dot(self.fnu[subset,:] * self.zp * _wht, self.star_flux)
             
         _den= np.dot(1*_wht, self.star_flux**2)
         _den[_den == 0] = 0
