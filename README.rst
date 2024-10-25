@@ -26,7 +26,13 @@ Installation instructions
 .. code:: bash
 
     $ pip install eazy
+    $ pip install eazy[vistool] # for the dash visualiation tool
+
+    # Install extra dependency
     $ pip install git+https://github.com/karllark/dust_attenuation.git
+
+    # Get templates and filters from https://github.com/gbrammer/eazy-photoz
+    $ python -c "import eazy; eazy.fetch_eazy_photoz()"
 
 Demo
 ~~~~

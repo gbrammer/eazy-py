@@ -1319,7 +1319,8 @@ class EazyExplorer(object):
         app.layout = html.Div(content)
         
         if server_mode is not None:
-            app.run_server(mode=server_mode, port=port)
+            # app.run_server(mode=server_mode, port=port)
+            app.run(jupyter_mode=server_mode, port=port)
         
         return app    
 

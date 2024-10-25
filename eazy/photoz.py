@@ -4233,10 +4233,21 @@ class PhotoZ(object):
         errV = (self.ubvj[:,2,3] - self.ubvj[:,2,1])/2.
         errJ = (self.ubvj[:,3,3] - self.ubvj[:,3,1])/2.
                     
-        template_params_file = self.param['TEMPLATES_FILE']+'.fits'
-        if os.path.exists(template_params_file):
+        has_template_params = False
+        
+        try_paths = ['./', utils.DATA_PATH]
+        
+        for path in try_paths:
+            template_params_file = os.path.join(
+                path,
+                self.param['TEMPLATES_FILE']+'.fits'
+            )
+            if os.path.exists(template_params_file):
+                has_template_params = True
+                break
+                
+        if has_template_params:
             tab_temp = Table.read(template_params_file)
-            has_template_params = True
             if len(tab_temp) != self.NTEMP:
                 NADD = self.NTEMP - len(tab_temp)
                 msg = 'Warning: adding {0} empty rows to {1} to match NTEMP={2}'
@@ -4246,11 +4257,10 @@ class PhotoZ(object):
         else:
             # Dummy
             msg = """
- Couldn't find template parameters file {0} for population synthesis 
+ Couldn't find template parameters file {0}.fits in {1} for population synthesis 
  calculations.
             """
-            print(msg.format(template_params_file))
-            has_template_params = False
+            print(msg.format(self.param['TEMPLATES_FILE'], try_paths))
             tab_temp = Table()
             
             cols = ['Av', 'mass', 'Lv', 'sfr', 'formed_100', 'formed_total',

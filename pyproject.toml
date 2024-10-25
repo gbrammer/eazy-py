@@ -44,6 +44,11 @@ test = [
     "pytest>=5.1",
     "coverage",
 ]
+vistool = [
+    "dash==2.5.1",
+    "jupyter-dash",
+    "Werkzeug==2.0.3"
+]
 
 [project.urls]
 Documentation = "https://eazy-py.readthedocs.io/"
@@ -53,7 +58,13 @@ Tracker = "https://github.com/gbrammer/eazy-py/issues"
 
 [tool.setuptools]
 packages = ["eazy"]
-package-data = {eazy = ["data/*", "data/templates/*", "data/filters/*"]}
+package-data = {eazy = [
+    "data/*txt",
+    "data/alpha_lyr_stis_008.fits",
+    "data/emlines_info.dat",
+    "data/spectra_kc13_12_tweak.params",
+    "data/zphot.param.default"
+]}
 
 [tool.setuptools_scm]
 version_file = "eazy/version.py"

@@ -156,16 +156,21 @@ class EazyParam(object):
         
         assert(self['Z_MAX'] > self['Z_MIN'])
         
+        test_paths = ['./', utils.DATA_PATH, os.path.join(utils.DATA_PATH, 'filters')]
+        
         for k in ['TEMPLATES_FILE', 'TEMP_ERR_FILE', 'CATALOG_FILE', 
                   'FILTERS_RES']:
             if isinstance(self[k], str):
-                file_path = self[k]
-                if not os.path.exists(file_path):
-                    file_path = os.path.join(utils.DATA_PATH, file_path)
-
-                if not os.path.exists(file_path):
+                filename = self[k]
+                file_found = False
+                for path in test_paths:
+                    if os.path.exists(os.path.join(path, filename)):
+                        file_found = True
+                        break
+                    
+                if not file_found:
                     raise FileNotFoundError(
-                        f'{k} ({self[k]}) not found in ./ or {utils.DATA_PATH}'
+                        f'{k} ({self[k]}) not found in {test_paths}'
                     )
 
         assert(int(self['ARRAY_NBITS']) in [32,64])
