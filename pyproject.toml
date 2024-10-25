@@ -50,7 +50,7 @@ Tracker = "https://github.com/gbrammer/eazy-py/issues"
 
 [tool.setuptools]
 packages = ["eazy"]
-package-data = {"sample" = ["eazy/data/*"]}
+package-data = {eazy = ["data/*", "data/templates/*", "data/filters/*"]}
 
 [tool.setuptools_scm]
 version_file = "eazy/version.py"
