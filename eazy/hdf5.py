@@ -260,12 +260,13 @@ def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
     Parameters
     ----------
     h5file : str
-        HDF5 filename from `eazy.hdf5.
+        HDF5 filename from `eazy.hdf5.write_hdf5`
     
     Returns
     -------
-    pzobj : '~eazy.photoz.PhotoZ'
-    
+    pzobj : `~eazy.photoz.PhotoZ`
+        Photoz object
+
     """
     
     # Parameter dictionary
