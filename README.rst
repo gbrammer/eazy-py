@@ -25,7 +25,7 @@ Installation instructions
 
 .. code:: bash
 
-    $ pip install eazy
+    $ pip install eazy[dust]
 
 Demo
 ~~~~

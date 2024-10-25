@@ -27,14 +27,17 @@ dependencies = [
     "peakutils",
     "scipy<1.14",
     "tqdm",
-    "dust_attenuation @ git+https://github.com/karllark/dust_attenuation.git",
 ]
 
 [project.optional-dependencies]
+dust = [
+    "dust_attenuation @ git+https://github.com/karllark/dust_attenuation.git",
+]
 docs = [
     "sphinx",
     "sphinx-astropy",
     "toml",
+    "dust_attenuation @ git+https://github.com/karllark/dust_attenuation.git",
 ]
 test = [
     "flake8",
