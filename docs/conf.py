@@ -30,6 +30,8 @@ import sys
 import datetime
 from importlib import import_module
 
+import toml
+
 try:
     from sphinx_astropy.conf.v1 import *  # noqa
 except ImportError:
@@ -37,11 +39,12 @@ except ImportError:
     sys.exit(1)
 
 # Get configuration information from setup.cfg
-from configparser import ConfigParser
-conf = ConfigParser()
+# from configparser import ConfigParser
+# conf = ConfigParser()
+# conf.read([os.path.join(os.path.dirname(__file__), '..', 'pyproject.toml')])
+# setup_cfg = dict(conf.items('metadata'))
 
-conf.read([os.path.join(os.path.dirname(__file__), '..', 'setup.cfg')])
-setup_cfg = dict(conf.items('metadata'))
+setup_cfg = toml.load("../pyproject.toml")["project"]
 
 # -- General configuration ----------------------------------------------------
 
@@ -68,9 +71,9 @@ rst_epilog += """
 
 # This does not *have* to match the package name, but typically does
 project = setup_cfg['name']
-author = setup_cfg['author']
+author = setup_cfg['authors'][0]['name']
 copyright = '{0}, {1}'.format(
-    datetime.datetime.now().year, setup_cfg['author'])
+    datetime.datetime.now().year, author)
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -152,7 +155,7 @@ man_pages = [('index', project.lower(), project + u' Documentation',
               [author], 1)]
 
 # -- Resolving issue number to links in changelog -----------------------------
-github_issues_url = f"{setup_cfg['url']}/issues/"
+github_issues_url = setup_cfg['urls']['Tracker']
 
 # -- Turn on nitpicky mode for sphinx (to warn about references not found) ----
 #
