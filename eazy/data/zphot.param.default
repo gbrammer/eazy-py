@@ -10,7 +10,7 @@ SMOOTH_SIGMA         100.               # Gaussian sigma (in Angstroms) to smoot
 
 ## Templates
 TEMPLATES_FILE       templates/fsps_full/tweak_fsps_QSF_12_v3.param # Template definition file
-TEMPLATE_COMBOS      a                  # Template combination options: 
+TEMPLATE_COMBOS      a                  # Template combination options:
                                         #         1 : one template at a time
                                         #         2 : two templates, read allowed combinations from TEMPLATES_FILE
                                         #        -2 : two templates, all permutations
@@ -22,6 +22,11 @@ TEMP_ERR_A2          0.20               # Template error amplitude
 SYS_ERR              0.01               # Systematic flux error (% of flux)
 APPLY_IGM            y                  # Apply Madau 1995 IGM absorption
 IGM_SCALE_TAU        1.0                # Scale factor times Inoue14 IGM tau
+ADD_CGM              y                  # Add Asada24 CGM damping wing absorption
+SIGMOID_PARAM1       3.4835             # Sigmoid func parameter (A) for the N_HI-z relation in Asada24
+SIGMOID_PARAM2       1.2581             # Sigmoid func parameter (a) for the N_HI-z relation in Asada24
+SIGMOID_PARAM3       18.249             # Sigmoid func parameter (C) for the N_HI-z relation in Asada24
+
 
 FITTER               nnls               # Template fit mode
 RENORM_TEMPLATES     y                  # Renormalize templates before fitting
