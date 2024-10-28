@@ -742,7 +742,7 @@ class Template():
                             redshifts=self.redshifts)
 
 
-    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, clip_wavelengths=[4500,9400], as_template=True):
+    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, clip_wavelengths=[4500,9400], as_template=True):
         """
         Smooth and resample to observed-frame wavelengths, including an
         optional Line Spread Function (LSF)
@@ -1199,8 +1199,13 @@ class Template():
             from eazy import igm as igm_module
         
         igm = igm_module.Asada24(sigmoid_params=sigmoid_params, scale_tau=scale_tau, add_cgm=add_cgm)
+        if add_cgm:
+            max_fuv_wav = 2000.
+        else:
+            max_fuv_wav = 1300.
+            
         igmz = self.wave*0.+1
-        lyman = self.wave < 2000
+        lyman = self.wave < max_fuv_wav
         igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])**pow
         return igmz
 
