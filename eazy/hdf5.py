@@ -340,6 +340,14 @@ class Viewer(object):
                                    Tcmb0=2.725, Ob0=0.048)
         
         self.set_tempfilt()
+        
+        if self.param['ADD_CGM'] in utils.TRUE_VALUES:
+            self.add_cgm = True
+        else:
+            self.add_cgm = False
+            
+        sigmoid_params = (self.param['SIGMOID_PARAM1'], self.param['SIGMOID_PARAM2'], self.param['SIGMOID_PARAM3'])
+        self.sigmoid_params = sigmoid_params
 
 
     def info(self):
@@ -457,8 +465,10 @@ class Viewer(object):
             self.tempfilt = photoz.TemplateGrid(self.zgrid, self.templates, 
                                     RES=self.param['FILTERS_RES'], 
                                     f_numbers=self.f_numbers, 
-                                    add_igm=self.param['IGM_SCALE_TAU'], 
-                                galactic_ebv=self.MW_EBV, 
+                                    add_igm=self.param['IGM_SCALE_TAU'],
+                                    add_cgm=self.add_cgm,
+                                    sigmoid_params=self.sigmoid_params,
+                                galactic_ebv=self.MW_EBV,
                                 Eb=self.param['SCALE_2175_BUMP'], 
                                 n_proc=1, cosmology=self.cosmology, 
                                 array_dtype=self.ARRAY_DTYPE, 

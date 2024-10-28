@@ -275,8 +275,10 @@ class PhotoZ(object):
         
         if self.param['ADD_CGM'] in utils.TRUE_VALUES:
             IGM_OBJECT.add_cgm = True
+            max_fuv_wav = 2000.
         else:
             IGM_OBJECT.add_cgm = False
+            max_fuv_wav = 1300.
         
         sigmoid_params = (self.param.params['SIGMOID_PARAM1'], self.param.params['SIGMOID_PARAM2'], self.param.params['SIGMOID_PARAM3'])
         IGM_OBJECT.sigmoid_params = sigmoid_params
@@ -2682,7 +2684,7 @@ class PhotoZ(object):
 
         if self.tempfilt.add_igm:
             igmz = templ.wave*0.+1
-            lyman = templ.wave < 2000
+            lyman = templ.wave < max_fuv_wav
             igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
         else:
             igmz = 1.
@@ -2841,7 +2843,7 @@ class PhotoZ(object):
                 templzi = templ.wave*(1+zi)
                 if self.tempfilt.add_igm:
                     igmz = templ.wave*0.+1
-                    lyman = templ.wave < 2000
+                    lyman = templ.wave < max_fuv_wav
                     igmz[lyman] = IGM_OBJECT.full_IGM(zi, templzi[lyman])
                 else:
                     igmz = 1.
@@ -5341,7 +5343,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
 
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
+    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, add_cgm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
         """
         Integrate filters through filters on a redshift grid
         
@@ -5362,6 +5364,12 @@ class TemplateGrid(object):
         
         add_igm : bool
             Add IGM absorption as a function of redshift
+        
+        add_cgm : bool
+            Add CGM component in the IGM transmission
+            
+        sigmoid_params : 3-tuple float
+            Sigmoid function parameters used in `~eazy.igm.Asada24`
         
         galactic_ebv : float
             MW extinction :math:`E(B-V)`
@@ -5470,7 +5478,8 @@ class TemplateGrid(object):
                                             (itemp,
                                              templates[itemp], 
                                              zgrid, RES,
-                                             f_numbers, add_igm,
+                                             f_numbers, add_igm, add_cgm,
+                                             sigmoid_params,
                                              galactic_ebv, Eb,
                                              filters))
                            for itemp in range(self.NTEMP)]
@@ -5495,8 +5504,9 @@ class TemplateGrid(object):
                     itemp, tf_i = _integrate_tempfilt(itemp, 
                                                       templates[itemp],
                                                       zgrid, RES, 
-                                                      f_numbers, add_igm, 
-                                                      galactic_ebv, Eb, 
+                                                      f_numbers, add_igm,
+                                                      add_cgm,sigmoid_params,
+                                                      galactic_ebv, Eb,
                                                       filters)
                     if verbose > 1:
                         msg = 'Process template {0} (NZ={1}).'
@@ -5663,7 +5673,7 @@ class TemplateGrid(object):
         return self.spline(z)*self.scale[:,None]
 
 
-def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters):
+def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, add_cgm, sigmoid_params, galactic_ebv, Eb, filters):
     """
     For multiprocessing filter integration
     """
@@ -5678,6 +5688,13 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
         
     if add_igm:
         igm = IGM_OBJECT #igm_module.Inoue14(scale_tau=add_igm)
+        igm.add_cgm = add_cgm
+        igm.sigmoid_params = sigmoid_params
+        if add_cgm:
+            max_fuv_wav = 2000.
+        else:
+            max_fuv_wav = 1300.
+        
     else:
         igm = 1.
 
@@ -5697,7 +5714,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
         # IGM absorption
         if add_igm:
             igmz = templ.wave*0.+1
-            lyman = templ.wave < 2000
+            lyman = templ.wave < max_fuv_wav
             igmz[lyman] = igm.full_IGM(zgrid[iz], lz[lyman])
         else:
             igmz = 1.
