@@ -24,6 +24,43 @@ class Asada24(object):
         add_cgm : bool
             Add the additional LyA damping absorption at z>6 as described in Asada+24.
             If False, the transmission will be identical to Inoue+ 2014
+            
+        .. plot::
+            :include-source:
+            
+            # Compare two IGM transmissions
+            
+            import numpy as np
+            import matplotlib.pyplot as plt
+            from eazy import igm as igm_module
+            
+            igm_A24 = igm_module.Asada24()
+            igm_I14 = igm_module.Inoue14()
+
+            redshifts = [6., 7., 8., 9., 10.]
+            colors = ['b', 'c', 'purple', 'orange', 'red']
+            
+            wave = np.linspace(100,2000,1901) ## wavelength array in the rest-frame
+            lyman = wave < 2000
+
+
+            fig = plt.figure(figsize=(6,5))
+            for z, c in zip(redshifts, colors):
+                igmz_A24 = wave*0.+1
+                igmz_A24[lyman] = igm_A24.full_IGM(z, (wave*(1+z))[lyman])
+
+                igmz_I14 = wave*0.+1
+                igmz_I14[lyman] = igm_I14.full_IGM(z, (wave*(1+z))[lyman])
+
+                plt.plot(wave*(1+z), igmz_I14, color=c, ls='dashed')
+                plt.plot(wave*(1+z), igmz_A24, color=c, label=r'$z={}$'.format(int(z)))
+                
+            plt.xlabel('Observed wavelength [A]')
+            plt.ylabel('Transmission')
+
+            plt.legend()
+
+            plt.xlim(5000,17000)
         """
         self._load_data()
         self.sigmoid_params = sigmoid_params
@@ -163,12 +200,12 @@ class Asada24(object):
         
         x0 = lobs < lamL*(1.+zS)
         if zS < z1DLA:
-            tLCDLA_value[x0] = 0.2113 * _pow(1.0+zS, 2) - 0.07661 * _pow(1.0+zS, 2.3) * _pow(lobs[x0]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[x0]/lamL, 2)
+            tLCDLA_value[x0] = 0.2113 * (1.0+zS)**2.0 - 0.07661 * (1.0+zS)**2.3 * (lobs[x0]/lamL)**(-3e-1) - 0.1347 * (lobs[x0]/lamL)**2.0
         else:
             x1 = lobs >= lamL*(1.+z1DLA)
             
-            tLCDLA_value[x0 & x1] = 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[x0 & x1]/lamL, (-3e-1)) - 0.02916 * _pow(lobs[x0 & x1]/lamL, 3)
-            tLCDLA_value[x0 & ~x1] =0.6340 + 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[x0 & ~x1]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[x0 & ~x1]/lamL, 2) - 0.2905 * _pow(lobs[x0 & ~x1]/lamL, (-3e-1))
+            tLCDLA_value[x0 & x1] = 0.04696 * (1.0+zS)**3.0 - 0.01779 * (1.0+zS)**3.3 * (lobs[x0 & x1]/lamL)**(-3e-1) - 0.02916 * (lobs[x0 & x1]/lamL)**3.0
+            tLCDLA_value[x0 & ~x1] =0.6340 + 0.04696 * (1.0+zS)**3.0 - 0.01779 * (1.0+zS)**3.3 * (lobs[x0 & ~x1]/lamL)**(-3e-1) - 0.1347 * (lobs[x0 & ~x1]/lamL)**2.0 - 0.2905 * (lobs[x0 & ~x1]/lamL)**(-3e-1)
         
         return tLCDLA_value
 
@@ -186,19 +223,19 @@ class Asada24(object):
         x0 = lobs < lamL*(1.+zS)
         
         if zS < z1LAF:
-            tLCLAF_value[x0] = 0.3248 * (_pow(lobs[x0]/lamL, 1.2) - _pow(1.0+zS, -9e-1) * _pow(lobs[x0]/lamL, 2.1))
+            tLCLAF_value[x0] = 0.3248 * ( (lobs[x0]/lamL)**1.2 - (1.0+zS)**(-9e-1) * (lobs[x0]/lamL)**2.1 )
         elif zS < z2LAF:
             x1 = lobs >= lamL*(1+z1LAF)
-            tLCLAF_value[x0 & x1] = 2.545e-2 * (_pow(1.0+zS, 1.6) * _pow(lobs[x0 & x1]/lamL, 2.1) - _pow(lobs[x0 & x1]/lamL, 3.7))
-            tLCLAF_value[x0 & ~x1] = 2.545e-2 * _pow(1.0+zS, 1.6) * _pow(lobs[x0 & ~x1]/lamL, 2.1) + 0.3248 * _pow(lobs[x0 & ~x1]/lamL, 1.2) - 0.2496 * _pow(lobs[x0 & ~x1]/lamL, 2.1)
+            tLCLAF_value[x0 & x1] = 2.545e-2 * ( (1.0+zS)**1.6 * (lobs[x0 & x1]/lamL)**2.1 - (lobs[x0 & x1]/lamL)**3.7 )
+            tLCLAF_value[x0 & ~x1] = 2.545e-2 * (1.0+zS)**1.6 * (lobs[x0 & ~x1]/lamL)**2.1 + 0.3248 * (lobs[x0 & ~x1]/lamL)**1.2 - 0.2496 * (lobs[x0 & ~x1]/lamL)**2.1
         else:
             x1 = lobs > lamL*(1.+z2LAF)
             x2 = (lobs >= lamL*(1.+z1LAF)) & (lobs < lamL*(1.+z2LAF))
             x3 = lobs < lamL*(1.+z1LAF)
             
-            tLCLAF_value[x0 & x1] = 5.221e-4 * (_pow(1.0+zS, 3.4) * _pow(lobs[x0 & x1]/lamL, 2.1) - _pow(lobs[x0 & x1]/lamL, 5.5))
-            tLCLAF_value[x0 & x2] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[x0 & x2]/lamL, 2.1) + 0.2182 * _pow(lobs[x0 & x2]/lamL, 2.1) - 2.545e-2 * _pow(lobs[x0 & x2]/lamL, 3.7)
-            tLCLAF_value[x0 & x3] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[x0 & x3]/lamL, 2.1) + 0.3248 * _pow(lobs[x0 & x3]/lamL, 1.2) - 3.140e-2 * _pow(lobs[x0 & x3]/lamL, 2.1)
+            tLCLAF_value[x0 & x1] = 5.221e-4 * ( (1.0+zS)**3.4 * (lobs[x0 & x1]/lamL)**2.1 - (lobs[x0 & x1]/lamL)**5.5 )
+            tLCLAF_value[x0 & x2] = 5.221e-4 * (1.0+zS)**3.4 * (lobs[x0 & x2]/lamL)**2.1 + 0.2182 * (lobs[x0 & x2]/lamL)**2.1 - 2.545e-2 * (lobs[x0 & x2]/lamL)**3.7
+            tLCLAF_value[x0 & x3] = 5.221e-4 * (1.0+zS)**3.4 * (lobs[x0 & x3]/lamL)**2.1 + 0.3248 * (lobs[x0 & x3]/lamL)**1.2 - 3.140e-2 * (lobs[x0 & x3]/lamL)**2.1
             
         return tLCLAF_value
         
@@ -337,12 +374,12 @@ class Inoue14(object):
         
         x0 = lobs < lamL*(1.+zS)
         if zS < z1DLA:
-            tLCDLA_value[x0] = 0.2113 * _pow(1.0+zS, 2) - 0.07661 * _pow(1.0+zS, 2.3) * _pow(lobs[x0]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[x0]/lamL, 2)
+            tLCDLA_value[x0] = 0.2113 * (1.0+zS)**2.0 - 0.07661 * (1.0+zS)**2.3 * (lobs[x0]/lamL)**(-3e-1) - 0.1347 * (lobs[x0]/lamL)**2.0
         else:
             x1 = lobs >= lamL*(1.+z1DLA)
             
-            tLCDLA_value[x0 & x1] = 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[x0 & x1]/lamL, (-3e-1)) - 0.02916 * _pow(lobs[x0 & x1]/lamL, 3)
-            tLCDLA_value[x0 & ~x1] =0.6340 + 0.04696 * _pow(1.0+zS, 3) - 0.01779 * _pow(1.0+zS, 3.3) * _pow(lobs[x0 & ~x1]/lamL, (-3e-1)) - 0.1347 * _pow(lobs[x0 & ~x1]/lamL, 2) - 0.2905 * _pow(lobs[x0 & ~x1]/lamL, (-3e-1))
+            tLCDLA_value[x0 & x1] = 0.04696 * (1.0+zS)**3.0 - 0.01779 * (1.0+zS)**3.3 * (lobs[x0 & x1]/lamL)**(-3e-1) - 0.02916 * (lobs[x0 & x1]/lamL)**3.0
+            tLCDLA_value[x0 & ~x1] =0.6340 + 0.04696 * (1.0+zS)**3.0 - 0.01779 * (1.0+zS)**3.3 * (lobs[x0 & ~x1]/lamL)**(-3e-1) - 0.1347 * (lobs[x0 & ~x1]/lamL)**2.0 - 0.2905 * (lobs[x0 & ~x1]/lamL)**(-3e-1)
         
         return tLCDLA_value
 
@@ -360,19 +397,19 @@ class Inoue14(object):
         x0 = lobs < lamL*(1.+zS)
         
         if zS < z1LAF:
-            tLCLAF_value[x0] = 0.3248 * (_pow(lobs[x0]/lamL, 1.2) - _pow(1.0+zS, -9e-1) * _pow(lobs[x0]/lamL, 2.1))
+            tLCLAF_value[x0] = 0.3248 * ( (lobs[x0]/lamL)**1.2 - (1.0+zS)**(-9e-1) * (lobs[x0]/lamL)**2.1 )
         elif zS < z2LAF:
             x1 = lobs >= lamL*(1+z1LAF)
-            tLCLAF_value[x0 & x1] = 2.545e-2 * (_pow(1.0+zS, 1.6) * _pow(lobs[x0 & x1]/lamL, 2.1) - _pow(lobs[x0 & x1]/lamL, 3.7))
-            tLCLAF_value[x0 & ~x1] = 2.545e-2 * _pow(1.0+zS, 1.6) * _pow(lobs[x0 & ~x1]/lamL, 2.1) + 0.3248 * _pow(lobs[x0 & ~x1]/lamL, 1.2) - 0.2496 * _pow(lobs[x0 & ~x1]/lamL, 2.1)
+            tLCLAF_value[x0 & x1] = 2.545e-2 * ( (1.0+zS)**1.6 * (lobs[x0 & x1]/lamL)**2.1 - (lobs[x0 & x1]/lamL)**3.7 )
+            tLCLAF_value[x0 & ~x1] = 2.545e-2 * (1.0+zS)**1.6 * (lobs[x0 & ~x1]/lamL)**2.1 + 0.3248 * (lobs[x0 & ~x1]/lamL)**1.2 - 0.2496 * (lobs[x0 & ~x1]/lamL)**2.1
         else:
             x1 = lobs > lamL*(1.+z2LAF)
             x2 = (lobs >= lamL*(1.+z1LAF)) & (lobs < lamL*(1.+z2LAF))
             x3 = lobs < lamL*(1.+z1LAF)
             
-            tLCLAF_value[x0 & x1] = 5.221e-4 * (_pow(1.0+zS, 3.4) * _pow(lobs[x0 & x1]/lamL, 2.1) - _pow(lobs[x0 & x1]/lamL, 5.5))
-            tLCLAF_value[x0 & x2] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[x0 & x2]/lamL, 2.1) + 0.2182 * _pow(lobs[x0 & x2]/lamL, 2.1) - 2.545e-2 * _pow(lobs[x0 & x2]/lamL, 3.7)
-            tLCLAF_value[x0 & x3] = 5.221e-4 * _pow(1.0+zS, 3.4) * _pow(lobs[x0 & x3]/lamL, 2.1) + 0.3248 * _pow(lobs[x0 & x3]/lamL, 1.2) - 3.140e-2 * _pow(lobs[x0 & x3]/lamL, 2.1)
+            tLCLAF_value[x0 & x1] = 5.221e-4 * ( (1.0+zS)**3.4 * (lobs[x0 & x1]/lamL)**2.1 - (lobs[x0 & x1]/lamL)**5.5 )
+            tLCLAF_value[x0 & x2] = 5.221e-4 * (1.0+zS)**3.4 * (lobs[x0 & x2]/lamL)**2.1 + 0.2182 * (lobs[x0 & x2]/lamL)**2.1 - 2.545e-2 * (lobs[x0 & x2]/lamL)**3.7
+            tLCLAF_value[x0 & x3] = 5.221e-4 * (1.0+zS)**3.4 * (lobs[x0 & x3]/lamL)**2.1 + 0.3248 * (lobs[x0 & x3]/lamL)**1.2 - 3.140e-2 * (lobs[x0 & x3]/lamL)**2.1
             
         return tLCLAF_value
 
@@ -421,10 +458,6 @@ class Inoue14(object):
         self.interpolate = CubicSpline(zgrid, igm_grid)
 
 
-def _pow(a, b):
-    """C-like power, a**b
-    """
-    return a**b
     
 def sigmoid(x,A,a,c):
     """
