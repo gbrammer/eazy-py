@@ -1063,8 +1063,8 @@ class Template():
                 sigmoid_params = kwargs['sigmoid_params']
             if 'add_cgm' in kwargs:
                 add_cgm = kwargs['add_cgm']
-            if 'scale_tau' in kwards:
-                scale_tau = kwards['scale_tau']
+            if 'scale_tau' in kwargs:
+                scale_tau = kwargs['scale_tau']
             
         if include_igm:
             igmz = self.igm_absorption(z, sigmoid_params=sigmoid_params,scale_tau=scale_tau, add_cgm=add_cgm)
