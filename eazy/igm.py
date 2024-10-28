@@ -24,6 +24,43 @@ class Asada24(object):
         add_cgm : bool
             Add the additional LyA damping absorption at z>6 as described in Asada+24.
             If False, the transmission will be identical to Inoue+ 2014
+            
+        .. plot::
+            :include-source:
+            
+            # Compare two IGM transmissions
+            
+            import numpy as np
+            import matplotlib.pyplot as plt
+            from eazy import igm as igm_module
+            
+            igm_A24 = igm_module.Asada24()
+            igm_I14 = igm_module.Inoue14()
+
+            redshifts = [6., 7., 8., 9., 10.]
+            colors = ['b', 'c', 'purple', 'orange', 'red']
+            
+            wave = np.linspace(100,2000,1901) ## wavelength array in the rest-frame
+            lyman = wave < 2000
+
+
+            fig = plt.figure(figsize=(6,5))
+            for z, c in zip(redshifts, colors):
+                igmz_A24 = wave*0.+1
+                igmz_A24[lyman] = igm_A24.full_IGM(z, (wave*(1+z))[lyman])
+
+                igmz_I14 = wave*0.+1
+                igmz_I14[lyman] = igm_I14.full_IGM(z, (wave*(1+z))[lyman])
+
+                plt.plot(wave*(1+z), igmz_I14, color=c, ls='dashed')
+                plt.plot(wave*(1+z), igmz_A24, color=c, label=r'$z={}$'.format(int(z)))
+                
+            plt.xlabel('Observed wavelength [A]')
+            plt.ylabel('Transmission')
+
+            plt.legend()
+
+            plt.xlim(5000,17000)
         """
         self._load_data()
         self.sigmoid_params = sigmoid_params
