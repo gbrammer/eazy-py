@@ -275,10 +275,10 @@ class PhotoZ(object):
         
         if self.param['ADD_CGM'] in utils.TRUE_VALUES:
             IGM_OBJECT.add_cgm = True
-            max_fuv_wav = 2000.
+            self.max_fuv_wav = 2000.
         else:
             IGM_OBJECT.add_cgm = False
-            max_fuv_wav = 1300.
+            self.max_fuv_wav = 1300.
         
         sigmoid_params = (self.param.params['SIGMOID_PARAM1'], self.param.params['SIGMOID_PARAM2'], self.param.params['SIGMOID_PARAM3'])
         IGM_OBJECT.sigmoid_params = sigmoid_params
@@ -2684,7 +2684,7 @@ class PhotoZ(object):
 
         if self.tempfilt.add_igm:
             igmz = templ.wave*0.+1
-            lyman = templ.wave < max_fuv_wav
+            lyman = templ.wave < self.max_fuv_wav
             igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
         else:
             igmz = 1.
@@ -2843,7 +2843,7 @@ class PhotoZ(object):
                 templzi = templ.wave*(1+zi)
                 if self.tempfilt.add_igm:
                     igmz = templ.wave*0.+1
-                    lyman = templ.wave < max_fuv_wav
+                    lyman = templ.wave < self.max_fuv_wav
                     igmz[lyman] = IGM_OBJECT.full_IGM(zi, templzi[lyman])
                 else:
                     igmz = 1.
