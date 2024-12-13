@@ -436,6 +436,9 @@ def test_hdf5():
     """
     Test HDF5 save / recover state
     """
+    import matplotlib.pyplot as plt
+    plt.ioff()
+
     global ez
     
     from .. import hdf5
@@ -455,6 +458,22 @@ def test_hdf5():
     assert(np.allclose(ez.zml, new_ez.zml))
     assert(np.allclose(ez.zbest, new_ez.zbest))
     assert(np.allclose(ez.lnp, new_ez.lnp, rtol=1.e-4))
+
+    _  = new_ez.show_fit(10)
+    plt.close('all')
+
+    # Compact viewer
+    h5 = hdf5.Viewer('test.hdf5')
+
+    assert(h5.NOBJ == new_ez.NOBJ)
+    assert(h5.NTEMP == new_ez.NTEMP)
+    assert(h5.NFILT == new_ez.NFILT)
+    assert(h5.NZ == new_ez.NZ)
+    assert(np.allclose(h5.zp, new_ez.zp))
+
+    _cat = h5.get_catalog()
+    _ = h5.show_fit(10)
+    plt.close('all')
 
 
 def test_cleanup():
