@@ -1,13 +1,14 @@
 import os
 
 from .. import param
+from .. import utils
 
 def data_path():
     """
     Data path
     """
-    path = os.path.join(os.path.dirname(__file__), '../data/')
-    return path
+    # path = os.path.join(os.path.dirname(__file__), '../data/')
+    return utils.DATA_PATH
 
 
 def test_param_file():
