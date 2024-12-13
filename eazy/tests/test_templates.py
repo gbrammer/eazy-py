@@ -10,7 +10,9 @@ def test_data_path():
     """
     Data path
     """
-    path = os.path.join(os.path.dirname(__file__), '../data/')
+    # path = os.path.join(os.path.dirname(__file__), '../data/')
+    path = utils.DATA_PATH
+
     assert(os.path.exists(path))
     return path
 

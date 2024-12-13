@@ -46,11 +46,13 @@ def set_data_path(path='$EAZYCODE'):
 
     if path is None:
         # Use the code attached to the repository
-        path = os.path.join(os.path.dirname(__file__), 'data/')
-    
+        path = os.path.join(os.path.dirname(__file__), 'data')
+        if not os.path.exists(os.path.join(path, 'templates')):
+            path = os.path.join(path, 'eazy-photoz')
+
     DATA_PATH = path
     return path
-    
+
 set_data_path()
 
 def bool_param(value, false_values=FALSE_VALUES, true_values=TRUE_VALUES, which='false', check_both=True):

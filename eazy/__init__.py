@@ -55,18 +55,6 @@ def fetch_eazy_photoz():
         os.system(f'git clone {git_url}')
         print(f'cloning {git_url} to {data_path}')
 
-    if not os.path.exists('filters'):
-        os.symlink(os.path.join(data_path, 'eazy-photoz','filters'),
-                   'filters')
-
-    if not os.path.exists('templates'):
-        os.symlink(os.path.join(data_path, 'eazy-photoz','templates'),
-                   'templates')
-
-    if not os.path.exists('hdfn_fs99'):
-        os.symlink(os.path.join(data_path, 'eazy-photoz','inputs'),
-                   'hdfn_fs99')
-    
     # Back to working directory
     os.chdir(current_path)
 
@@ -103,6 +91,7 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=Fals
     directory are created in the current working directory (`./`).
 
     """
+    from .utils import DATA_PATH
 
     if path.startswith('$'):
         path = os.getenv(path)
@@ -111,7 +100,8 @@ def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=Fals
 
     if path is None:
         # Use the code attached to the repository
-        path = os.path.join(os.path.dirname(__file__), 'data/')
+        # path = os.path.join(os.path.dirname(__file__), 'data/')
+        path = DATA_PATH
         if not os.path.exists(os.path.join(path, 'templates')):
             fetch_eazy_photoz()
     
