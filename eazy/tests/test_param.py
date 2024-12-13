@@ -7,8 +7,8 @@ def data_path():
     """
     Data path
     """
-    # path = os.path.join(os.path.dirname(__file__), '../data/')
-    return utils.DATA_PATH
+    path = os.path.join(os.path.dirname(__file__), '../data/')
+    return os.path.join(path)
 
 
 def test_param_file():
