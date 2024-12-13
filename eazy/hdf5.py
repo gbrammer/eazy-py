@@ -9,6 +9,7 @@ except:
     pass
     
 from . import photoz
+from . import param
 from . import utils
 from . import templates as templates_code
 
@@ -339,16 +340,36 @@ class Viewer(object):
                                    Om0=self.param['OMEGA_M'], 
                                    Ode0=self.param['OMEGA_L'], 
                                    Tcmb0=2.725, Ob0=0.048)
-        
-        self.set_tempfilt()
-        
-        if self.param['ADD_CGM'] in utils.TRUE_VALUES:
-            self.add_cgm = True
+
+        if 'ADD_CGM' in self.param:
+            if self.param['ADD_CGM'] in utils.TRUE_VALUES:
+                self.add_cgm = True
+                self.max_fuv_wav = 2000.
+            else:
+                self.add_cgm = False
+                self.max_fuv_wav = 1300
+
+            self.sigmoid_params = (
+                self.param['SIGMOID_PARAM1'],
+                self.param['SIGMOID_PARAM2'],
+                self.param['SIGMOID_PARAM3']
+            )
+
         else:
-            self.add_cgm = False
+            self.param['ADD_CGM'] = False
             
-        sigmoid_params = (self.param['SIGMOID_PARAM1'], self.param['SIGMOID_PARAM2'], self.param['SIGMOID_PARAM3'])
-        self.sigmoid_params = sigmoid_params
+            defaults = param.EazyParam(verbose=False)
+
+            self.sigmoid_params = (
+                defaults['SIGMOID_PARAM1'],
+                defaults['SIGMOID_PARAM2'],
+                defaults['SIGMOID_PARAM3']
+            )
+
+            self.add_cgm = False
+            self.max_fuv_wav = 1300
+
+        self.set_tempfilt()
 
 
     def info(self):
