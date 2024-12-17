@@ -341,6 +341,8 @@ class Viewer(object):
                                    Ode0=self.param['OMEGA_L'], 
                                    Tcmb0=2.725, Ob0=0.048)
 
+        param_defaults = param.EazyParam(verbose=False)
+
         if 'ADD_CGM' in self.param:
             if self.param['ADD_CGM'] in utils.TRUE_VALUES:
                 self.add_cgm = True
@@ -357,17 +359,19 @@ class Viewer(object):
 
         else:
             self.param['ADD_CGM'] = False
-            
-            defaults = param.EazyParam(verbose=False)
 
             self.sigmoid_params = (
-                defaults['SIGMOID_PARAM1'],
-                defaults['SIGMOID_PARAM2'],
-                defaults['SIGMOID_PARAM3']
+                param_defaults['SIGMOID_PARAM1'],
+                param_defaults['SIGMOID_PARAM2'],
+                param_defaults['SIGMOID_PARAM3']
             )
 
             self.add_cgm = False
             self.max_fuv_wav = 1300
+
+        for par in param_defaults.param_names:
+            if par not in self.param:
+                self.param[par] = param_defaults[par]
 
         self.set_tempfilt()
 
