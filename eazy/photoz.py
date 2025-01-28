@@ -2833,20 +2833,25 @@ class PhotoZ(object):
                 templz_power = -1
                 flam_spec = 1.e29/(templz/1.e4)
                 flam_sed = 1.e29/self.ext_corr/(self.pivot/1.e4)
-                ylabel = (r'$f_\nu / \lambda$ [$\mu$Jy / $\mu$m]')
+                ylabel = r'$f_\nu / \lambda$  [$\mu\mathrm{Jy}~/~$\mu\mathrm{m}$]'
                 flux_unit = u.uJy / u.micron
             else:
                 templz_power = 0
                 flam_spec = 1.e29
                 flam_sed = 1.e29/self.ext_corr
-                ylabel = (r'$f_\nu$ [$\mu$Jy]')    
+                ylabel = r'$f_\nu$  $[\mu\mathrm{Jy}]$'
                 flux_unit = u.uJy
             
         else:
             templz_power = -2
             flam_spec = utils.CLIGHT*1.e10/templz**2/1.e-19
             flam_sed = utils.CLIGHT*1.e10/self.pivot**2/self.ext_corr/1.e-19
-            ylabel = (r'$f_\lambda [10^{-19}$ erg/s/cm$^2$]')
+            ylabel = (
+                r'$f_\lambda$'
+                + '  '
+                + r'$[10^{-19}$'
+                + r' $\mathrm{erg}~(\mathrm{s}~\mathrm{cm}^2~\mathrm{\AA})^{-1}]$'
+            )
             
             flux_unit = 1.e-19*u.erg/u.s/u.cm**2/u.AA
                         
