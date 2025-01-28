@@ -3066,7 +3066,7 @@ class PhotoZ(object):
                 ax.set_xticks(xt/1.e4)
                 ax.set_xticklabels(xt/1.e4)
 
-            ax.set_xlabel(r'$\lambda_\mathrm{obs}$')
+            ax.set_xlabel(r'$\lambda_\mathrm{obs}$  $[\mu\mathrm{m}]$')
             ax.grid()
             
             if add_label:
