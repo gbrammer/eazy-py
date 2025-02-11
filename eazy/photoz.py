@@ -359,8 +359,10 @@ class PhotoZ(object):
             self.tempfilt = TemplateGrid(self.zgrid, self.templates, 
                                         RES=self.param['FILTERS_RES'], 
                                         f_numbers=self.f_numbers, 
-                                        add_igm=self.param['IGM_SCALE_TAU'], 
-                                    galactic_ebv=self.MW_EBV, 
+                                        add_igm=self.param['IGM_SCALE_TAU'],
+                                    add_cgm=IGM_OBJECT.add_cgm,
+                                    sigmoid_params=IGM_OBJECT.sigmoid_params,
+                                    galactic_ebv=self.MW_EBV,
                                     Eb=self.param['SCALE_2175_BUMP'], 
                                     n_proc=n_proc, cosmology=self.cosmology, 
                                     array_dtype=self.ARRAY_DTYPE, 
@@ -2532,8 +2534,10 @@ class PhotoZ(object):
             self.tempfilt = TemplateGrid(self.zgrid, self.templates, 
                                          RES=self.RES, 
                                          f_numbers=self.f_numbers, 
-                                         add_igm=self.param['IGM_SCALE_TAU'], 
-                                         galactic_ebv=self.MW_EBV, 
+                                         add_igm=self.param['IGM_SCALE_TAU'],
+                                         add_cgm=IGM_OBJECT.add_cgm,
+                                         sigmoid_params=IGM_OBJECT.sigmoid_params,
+                                         galactic_ebv=self.MW_EBV,
                                          Eb=self.param['SCALE_2175_BUMP'], 
                                          n_proc=0, cosmology=self.cosmology, 
                                          array_dtype=self.ARRAY_DTYPE)
@@ -3387,7 +3391,9 @@ class PhotoZ(object):
                                    RES=self.RES, 
                                    f_numbers=np.array(f_numbers), 
                                    add_igm=self.param['IGM_SCALE_TAU'],
-                                   galactic_ebv=self.MW_EBV, 
+                                   add_cgm=IGM_OBJECT.add_cgm,
+                                   sigmoid_params=IGM_OBJECT.sigmoid_params,
+                                   galactic_ebv=self.MW_EBV,
                                    Eb=self.param['SCALE_2175_BUMP'], 
                                    n_proc=n_proc, verbose=verbose, 
                                    cosmology=self.cosmology,
@@ -5094,8 +5100,10 @@ class PhotoZ(object):
             tempfilt = TemplateGrid(self.zgrid, template_list, 
                                     RES=self.RES, 
                                     f_numbers=self.f_numbers, 
-                                    add_igm=self.param['IGM_SCALE_TAU'], 
-                                    galactic_ebv=self.MW_EBV, 
+                                    add_igm=self.param['IGM_SCALE_TAU'],
+                                    add_cgm=IGM_OBJECT.add_cgm,
+                                    sigmoid_params=IGM_OBJECT.sigmoid_params,
+                                    galactic_ebv=self.MW_EBV,
                                     Eb=self.param['SCALE_2175_BUMP'], 
                                     cosmology=self.cosmology, 
                                     array_dtype=self.ARRAY_DTYPE)
@@ -5652,7 +5660,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
 
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, add_cgm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
+    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, add_cgm=True, sigmoid_params=(3.5918, 1.8414, 18.001), galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
         """
         Integrate filters through filters on a redshift grid
         

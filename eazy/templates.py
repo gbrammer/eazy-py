@@ -756,7 +756,7 @@ class Template():
                             redshifts=self.redshifts)
 
 
-    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, clip_wavelengths=[4500,9400], as_template=True):
+    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True, clip_wavelengths=[4500,9400], as_template=True):
         """
         Smooth and resample to observed-frame wavelengths, including an
         optional Line Spread Function (LSF)
@@ -1040,7 +1040,7 @@ class Template():
         return iz
 
 
-    def zscale(self, z, scalar=1, include_igm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, **kwargs):
+    def zscale(self, z, scalar=1, include_igm=True, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True, **kwargs):
         """Redshift the template and multiply by a scalar.
 
         Parameters
@@ -1090,7 +1090,7 @@ class Template():
                         name=f'{self.name} z={z}')
 
 
-    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, redshift_type='nearest', iz=None):
+    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True, redshift_type='nearest', iz=None):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -1192,7 +1192,7 @@ class Template():
             return np.array(fluxes)
 
 
-    def igm_absorption(self, z, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True):
+    def igm_absorption(self, z, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True):
         """
         Compute IGM absorption with `eazy.igm.Asada24`.
         
