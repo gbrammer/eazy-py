@@ -5660,7 +5660,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
 
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, add_cgm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
+    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, add_cgm=True, sigmoid_params=(3.5918, 1.8414, 18.001), galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
         """
         Integrate filters through filters on a redshift grid
         
