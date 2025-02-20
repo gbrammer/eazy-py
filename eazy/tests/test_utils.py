@@ -92,6 +92,11 @@ def test_invert():
     ainv = utils.safe_invert(a)
     assert(np.allclose(np.dot(a, ainv), np.eye(2)))
 
+    # Singular matrix returns np.nan inverse without raising exception
+    a = np.ones((2,2))
+    ainv = utils.safe_invert(a)
+    assert np.all(~np.isfinite(utils.safe_invert(a)))
+
 
 def test_query_string():
     """

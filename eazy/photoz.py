@@ -6542,9 +6542,14 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t, hess_th
         #try:
         if ok_temp.sum() > 0:
             covar = utils.safe_invert(mat)
-            draws = np.random.multivariate_normal((coeffs_i * An)[ok_temp], 
-                                                  covar, 
-                                                  size=ndraws)
+            if np.isfinite(covar).sum() != covar.size:
+                draws = np.full((ndraws, ok_temp.sum()), np.nan)
+            else:
+                draws = np.random.multivariate_normal(
+                    (coeffs_i * An)[ok_temp],
+                    covar,
+                    size=ndraws
+                )
             coeffs_draw[:, ok_temp] = draws / An[ok_temp]
         else:
             #print('Error getting coeffs draws')

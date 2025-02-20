@@ -369,14 +369,37 @@ def fill_between_steps(x, y, z, ax=None, *args, **kwargs):
     ax.fill_between(xfull[so], yfull[so], zfull[so], *args, **kwargs)
 
 
-def safe_invert(arr):
+def safe_invert(arr, tol=None):
     """
     Version-safe matrix inversion using `numpy.linalg.inv` or `numpy.matrix.I`
+
+    Parameters
+    ----------
+    arr : array-like
+        Square matrix to invert
+
+    tol : float
+        Tolerance parameter for calculating if arr is singular using the rank from
+        ``np.linalg.matrix_rank(arr, tol=tol)``.  If None, use the numpy default
+        derived from the matrix size and machine epsilon.  If ``arr`` is found to be
+        singular (rank < max(arr.shape)), don't try to invert it and just return an
+        array of NaN values.
+
+    Returns
+    -------
+    inv : array-like
+        Inverse of ``arr``
+
     """
+    # Check that matrix is not singular
+    rank = np.linalg.matrix_rank(arr, tol=tol)
+    if rank < np.max(arr.shape):
+        return arr * np.nan
+
     try:
         from numpy.linalg import inv
         _inv = inv(arr)
-    except:
+    except ImportError:
         _inv = np.matrix(arr).I.A
     
     return _inv
