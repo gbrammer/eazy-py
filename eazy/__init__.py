@@ -75,12 +75,10 @@ def set_data_path(path='$EAZYCODE'):
 
     DATA_PATH = path
     
-    if not os.path.exists(
-        os.path.join(DATA_PATH, "filters", "FILTER.RES.latest")
-    ):
-        fetch_eazy_photoz()
-
     return path
+
+# Set the data path and download if necessary
+set_data_path()
 
 def fetch_eazy_photoz():
     """
@@ -112,8 +110,6 @@ def fetch_eazy_photoz():
     # Back to working directory
     os.chdir(current_path)
 
-# Set the data path and download if necessary
-set_data_path()
 
 def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=False):
     """
