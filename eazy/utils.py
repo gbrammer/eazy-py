@@ -2,10 +2,20 @@ import os
 import warnings
 
 import numpy as np
+
+import numpy as np
+# trapz deprecated in numpy 2.0
+try:
+    from numpy import trapezoid as trapz
+except ImportError:
+    from numpy import trapz
+
 import matplotlib.pyplot as plt
 
 import astropy.stats
 import astropy.units as u
+
+from . import DATA_PATH
 
 CLIGHT = 299792458.0 # m/s
 
@@ -14,46 +24,6 @@ FALSE_VALUES = [False, 0, '0', 'False', 'FALSE', 'false', 'n', 'no', 'N', 'No']
 
 FNU_CGS = u.erg/u.second/u.cm**2/u.Hz
 FLAM_CGS = u.erg/u.second/u.cm**2/u.Angstrom
-
-DATA_PATH = None
-
-def set_data_path(path='$EAZYCODE'):
-    """
-    Make symbolic links to EAZY inputs
-
-    Parameters
-    ----------
-    path : str
-        Full directory path or environment variable pointing to the old eazy
-        C-code repository that provides the template and filter files.
-
-        If `path.startswith('$')` then treat path as an environment variable.
-
-        If you install from the repository that provides the eazy-photozy
-        code as a submodule, then you should be able to run with `path=None`
-        and retrieve the files directly from the repository.  This should
-        also work with the `pip` installation.
-
-        Another safe way to ensure that the necessary files are avialable is
-        to clone the `eazy-photoz` repository and set an environment variable
-        to point to it (e.g, 'EAZYCODE'), which you then pass as the `path`
-        argument.
-
-    """
-    global DATA_PATH
-    if path.startswith('$'):
-        path = os.getenv(path)
-
-    if path is None:
-        # Use the code attached to the repository
-        path = os.path.join(os.path.dirname(__file__), 'data')
-        if not os.path.exists(os.path.join(path, 'templates')):
-            path = os.path.join(path, 'eazy-photoz')
-
-    DATA_PATH = path
-    return path
-
-set_data_path()
 
 def bool_param(value, false_values=FALSE_VALUES, true_values=TRUE_VALUES, which='false', check_both=True):
     """
@@ -193,7 +163,7 @@ def running_median(xi, yi, NBIN=10, reverse=False, bins=None, x_func=np.median, 
             mi = xi[in_bin].min()
             xm[i] = (ma+mi)/2.
             dx = (ma-mi)
-            ym[i] = np.trapz(yi[in_bin][xso], xi[in_bin][xso])/dx
+            ym[i] = trapz(yi[in_bin][xso], xi[in_bin][xso])/dx
         else:
             xm[i] = x_func(xi[in_bin], **x_kwargs)
             ym[i] = y_func(yi[in_bin], **y_kwargs)
@@ -979,7 +949,7 @@ def interp_conserve(x, xp, fp, left=0., right=0.):
     dx = midpoint[1:]-midpoint[:-1]
     for i in range(len(x)):
         bin = (fullx >= midpoint[i]) & (fullx <= midpoint[i+1])
-        outy[i] = np.trapz(fully[bin], fullx[bin])/dx[i]
+        outy[i] = trapz(fully[bin], fullx[bin])/dx[i]
         
     return outy
 

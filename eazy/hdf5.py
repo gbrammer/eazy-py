@@ -149,7 +149,7 @@ def cat_from_hdf5(h5file):
     return cat, trans
 
 
-def params_from_hdf5(h5file):
+def param_from_hdf5(h5file):
     """
     Read full parameters from HDF5 file
     
@@ -160,21 +160,21 @@ def params_from_hdf5(h5file):
     
     Returns
     -------
-    params : dict
+    params : `eazy.param.EazyParam`
+        Parameter object
     """
-    from collections import OrderedDict
-    
-    params = OrderedDict()
+    params = param.EazyParam(verbose=False)
     
     with h5py.File(h5file,'r') as f:
         dset = f['fit']
         for k in dset.attrs:
+            print(f'set param: {k} {dset.attrs[k]}')
             params[k] = dset.attrs[k]
     
     return params
 
 
-def templates_from_hdf5(h5file, verbose=False):
+def templates_from_hdf5(h5file, igm_kwargs={}, verbose=False):
     """
     Read list of templates
     
@@ -183,6 +183,8 @@ def templates_from_hdf5(h5file, verbose=False):
     h5file : str
         HDF5 filename
     
+    igm_kwargs : dict
+        Keyword arguments to initialize the 
     Returns
     -------
     templates : list
@@ -202,9 +204,12 @@ def templates_from_hdf5(h5file, verbose=False):
             flux = f[f'templates/flux {name}'][:]
             redshifts = f[f'templates/z {name}'][:]
 
-            templ_i = templates_code.Template(arrays=(wave, flux), 
-                                              name=name, 
-                                              redshifts=redshifts)
+            templ_i = templates_code.Template(
+                arrays=(wave, flux), 
+                name=name, 
+                redshifts=redshifts,
+                **igm_kwargs,
+            )
             templates.append(templ_i)
     
     return templates
@@ -271,18 +276,18 @@ def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
     """
     
     # Parameter dictionary
-    params = params_from_hdf5(h5file)
+    param = param_from_hdf5(h5file)
 
     # Generate a catalog table from H5 data
     cat, trans = cat_from_hdf5(h5file)
         
     # Put catalog in CATALOG_FILE parameter
-    params['CATALOG_FILE'] = cat
+    param['CATALOG_FILE'] = cat
     
     with h5py.File(h5file, 'r') as f:
         pzobj = photoz.PhotoZ(param_file=None, translate_file=trans,
                                    zeropoint_file=None, 
-                                   params=params, load_prior=True, 
+                                   params=param.params, load_prior=True, 
                                    load_products=False, 
                                    tempfilt_data=f['fit/tempfilt'][:])
         
@@ -290,8 +295,12 @@ def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
         pzobj.chi2_fit = f['fit/chi2_fit'][:]
         pzobj.zp = f['cat/zp'][:]
         
-        if 'templates' in f:
-            pzobj.templates = templates_from_hdf5(h5file, verbose=verbose)
+        if 'templates' in f:            
+            pzobj.templates = templates_from_hdf5(
+                h5file,
+                igm_kwargs=param.igm_kwargs,
+                verbose=verbose
+            )
             
         if 'fit/fit_coeffs' in f:
             pzobj.fit_coeffs = f['fit/fit_coeffs'][:]
@@ -324,12 +333,16 @@ class Viewer(object):
         
         self.h5file = h5file
         
-        self.param = params_from_hdf5(h5file)
-        
+        self.param = param_from_hdf5(h5file)
+
         photoz.PhotoZ.set_zgrid(self)
         self.NZ = len(self.zgrid)
         
-        self.templates = templates_from_hdf5(h5file, verbose=verbose)
+        self.templates = templates_from_hdf5(
+            h5file,
+            igm_kwargs=self.param.igm_kwargs,
+            verbose=verbose
+        )
         self.NTEMP = len(self.templates)
         
         self.set_attrs_from_hdf5()
@@ -340,38 +353,6 @@ class Viewer(object):
                                    Om0=self.param['OMEGA_M'], 
                                    Ode0=self.param['OMEGA_L'], 
                                    Tcmb0=2.725, Ob0=0.048)
-
-        param_defaults = param.EazyParam(verbose=False)
-
-        if 'ADD_CGM' in self.param:
-            if self.param['ADD_CGM'] in utils.TRUE_VALUES:
-                self.add_cgm = True
-                self.max_fuv_wav = 2000.
-            else:
-                self.add_cgm = False
-                self.max_fuv_wav = 1300
-
-            self.sigmoid_params = (
-                self.param['SIGMOID_PARAM1'],
-                self.param['SIGMOID_PARAM2'],
-                self.param['SIGMOID_PARAM3']
-            )
-
-        else:
-            self.param['ADD_CGM'] = False
-
-            self.sigmoid_params = (
-                param_defaults['SIGMOID_PARAM1'],
-                param_defaults['SIGMOID_PARAM2'],
-                param_defaults['SIGMOID_PARAM3']
-            )
-
-            self.add_cgm = False
-            self.max_fuv_wav = 1300
-
-        for par in param_defaults.param_names:
-            if par not in self.param:
-                self.param[par] = param_defaults[par]
 
         self.set_tempfilt()
 
@@ -492,8 +473,6 @@ class Viewer(object):
                                     RES=self.param['FILTERS_RES'], 
                                     f_numbers=self.f_numbers, 
                                     add_igm=self.param['IGM_SCALE_TAU'],
-                                    add_cgm=self.add_cgm,
-                                    sigmoid_params=self.sigmoid_params,
                                 galactic_ebv=self.MW_EBV,
                                 Eb=self.param['SCALE_2175_BUMP'], 
                                 n_proc=1, cosmology=self.cosmology, 
@@ -580,8 +559,9 @@ class Viewer(object):
             zspec_i = f['cat/z_spec'][ix]
             ok_i = f['cat/ok_data'][ix,:]
         
-        efnu_i = np.sqrt(efnu_orig**2 + 
-                         (self.param['SYS_ERR']*np.maximum(fnu_i, 0.))**2)
+        efnu_i = np.sqrt(
+            efnu_orig**2 + (self.param['SYS_ERR'] * np.maximum(fnu_i, 0.))**2
+        )
         
         return z_i, fnu_i, efnu_i, ra_i, dec_i, chi2_i, zspec_i, ok_i
 
@@ -621,7 +601,7 @@ class Viewer(object):
         """
         Conversion factor to :math:`10^{-19} erg/s/cm^2/Å`
         """
-        to_flam = 10**(-0.4*(self.param['PRIOR_ABZP']+48.6))
+        to_flam = 10**(-0.4 * (self.param['PRIOR_ABZP'] + 48.6))
         to_flam *= utils.CLIGHT*1.e10/1.e-19/self.pivot**2/self.ext_corr
         return to_flam
 
@@ -647,7 +627,7 @@ class Viewer(object):
         """
         Array data type from `ARRAY_NBITS` parameter
         """
-        if 'ARRAY_NBITS' in self.param:
+        if 'ARRAY_NBITS' in self.param.params:
             if self.param['ARRAY_NBITS'] == 64:
                 ARRAY_DTYPE = np.float64
             else:
@@ -663,7 +643,7 @@ class Viewer(object):
         """
         Galactic extinction E(B-V)
         """
-        if 'MW_EBV' not in self.param:
+        if 'MW_EBV' not in self.param.params:
             return 0. # 0.0354 # MACS0416
         else:
             return self.param['MW_EBV']

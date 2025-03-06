@@ -1,11 +1,11 @@
 import os
 import shutil
 
-from . import igm
-from . import param
-from . import templates
-from . import filters
-from . import photoz
+# from . import igm
+# from . import param
+# from . import templates
+# from . import filters
+# from . import photoz
 
 from .version import __version__
 
@@ -38,22 +38,77 @@ except ImportError:
 #               'to be able to import prospect.')
 #         os.environ['SPS_HOME'] = sps_home
 
+DATA_PATH = None
+
+def set_data_path(path='$EAZYCODE'):
+    """
+    Make symbolic links to EAZY inputs
+
+    Parameters
+    ----------
+    path : str
+        Full directory path or environment variable pointing to the old eazy
+        C-code repository that provides the template and filter files.
+
+        If `path.startswith('$')` then treat path as an environment variable.
+
+        If you install from the repository that provides the eazy-photozy
+        code as a submodule, then you should be able to run with `path=None`
+        and retrieve the files directly from the repository.  This should
+        also work with the `pip` installation.
+
+        Another safe way to ensure that the necessary files are avialable is
+        to clone the `eazy-photoz` repository and set an environment variable
+        to point to it (e.g, 'EAZYCODE'), which you then pass as the `path`
+        argument.
+
+    """
+    global DATA_PATH
+    if path.startswith('$'):
+        path = os.getenv(path[1:])
+
+    if path is None:
+        # Use the code attached to the repository
+        path = os.path.join(os.path.dirname(__file__), 'data')
+        if not os.path.exists(os.path.join(path, 'templates')):
+            path = os.path.join(path, 'eazy-photoz')
+
+    if path.endswith("/"):
+        DATA_PATH = path[:-1]
+    else:
+        DATA_PATH = path
+    
+    return path
+
+# Set the data path and download if necessary
+set_data_path()
+
 def fetch_eazy_photoz():
     """
     If necessary, clone the eazy-photoz repository to get templates and filters
     """
+    global DATA_PATH
+
     current_path = os.getcwd()
     
-    module_path = os.path.dirname(__file__)
-    data_path = os.path.join(module_path, 'data/')
-    os.chdir(data_path)
+    # module_path = os.path.dirname(__file__)
+    # data_path = os.path.join(module_path, 'data/')
+    if DATA_PATH.endswith("eazy-photoz"):
+        _data_path = os.path.split(DATA_PATH)[0]
+    else:
+        _data_path = DATA_PATH
 
-    eazy_photoz = os.path.join(data_path, 'eazy-photoz')
+    if not os.path.exists(_data_path):
+        os.makedirs(_data_path)
+
+    os.chdir(_data_path)
+
+    eazy_photoz = os.path.join(_data_path, 'eazy-photoz')
     git_url = 'https://github.com/gbrammer/eazy-photoz.git'
 
     if not os.path.exists(eazy_photoz):
         os.system(f'git clone {git_url}')
-        print(f'cloning {git_url} to {data_path}')
+        print(f'cloning {git_url} to {_data_path}')
 
     # Back to working directory
     os.chdir(current_path)

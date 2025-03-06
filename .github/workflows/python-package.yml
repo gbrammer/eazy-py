@@ -54,7 +54,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10']
+        python-version: [3.9, '3.10', '3.11', '3.12']
         os: [ubuntu-latest]
     steps:
     - uses: actions/checkout@v3
@@ -71,6 +71,7 @@ jobs:
     - name: Run tests with coverage
       run: |
         pip install pytest coverage
+        python3 -c "import eazy; eazy.fetch_eazy_photoz()"
         coverage run -m pytest
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4.0.1

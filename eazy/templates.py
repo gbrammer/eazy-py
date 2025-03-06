@@ -3,6 +3,11 @@ import warnings
 
 from collections import OrderedDict
 import numpy as np
+# trapz deprecated in numpy 2.0
+try:
+    from numpy import trapezoid as trapz
+except ImportError:
+    from numpy import trapz
 
 import astropy.units as u
 from astropy.utils.exceptions import AstropyWarning, AstropyUserWarning
@@ -381,8 +386,11 @@ def read_templates_file(templates_file=None, as_dict=False, **kwargs):
         if template_file.startswith('templates') & (not os.path.exists('templates')):
             template_file = os.path.join(utils.DATA_PATH, template_file)
         
-        templ = Template(file=template_file, to_angstrom=to_angstrom, 
-                         **kwargs)
+        templ = Template(
+            file=template_file,
+            to_angstrom=to_angstrom, 
+            **kwargs
+        )
         
         templates.append(templ)
     
@@ -396,25 +404,28 @@ def read_templates_file(templates_file=None, as_dict=False, **kwargs):
 
 
 class Template():
+    
+    igm = None
+    
     def __init__(self, file=None, name=None, arrays=None, sp=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), redshifts=[0], verbose=True, flux_unit=(u.L_sun/u.Angstrom), **kwargs):
         """
         Template object.
-        
+
         Can optionally specify a 2D flux array with the first
         dimension indicating the template for the nearest redshift in the 
         corresponding ``redshifts`` list.  See When integrating the 
         filter fluxes with ``integrate_filter``, the template index with the 
         redshift nearest to the specified redshift will be used.
-        
+
         Parameters
         ----------
         file : str
             Filename of ascii or FITS template
-        
+
         arrays : (array, array)
             Tuple of ``wave``, ``flux`` arrays.  Here ``flux`` assumed to 
             have units f-lambda.
-        
+
         sp : object
             Object with ``wave``, ``flux`` attributes, e.g., from
             ``prospector``.  Here ``flux`` is assumed to have units of f-nu.
@@ -422,44 +433,43 @@ class Template():
         to_angstrom : float
             Scale factor such that ``wave * to_angstrom`` has units of 
             `astropy.units.Angstrom`
-        
+
         velocity_smooth : float
             Velocity smooothing in km/s, applied if > 0
-        
+
         resample_wave : array
             Grid to resample the template wavelengths read from the input 
-        
+
         fits_column : str
             Column name of the flux column if arrays read from a ``file``
-        
+
         redfunc : `eazy.templates.Redden`
             Object to apply additional reddening.  
-        
+
         redshifts : array-like
             Redshift grid for redshift-dependent templates
 
         flux_unit : `astropy.units.core.Unit`
             Units of ``flux`` array.
-        
+
         Attributes
         ----------
         wave : array
             wavelength in `astropy.units.Angstrom`, dimensions ``[NWAVE]``.
-        
+
         flux : array
             Flux density f-lambda, can have redshift dependence, dimensions
             ``[NZ, NWAVE]``.
-        
+
         name : str
             Label name
-            
+
         meta : dict
             Metadata
-            
+
         redfunc : `eazy.templates.Redden`, optional
             Object for applying dust reddening.
-        
-            
+
         """
         import copy
         from astropy.table import Table
@@ -586,7 +596,8 @@ class Template():
         # Reddening function
         self.redfunc = redfunc
         _red = self.redden # test to break at init if fails
-
+        
+        self.initialize_igm_model(set=True, **kwargs)
 
     def __repr__(self):
         if self.name is None:
@@ -594,16 +605,10 @@ class Template():
         else:
             return '{0}: {1}'.format(self.__class__, self.name)
 
-
     def absorbed_energy(self, i=0):
         diff = self.flux[i,:]*(1-self.redden)*(self.redden > 0)
-        absorbed = np.trapz(diff, self.wave)
+        absorbed = trapz(diff, self.wave)
         return absorbed
-        # if self.NZ == 1:
-        #     return absorbed[0]
-        # else:
-        #     return absorbed
-
 
     @property
     def redden(self):
@@ -756,7 +761,7 @@ class Template():
                             redshifts=self.redshifts)
 
 
-    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True, clip_wavelengths=[4500,9400], as_template=True):
+    def to_observed_frame(self, z=0, scalar=1., extra_sigma=0, lsf_func=None, to_air=False, wavelengths=None, smoothspec_kwargs={'fftsmooth':False}, include_igm=True, clip_wavelengths=[4500,9400], as_template=True):
         """
         Smooth and resample to observed-frame wavelengths, including an
         optional Line Spread Function (LSF)
@@ -809,15 +814,6 @@ class Template():
         include_igm : bool
             Include IGM absorption at indicated redshift
             
-        sigmoid_params : 3-tuple float
-            Sigmoid function parameters used in `~eazy.igm.Asada24`
-        
-        scale_tau : float
-            Scalar multiplied to tau_igm
-            
-        add_cgm : bool
-            Add CGM component in IGM transmission
-        
         clip_wavelengths : [float, float]
             Trim the full observed-frame wavelength array before convolving.  
             The defaults bracket the nominal MUSE range.
@@ -835,7 +831,7 @@ class Template():
         wobs = self.wave*(1+z)
         
         if include_igm:
-            igmz = self.igm_absorption(z, sigmoid_params=sigmoid_params,scale_tau=scale_tau, add_cgm=add_cgm)
+            igmz = self.igm_absorption(z)
         else:
             igmz = 1.
         
@@ -1054,16 +1050,7 @@ class Template():
         include_igm : bool
             Include Asada (2024) IGM absorption (also can be passed as
             ``apply_igm`` in ``kwargs``.)
-            
-        sigmoid_params : 3-tuple float
-            Sigmoid function parameters used in `~eazy.igm.Asada24`
-        
-        scale_tau : float
-            Scalar multiplied to tau_igm
-            
-        add_cgm : bool
-            Add CGM component in IGM transmission
-        
+
         Returns
         -------
         ztemp : `~eazy.templates.Template`
@@ -1081,16 +1068,16 @@ class Template():
                 scale_tau = kwargs['scale_tau']
             
         if include_igm:
-            igmz = self.igm_absorption(z, sigmoid_params=sigmoid_params,scale_tau=scale_tau, add_cgm=add_cgm)
+            igmz = self.igm_absorption(z)
         else:
             igmz = 1.
         
-        return Template(arrays=(self.wave*(1+z),
-                                self.flux_flam(z=z)*scalar/(1+z)*igmz), 
-                        name=f'{self.name} z={z}')
+        return Template(
+            arrays=(self.wave*(1+z), self.flux_flam(z=z)*scalar/(1+z)*igmz), 
+            name=f'{self.name} z={z}'
+        )
 
-
-    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True, redshift_type='nearest', iz=None):
+    def integrate_filter(self, filt, flam=False, scale=1., z=0, include_igm=False, redshift_type='nearest', iz=None, **kwargs):
         """
         Integrate the template through a `FilterDefinition` filter object.
         
@@ -1116,23 +1103,17 @@ class Template():
         
         include_igm : bool
             Include IGM absorption
-            
-        sigmoid_params : 3-tuple float
-            Sigmoid function parameters used in `~eazy.igm.Asada24`
-        
-        scale_tau : float
-            Scalar multiplied to tau_igm
-            
-        add_cgm : bool
-            Add CGM component in IGM transmission
-        
+
         redshift_type : str
             See `~eazy.templates.Template.zindex`.
         
         iz : int
             Evaluate for a specific index of the ``flux`` array rather than
             calculating with ``zindex``
-            
+        
+        kwargs : dict
+            Keywords passed to `eazy.templates.Template.igm_absorption`
+
         Returns
         -------
         fnu : float or array
@@ -1157,7 +1138,7 @@ class Template():
             single = True
         
         if include_igm > 0:
-            igmz = self.igm_absorption(z, sigmoid_params=sigmoid_params,scale_tau=scale_tau, add_cgm=add_cgm)
+            igmz = self.igm_absorption(z, **kwargs)
         else:
             igmz = 1.
         
@@ -1176,7 +1157,7 @@ class Template():
                                 fnu.astype(float), left=0, right=0)
                 
             # f_nu/lam dlam == f_nu d (ln nu)    
-            integrator = np.trapz
+            integrator = trapz
             temp_int = integrator(filt_i.throughput*templ_filt/filt_i.wave, 
                                   filt_i.wave) 
             temp_int /= filt_i.norm
@@ -1191,36 +1172,65 @@ class Template():
         else:
             return np.array(fluxes)
 
-
-    def igm_absorption(self, z, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True):
+    def initialize_igm_model(self, igm_model='Asada24', set=True, **kwargs):
         """
-        Compute IGM absorption with `eazy.igm.Asada24`.
+        Initialize the IGM absorption model
+        """
+        try:
+            from . import igm as igm_module
+        except ImportError:
+            from eazy import igm as igm_module
+        
+        if igm_model == 'Asada24':
+            igm = igm_module.Asada24(**kwargs)
+        else:
+            igm = igm_module.Inoue14(**kwargs)
+        
+        if set:
+            self.igm = igm
+        
+        return igm
+
+
+    def igm_absorption(self, z, **kwargs):
+        """
+        Compute IGM absorption
         
         Parameters
         ----------
         z : float
             Redshift to use for IGM absorption factors
         
-        scale_tau : float
-            Scale factor multiplied to of IGM ``tau`` values
+        igm_model : str ('Asada24', 'Inoue14')
+            IGM model to use `~eazy.igm.Asada24` or ``~eazy.igm.Inoue14``
         
-        pow : float 
-            Scale the absorption strength as ``eazy.igm.Inoue14()**pow``.
+        kwargs : dict
+            Keywords passed to the initialization of the IGM model object, e.g.,
+            ``scale_tau``.
+
+        Returns
+        -------
+        igmz : array-like
+            Linear IGM absorption as a function of wavelength
+        
         """
-        try:
-            from . import igm as igm_module
-        except:
-            from eazy import igm as igm_module
+        # Do we need to initialize the IGM object?
+        args = ["igm_model", "sigmoid_params", "scale_tau", "add_cgm"]
+        initialize_igm_object = self.igm is None
+        for k in args:
+            if k in kwargs:
+                initialize_igm_object = True
+                break
         
-        igm = igm_module.Asada24(sigmoid_params=sigmoid_params, scale_tau=scale_tau, add_cgm=add_cgm)
-        if add_cgm:
-            max_fuv_wav = 2000.
+        if initialize_igm_object:
+            igm = self.initialize_igm_model(**kwargs)
         else:
-            max_fuv_wav = 1300.
-            
-        igmz = self.wave*0.+1
-        lyman = self.wave < max_fuv_wav
-        igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])**pow
+            igm = self.igm
+
+        igmz = self.wave*0. + 1
+        lyman = self.wave < igm.max_fuv_wave
+        igmz[lyman] = igm.full_IGM(z, (self.wave*(1+z))[lyman])
+
         return igmz
 
 
@@ -1346,7 +1356,7 @@ class ModifiedBlackBody(object):
         nu = (c/mu).to(u.Hz).value
         mbb = (self.bb(nu)*nu**self.beta).value
         lim = (mu > 40*u.micron) & (mu < 120*u.micron) 
-        lir = np.trapz(mbb[lim][::-1], nu[lim][::-1])
+        lir = trapz(mbb[lim][::-1], nu[lim][::-1])
         
         if q is None:
             q = self.q
