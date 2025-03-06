@@ -410,22 +410,22 @@ class Template():
     def __init__(self, file=None, name=None, arrays=None, sp=None, meta={}, to_angstrom=1., velocity_smooth=0, norm_filter=None, resample_wave=None, fits_column='flux', redfunc=Redden(), redshifts=[0], verbose=True, flux_unit=(u.L_sun/u.Angstrom), **kwargs):
         """
         Template object.
-        
+
         Can optionally specify a 2D flux array with the first
         dimension indicating the template for the nearest redshift in the 
         corresponding ``redshifts`` list.  See When integrating the 
         filter fluxes with ``integrate_filter``, the template index with the 
         redshift nearest to the specified redshift will be used.
-        
+
         Parameters
         ----------
         file : str
             Filename of ascii or FITS template
-        
+
         arrays : (array, array)
             Tuple of ``wave``, ``flux`` arrays.  Here ``flux`` assumed to 
             have units f-lambda.
-        
+
         sp : object
             Object with ``wave``, ``flux`` attributes, e.g., from
             ``prospector``.  Here ``flux`` is assumed to have units of f-nu.
@@ -433,44 +433,43 @@ class Template():
         to_angstrom : float
             Scale factor such that ``wave * to_angstrom`` has units of 
             `astropy.units.Angstrom`
-        
+
         velocity_smooth : float
             Velocity smooothing in km/s, applied if > 0
-        
+
         resample_wave : array
             Grid to resample the template wavelengths read from the input 
-        
+
         fits_column : str
             Column name of the flux column if arrays read from a ``file``
-        
+
         redfunc : `eazy.templates.Redden`
             Object to apply additional reddening.  
-        
+
         redshifts : array-like
             Redshift grid for redshift-dependent templates
 
         flux_unit : `astropy.units.core.Unit`
             Units of ``flux`` array.
-        
+
         Attributes
         ----------
         wave : array
             wavelength in `astropy.units.Angstrom`, dimensions ``[NWAVE]``.
-        
+
         flux : array
             Flux density f-lambda, can have redshift dependence, dimensions
             ``[NZ, NWAVE]``.
-        
+
         name : str
             Label name
-            
+
         meta : dict
             Metadata
-            
+
         redfunc : `eazy.templates.Redden`, optional
             Object for applying dust reddening.
-        
-            
+
         """
         import copy
         from astropy.table import Table
@@ -1104,16 +1103,7 @@ class Template():
         
         include_igm : bool
             Include IGM absorption
-            
-        sigmoid_params : 3-tuple float
-            Sigmoid function parameters used in `~eazy.igm.Asada24`
-        
-        scale_tau : float
-            Scalar multiplied to tau_igm
-            
-        add_cgm : bool
-            Add CGM component in IGM transmission
-        
+
         redshift_type : str
             See `~eazy.templates.Template.zindex`.
         
@@ -1216,7 +1206,12 @@ class Template():
         
         kwargs : dict
             Keywords passed to the initialization of the IGM model object, e.g.,
-            ``scale_tau``
+            ``scale_tau``.
+
+        Returns
+        -------
+        igmz : array-like
+            Linear IGM absorption as a function of wavelength
         
         """
         # Do we need to initialize the IGM object?

@@ -352,8 +352,6 @@ class PhotoZ(object):
                                         RES=self.param['FILTERS_RES'], 
                                         f_numbers=self.f_numbers, 
                                         add_igm=self.param['IGM_SCALE_TAU'],
-                                    add_cgm=IGM_OBJECT.add_cgm,
-                                    sigmoid_params=IGM_OBJECT.sigmoid_params,
                                     galactic_ebv=self.MW_EBV,
                                     Eb=self.param['SCALE_2175_BUMP'], 
                                     n_proc=n_proc, cosmology=self.cosmology, 
@@ -2527,8 +2525,6 @@ class PhotoZ(object):
                                          RES=self.RES, 
                                          f_numbers=self.f_numbers, 
                                          add_igm=self.param['IGM_SCALE_TAU'],
-                                         add_cgm=IGM_OBJECT.add_cgm,
-                                         sigmoid_params=IGM_OBJECT.sigmoid_params,
                                          galactic_ebv=self.MW_EBV,
                                          Eb=self.param['SCALE_2175_BUMP'], 
                                          n_proc=0, cosmology=self.cosmology, 
@@ -3379,8 +3375,6 @@ class PhotoZ(object):
                                    RES=self.RES, 
                                    f_numbers=np.array(f_numbers), 
                                    add_igm=self.param['IGM_SCALE_TAU'],
-                                   add_cgm=IGM_OBJECT.add_cgm,
-                                   sigmoid_params=IGM_OBJECT.sigmoid_params,
                                    galactic_ebv=self.MW_EBV,
                                    Eb=self.param['SCALE_2175_BUMP'], 
                                    n_proc=n_proc, verbose=verbose, 
@@ -5079,18 +5073,19 @@ class PhotoZ(object):
         import astropy.units as u
         
         if grizli_templates is not None:
-            template_list = [templates_module.Template(
-                                            arrays=(grizli_templates[k].wave, 
-                                                    grizli_templates[k].flux), 
-                                            name=k) 
-                             for k in grizli_templates]
+            template_list = [
+                templates_module.Template(
+                     arrays=(grizli_templates[k].wave, grizli_templates[k].flux),
+                     name=k,
+                     **self.param.igm_kwargs
+                 )
+                 for k in grizli_templates
+            ]
             
             tempfilt = TemplateGrid(self.zgrid, template_list, 
                                     RES=self.RES, 
                                     f_numbers=self.f_numbers, 
                                     add_igm=self.param['IGM_SCALE_TAU'],
-                                    add_cgm=IGM_OBJECT.add_cgm,
-                                    sigmoid_params=IGM_OBJECT.sigmoid_params,
                                     galactic_ebv=self.MW_EBV,
                                     Eb=self.param['SCALE_2175_BUMP'], 
                                     cosmology=self.cosmology, 

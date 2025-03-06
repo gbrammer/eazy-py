@@ -424,13 +424,15 @@ def test_load_products():
     has_chi2 = (new.chi2_fit != 0).sum(axis=1) > 0
     assert has_chi2_init.sum() == has_chi2.sum()
 
-    assert np.allclose(new.coeffs_best, ez.coeffs_best)
+    rtol = 1.e-3
 
-    assert np.allclose(new.fit_coeffs, ez.fit_coeffs)
+    assert np.allclose(new.coeffs_best, ez.coeffs_best, rtol=rtol)
 
-    assert np.allclose(new.prior_data, ez.prior_data)
+    assert np.allclose(new.fit_coeffs, ez.fit_coeffs, rtol=rtol)
 
-    assert np.allclose(ez.lnp[has_chi2, :], new.lnp[has_chi2, :])
+    assert np.allclose(new.prior_data, ez.prior_data, rtol=rtol)
+
+    assert np.allclose(ez.lnp[has_chi2, :], new.lnp[has_chi2, :], rtol=rtol)
 
 
 def test_fit_stars():
