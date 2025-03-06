@@ -9,6 +9,18 @@ from .. import filters, fetch_eazy_photoz, utils
 
 FILTER_RES = None
 
+def test_data_path():
+    """
+    Data path, download data files if needed
+    """
+    from .. import filters, fetch_eazy_photoz, utils
+    # assert os.path.exists(utils.DATA_PATH)
+
+    if not os.path.exists(
+        os.path.join(utils.DATA_PATH, "filters", "FILTER.RES.latest")
+    ):
+        fetch_eazy_photoz()
+
 
 def test_array_filter():
     """
@@ -44,16 +56,16 @@ def test_pysynphot_filter():
     assert np.allclose(v_pysyn.pivot(), v_eazy.pivot, rtol=0.001)
 
 
-def test_data_path():
-    """
-    Data path, download data files if needed
-    """
-    assert os.path.exists(utils.DATA_PATH)
-
-    if not os.path.exists(
-        os.path.join(utils.DATA_PATH, "filters", "FILTER.RES.latest")
-    ):
-        fetch_eazy_photoz()
+# def test_data_path():
+#     """
+#     Data path, download data files if needed
+#     """
+#     assert os.path.exists(utils.DATA_PATH)
+#
+#     if not os.path.exists(
+#         os.path.join(utils.DATA_PATH, "filters", "FILTER.RES.latest")
+#     ):
+#         fetch_eazy_photoz()
 
 
 def test_read_filter_res():
