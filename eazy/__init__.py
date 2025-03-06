@@ -101,7 +101,7 @@ def fetch_eazy_photoz():
 
     if not os.path.exists(eazy_photoz):
         os.system(f'git clone {git_url}')
-        print(f'cloning {git_url} to {data_path}')
+        print(f'cloning {git_url} to {_data_path}')
 
     # Back to working directory
     os.chdir(current_path)
