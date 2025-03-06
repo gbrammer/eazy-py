@@ -135,8 +135,7 @@ class EazyParam(object):
         Get item from ``params`` dict and return None if parameter not found.
         """
         if param_name.upper() not in self.param_names:
-            print(f'Parameter {param_name} not found.  Check `param_names`'              
-                    ' attribute.')
+            print(f'Parameter {param_name} not found.  Check `param_names` attribute.')
             return None
         else:
             return self.params[param_name.upper()]
@@ -197,8 +196,29 @@ class EazyParam(object):
             kws[k.lower()] = self.params[k]
         
         return kws
+
+    @property
+    def igm_kwargs(self):
+        """
+        Keywords for initializing the IGM attenuation model
+        """
+        igm_kwargs = {
+            "scale_tau": 1.0,
+            "add_cgm": self.__getitem__('ADD_CGM') in utils.TRUE_VALUES,
+        }
+
+        if 'IGM_SCALE_TAU' in self.params:
+            igm_kwargs["scale_tau"] = self.params['IGM_SCALE_TAU']
+
+        igm_kwargs["sigmoid_params"] = (
+            self.params['SIGMOID_PARAM1'],
+            self.params['SIGMOID_PARAM2'],
+            self.params['SIGMOID_PARAM3']
+        )
         
-        
+        return igm_kwargs
+
+
 class TranslateFile():
     def __init__(self, file='zphot.translate'):
         """

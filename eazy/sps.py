@@ -5,6 +5,12 @@ import os
 from collections import OrderedDict
 
 import numpy as np
+# trapz deprecated in numpy 2.0
+try:
+    from numpy import trapezoid as trapz
+except ImportError:
+    from numpy import trapz
+
 import astropy.units as u
 from astropy.cosmology import WMAP9
 
@@ -807,7 +813,7 @@ class ExtendedFsps(StellarPopulation):
             
             if get_eqw:
                 clip = np.abs(wfull - line_wave[i]) < clip_sigma*line_dlam[i]
-                eqw = np.trapz(gline[clip]*norm/cfull[clip], wfull[clip])
+                eqw = trapz(gline[clip]*norm/cfull[clip], wfull[clip])
                 self.emline_eqw[line_ix[i]] = eqw
                 
         cfull += gfull
@@ -890,7 +896,7 @@ class ExtendedFsps(StellarPopulation):
             flux[ran] = np.polyval(px, wave[ran]) + scaled_line
                 
         fir_flux = np.interp(self.wavelengths, wave, flux, left=0, right=0)
-        self.fir_template = fir_flux/np.trapz(fir_flux, self.wavelengths)
+        self.fir_template = fir_flux/trapz(fir_flux, self.wavelengths)
         self.fir_arrays = arrays
         return True
 
@@ -1067,11 +1073,11 @@ class ExtendedFsps(StellarPopulation):
         self.emline_reddened = np.array(lred)
         
         # Total energy
-        e0 = np.trapz(flux, wave)
+        e0 = trapz(flux, wave)
         # Energy of reddened template
         
         reddened = contin*red+lines*red_lines_full
-        e1 = np.trapz(reddened, wave)
+        e1 = trapz(reddened, wave)
         self.energy_absorbed = (e0 - e1)
                 
         # Add dust emission
@@ -1168,7 +1174,7 @@ class ExtendedFsps(StellarPopulation):
                 if age100.sum() < 2:
                     sfr_avg = 0.
                 else:
-                    sfr_avg = np.trapz(self._sfh_tab[1][age100][::step],
+                    sfr_avg = trapz(self._sfh_tab[1][age100][::step],
                                        age_lb[age100][::step])/0.1
                 
             else:
@@ -1207,7 +1213,7 @@ class ExtendedFsps(StellarPopulation):
                 if age10.sum() < 2:
                     sfr_avg = 0.
                 else:
-                    sfr_avg = np.trapz(self._sfh_tab[1][age10][::step],
+                    sfr_avg = trapz(self._sfh_tab[1][age10][::step],
                                        age_lb[age10][::step])/0.1
                 
             else:

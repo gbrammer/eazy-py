@@ -2,6 +2,14 @@ import os
 import warnings
 
 import numpy as np
+
+import numpy as np
+# trapz deprecated in numpy 2.0
+try:
+    from numpy import trapezoid as trapz
+except ImportError:
+    from numpy import trapz
+
 import matplotlib.pyplot as plt
 
 import astropy.stats
@@ -193,7 +201,7 @@ def running_median(xi, yi, NBIN=10, reverse=False, bins=None, x_func=np.median, 
             mi = xi[in_bin].min()
             xm[i] = (ma+mi)/2.
             dx = (ma-mi)
-            ym[i] = np.trapz(yi[in_bin][xso], xi[in_bin][xso])/dx
+            ym[i] = trapz(yi[in_bin][xso], xi[in_bin][xso])/dx
         else:
             xm[i] = x_func(xi[in_bin], **x_kwargs)
             ym[i] = y_func(yi[in_bin], **y_kwargs)
@@ -979,7 +987,7 @@ def interp_conserve(x, xp, fp, left=0., right=0.):
     dx = midpoint[1:]-midpoint[:-1]
     for i in range(len(x)):
         bin = (fullx >= midpoint[i]) & (fullx <= midpoint[i+1])
-        outy[i] = np.trapz(fully[bin], fullx[bin])/dx[i]
+        outy[i] = trapz(fully[bin], fullx[bin])/dx[i]
         
     return outy
 

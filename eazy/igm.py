@@ -6,8 +6,8 @@ from . import __file__ as filepath
 
 __all__ = ["Asada24","Inoue14"]
 
-class Asada24(object):
-    def __init__(self, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True):
+class Asada24(object):    
+    def __init__(self, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, **kwargs):
         """
         Compute IGM+CGM transmission from Asada et al. 2024, in prep.
         The IGM model is from Inoue+ (2014).
@@ -23,7 +23,7 @@ class Asada24(object):
             
         add_cgm : bool
             Add the additional LyA damping absorption at z>6 as described in Asada+24.
-            If False, the transmission will be identical to Inoue+ 2014
+            If False, the transmission will be identical to Inoue+2014
             
         .. plot::
             :include-source:
@@ -66,7 +66,24 @@ class Asada24(object):
         self.sigmoid_params = sigmoid_params
         self.scale_tau = scale_tau
         self.add_cgm = add_cgm
-        
+
+    def __repr__(self):
+        attrs = ["sigmoid_params", "add_cgm", "scale_tau"]
+        return (
+            "<eazy.igm.Asada24 object>("
+            + ", ".join([f"{k}={self.__dict__[k]}" for k in attrs])
+            + ")"
+        )
+
+    @property
+    def max_fuv_wave(self):
+        """
+        Maximum FUV wavelength (Angstroms) where IGM model will have an effect
+        """
+        if self.add_cgm:
+            return 2000.
+        else:
+            return 1300.
 
     def tau_cgm(self, N_HI, lam, z):
         """
@@ -262,22 +279,28 @@ class Asada24(object):
         tau_clip = 0.
         
         igmz = np.exp(-self.scale_tau*(tau_LC + tau_LS + tau_clip))
-        
+                
         if self.add_cgm:
-            if (z<6):
-                tau_C = np.zeros(len(lobs))
+            if (z < 6):
+                tau_C = 0.0
             else:
                 NHI = 10**(self.lgNHI_z(z))
                 tau_C = self.tau_cgm(NHI, lobs, z)
+
             cgmz = np.exp(-tau_C)
         else:
-            cgmz = np.ones(len(lobs))
+            cgmz = 1.0
         
         return igmz * cgmz
 
 
 class Inoue14(object):
-    def __init__(self, scale_tau=1.):
+    """
+    IGM absorption from Inoue et al. (2014)
+    """
+    max_fuv_wave = 1300.
+
+    def __init__(self, scale_tau=1., **kwargs):
         """
         IGM absorption from Inoue et al. (2014)
         
@@ -287,9 +310,23 @@ class Inoue14(object):
             Parameter multiplied to the IGM :math:`\tau` values (exponential
             in the linear absorption fraction).
             I.e., :math:`f_\mathrm{igm} = e^{-\mathrm{scale\_tau} \tau}`.
+        
+        Attributes
+        ----------
+        max_fuv_wave : float
+            Maximum FUV wavelength (Angstroms) where IGM model will have an effect
         """
         self._load_data()
         self.scale_tau = scale_tau
+
+
+    def __repr__(self):
+        attrs = ["scale_tau"]
+        return (
+            "<eazy.igm.Inoue14 object>("
+            + ", ".join([f"{k}={self.__dict__[k]}" for k in attrs])
+            + ")"
+        )
 
 
     def _load_data(self):

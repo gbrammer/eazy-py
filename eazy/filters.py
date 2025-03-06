@@ -1,13 +1,21 @@
-import numpy as np
 import os
+
+import numpy as np
+# trapz deprecated in numpy 2.0
+try:
+    from numpy import trapezoid as trapz
+except ImportError:
+    from numpy import trapz
 
 from astropy.table import Table
 from . import utils
 
 __all__ = ["FilterDefinition", "FilterFile", "ParamFilter"]
 
-VEGA_FILE = os.path.join(utils.path_to_eazy_data(),
-                         'alpha_lyr_stis_008.fits')
+VEGA_FILE = os.path.join(
+    utils.path_to_eazy_data(),
+    'alpha_lyr_stis_008.fits'
+)
                          
 VEGA = Table.read(VEGA_FILE)
 for c in VEGA.colnames:
@@ -78,7 +86,7 @@ class FilterDefinition:
                 _wfact = self.wave/np.mean(self.wave)
                 self.throughput =  self._throughput/_wfact
             
-            self.norm = np.trapz(self.throughput/self.wave, self.wave)
+            self.norm = trapz(self.throughput/self.wave, self.wave)
 
 
     def __repr__(self):
@@ -128,9 +136,9 @@ class FilterDefinition:
             f99 = utils.GalacticExtinction(EBV=EBV, Rv=Rv)
             Alambda = f99(self.wave)
         
-        src_red = np.trapz(self.throughput*src*10**(-0.4*Alambda)/self.wave, 
+        src_red = trapz(self.throughput*src*10**(-0.4*Alambda)/self.wave, 
                            self.wave)               
-        src_nored = np.trapz(self.throughput*src/self.wave, self.wave)
+        src_nored = trapz(self.throughput*src/self.wave, self.wave)
         
         delta = src_red/src_nored
         
@@ -169,8 +177,8 @@ class FilterDefinition:
         absp = 3631*1e-23*c.to(u.m/u.s).value*1.e10/full_x**2
         
         # Integrate over the bandpass, flam dlam
-        num = np.trapz(vega_full*thru_full, full_x)
-        den = np.trapz(absp*thru_full, full_x)
+        num = trapz(vega_full*thru_full, full_x)
+        den = trapz(absp*thru_full, full_x)
         
         return -2.5*np.log10(num/den)
 
@@ -182,7 +190,7 @@ class FilterDefinition:
         
         http://pysynphot.readthedocs.io/en/latest/properties.html
         """
-        integrator = np.trapz
+        integrator = trapz
         
         num = integrator(self.wave*self.throughput, self.wave)
         den = integrator(self.throughput/self.wave, self.wave)
@@ -196,7 +204,7 @@ class FilterDefinition:
 
         http://pysynphot.readthedocs.io/en/latest/properties.html
         """
-        return np.trapz(self.throughput, self.wave)
+        return trapz(self.throughput, self.wave)
     
     
     @property            

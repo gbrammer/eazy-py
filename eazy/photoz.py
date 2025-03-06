@@ -2,6 +2,11 @@ import os
 import time
 import warnings
 import numpy as np
+# trapz deprecated in numpy 2.0
+try:
+    from numpy import trapezoid as trapz
+except ImportError:
+    from numpy import trapz
 
 from collections import OrderedDict
 
@@ -269,27 +274,14 @@ class PhotoZ(object):
             self.param.params[key] = params[key]
         
         self.param.verify_params()
-        
-        if 'IGM_SCALE_TAU' in self.param.params:
-            IGM_OBJECT.scale_tau = self.param['IGM_SCALE_TAU']
-        
-        if self.param['ADD_CGM'] in utils.TRUE_VALUES:
-            IGM_OBJECT.add_cgm = True
-            self.max_fuv_wav = 2000.
-        else:
-            IGM_OBJECT.add_cgm = False
-            self.max_fuv_wav = 1300.
-        
-        sigmoid_params = (self.param.params['SIGMOID_PARAM1'], self.param.params['SIGMOID_PARAM2'], self.param.params['SIGMOID_PARAM3'])
-        IGM_OBJECT.sigmoid_params = sigmoid_params
-        
-                            
+
         ### Read templates
-        kws = dict(templates_file=self.param['TEMPLATES_FILE'], 
-                    velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
-                    resample_wave=self.param['RESAMPLE_WAVE'])
-                          
-        self.templates = templates_module.read_templates_file(**kws)
+        self.templates = templates_module.read_templates_file(
+            templates_file=self.param['TEMPLATES_FILE'], 
+            velocity_smooth=self.param['TEMPLATE_SMOOTH'], 
+            resample_wave=self.param['RESAMPLE_WAVE'],
+            **self.param.igm_kwargs
+        )
         
         ### Set redshift fit grid
         self.set_zgrid()
@@ -1254,10 +1246,10 @@ class PhotoZ(object):
                                         prior_raw[:,i+1], 
                                         left=0., right=0.)
         
-        prior_data /= np.trapz(prior_data, zgrid, axis=0)
+        prior_data /= trapz(prior_data, zgrid, axis=0)
         
         prior_data += prior_floor
-        prior_data /= np.trapz(prior_data, zgrid, axis=0)
+        prior_data /= trapz(prior_data, zgrid, axis=0)
         
         return prior_mags, prior_data
 
@@ -1314,12 +1306,12 @@ class PhotoZ(object):
         #                                      prior_raw[:,i+1], 
         #                                      left=0, right=0)
         # 
-        # self.prior_data /= np.trapz(self.prior_data, self.zgrid, axis=0)
+        # self.prior_data /= trapz(self.prior_data, self.zgrid, axis=0)
         # 
         # if 'PRIOR_FLOOR' in self.param.param_names:
         #     prior_floor = self.param['PRIOR_FLOOR']
         #     self.prior_data += prior_floor
-        #     self.prior_data /= np.trapz(self.prior_data, self.zgrid, axis=0)
+        #     self.prior_data /= trapz(self.prior_data, self.zgrid, axis=0)
         
         self.prior_mags, self.prior_data = self.read_prior(zgrid=self.zgrid, 
                                                           **self.param.kwargs)
@@ -1552,7 +1544,7 @@ class PhotoZ(object):
         logpz = -(chi2 - chimin[None,:,None])/2
         
         pzt = np.exp(logpz).sum(axis=0)
-        pznorm = np.trapz(pzt, self.zgrid, axis=1)
+        pznorm = trapz(pzt, self.zgrid, axis=1)
         logpz -= np.log(pznorm[None,:,None])
         
         return tempfilt, ampl, chi2, logpz
@@ -2815,9 +2807,7 @@ class PhotoZ(object):
         templz = templ.wave*(1+z)
 
         if self.tempfilt.add_igm:
-            igmz = templ.wave*0.+1
-            lyman = templ.wave < self.max_fuv_wav
-            igmz[lyman] = IGM_OBJECT.full_IGM(z, templz[lyman])
+            igmz = IGM_OBJECT.full_IGM(z, templz)
         else:
             igmz = 1.
 
@@ -2986,9 +2976,7 @@ class PhotoZ(object):
                 
                 templzi = templ.wave*(1+zi)
                 if self.tempfilt.add_igm:
-                    igmz = templ.wave*0.+1
-                    lyman = templ.wave < self.max_fuv_wav
-                    igmz[lyman] = IGM_OBJECT.full_IGM(zi, templzi[lyman])
+                    igmz = IGM_OBJECT.full_IGM(zi, templzi)
                 else:
                     igmz = 1.
 
@@ -3121,7 +3109,7 @@ class PhotoZ(object):
         chi2 = np.squeeze(chi2_i)
         prior = np.exp(log_prior_i)
         #pz = np.exp(-(chi2-chi2.min())/2.)*prior
-        #pz /= np.trapz(pz, self.zgrid)
+        #pz /= trapz(pz, self.zgrid)
         pz = np.exp(lnp_i).flatten()
         
         ax.plot(self.zgrid, pz, color='orange', label=None)
@@ -4517,7 +4505,7 @@ class PhotoZ(object):
             #     templ = self.templates[j]
             #     clip = (templ.wave > LIR_wave[0]*1e4) 
             #     clip &= (templ.wave < LIR_wave[1]*1e4)
-            #     templ_LIR[j] = np.trapz(templ.flux[0,clip], templ.wave[clip])
+            #     templ_LIR[j] = trapz(templ.flux[0,clip], templ.wave[clip])
             # 
             # LIR_norm = (coeffs_norm*templ_LIR).sum(axis=1)*u.solLum
             # LIRv = LIR_norm / Lv_norm
@@ -5652,7 +5640,7 @@ def _obj_nnls(coeffs, A, fnu_i, efnu_i):
 
 
 class TemplateGrid(object):
-    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, add_cgm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
+    def __init__(self, zgrid, templates, RES='FILTERS.RES.latest', f_numbers=[156], add_igm=True, galactic_ebv=0, Eb=0, n_proc=4, interpolator=None, filters=None, verbose=2, cosmology=None, array_dtype=np.float32, tempfilt_data=None):
         """
         Integrate filters through filters on a redshift grid
         
@@ -5673,12 +5661,6 @@ class TemplateGrid(object):
         
         add_igm : bool
             Add IGM absorption as a function of redshift
-        
-        add_cgm : bool
-            Add CGM component in the IGM transmission
-            
-        sigmoid_params : 3-tuple float
-            Sigmoid function parameters used in `~eazy.igm.Asada24`
         
         galactic_ebv : float
             MW extinction :math:`E(B-V)`
@@ -5787,8 +5769,7 @@ class TemplateGrid(object):
                                             (itemp,
                                              templates[itemp], 
                                              zgrid, RES,
-                                             f_numbers, add_igm, add_cgm,
-                                             sigmoid_params,
+                                             f_numbers, add_igm,
                                              galactic_ebv, Eb,
                                              filters))
                            for itemp in range(self.NTEMP)]
@@ -5814,7 +5795,6 @@ class TemplateGrid(object):
                                                       templates[itemp],
                                                       zgrid, RES, 
                                                       f_numbers, add_igm,
-                                                      add_cgm,sigmoid_params,
                                                       galactic_ebv, Eb,
                                                       filters)
                     if verbose > 1:
@@ -5987,30 +5967,17 @@ class TemplateGrid(object):
         return self.spline(z)*self.scale[:,None]
 
 
-def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, add_cgm, sigmoid_params, galactic_ebv, Eb, filters):
+def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_ebv, Eb, filters):
     """
     For multiprocessing filter integration
     """
     import astropy.units as u
-    global IGM_OBJECT
     if filters is None:
         all_filters = np.load(RES+'.npy', allow_pickle=True)[0]
         filters = [all_filters[fnum] for fnum in f_numbers]
     
     NZ = len(zgrid)
     NFILT = len(filters)
-        
-    if add_igm:
-        igm = IGM_OBJECT #igm_module.Inoue14(scale_tau=add_igm)
-        igm.add_cgm = add_cgm
-        igm.sigmoid_params = sigmoid_params
-        if add_cgm:
-            max_fuv_wav = 2000.
-        else:
-            max_fuv_wav = 1300.
-        
-    else:
-        igm = 1.
 
     f99 = utils.GalacticExtinction(EBV=galactic_ebv, Rv=3.1)
     
@@ -6027,9 +5994,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, add_cgm, s
         
         # IGM absorption
         if add_igm:
-            igmz = templ.wave*0.+1
-            lyman = templ.wave < max_fuv_wav
-            igmz[lyman] = igm.full_IGM(zgrid[iz], lz[lyman])
+            igmz = templ.igm_absorption(z=zgrid[iz])
         else:
             igmz = 1.
             
