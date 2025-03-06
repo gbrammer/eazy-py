@@ -23,9 +23,9 @@ SYS_ERR              0.01               # Systematic flux error (% of flux)
 APPLY_IGM            y                  # Apply Madau 1995 IGM absorption
 IGM_SCALE_TAU        1.0                # Scale factor times Inoue14 IGM tau
 ADD_CGM              y                  # Add Asada24 CGM damping wing absorption
-SIGMOID_PARAM1       3.4835             # Sigmoid func parameter (A) for the N_HI-z relation in Asada24
-SIGMOID_PARAM2       1.2581             # Sigmoid func parameter (a) for the N_HI-z relation in Asada24
-SIGMOID_PARAM3       18.249             # Sigmoid func parameter (C) for the N_HI-z relation in Asada24
+SIGMOID_PARAM1       3.5918             # Sigmoid func parameter (A) for the N_HI-z relation in Asada24
+SIGMOID_PARAM2       1.8414             # Sigmoid func parameter (a) for the N_HI-z relation in Asada24
+SIGMOID_PARAM3       18.001             # Sigmoid func parameter (C) for the N_HI-z relation in Asada24
 
 
 FITTER               nnls               # Template fit mode

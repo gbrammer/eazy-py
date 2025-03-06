@@ -1037,7 +1037,7 @@ class Template():
         return iz
 
 
-    def zscale(self, z, scalar=1, include_igm=True, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, **kwargs):
+    def zscale(self, z, scalar=1, include_igm=True, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True, **kwargs):
         """Redshift the template and multiply by a scalar.
 
         Parameters

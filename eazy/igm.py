@@ -7,7 +7,7 @@ from . import __file__ as filepath
 __all__ = ["Asada24","Inoue14"]
 
 class Asada24(object):    
-    def __init__(self, sigmoid_params=(3.48347968, 1.25809685, 18.24922789), scale_tau=1., add_cgm=True, **kwargs):
+    def __init__(self, sigmoid_params=(3.5918, 1.8414, 18.001), scale_tau=1., add_cgm=True, **kwargs):
         """
         Compute IGM+CGM transmission from Asada et al. 2024, in prep.
         The IGM model is from Inoue+ (2014).
