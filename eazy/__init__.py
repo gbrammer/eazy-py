@@ -74,10 +74,13 @@ def set_data_path(path='$EAZYCODE'):
             path = os.path.join(path, 'eazy-photoz')
 
     DATA_PATH = path
-    return path
+    
+    if not os.path.exists(
+        os.path.join(DATA_PATH, "filters", "FILTER.RES.latest")
+    ):
+        fetch_eazy_photoz()
 
-# Set the data path
-set_data_path()
+    return path
 
 def fetch_eazy_photoz():
     """
@@ -89,10 +92,13 @@ def fetch_eazy_photoz():
     
     # module_path = os.path.dirname(__file__)
     # data_path = os.path.join(module_path, 'data/')
-    if "eazy-photoz" in DATA_PATH:
-        _data_path = os.path.join(DATA_PATH, "..")
+    if DATA_PATH.endswith("eazy-photoz"):
+        _data_path = os.path.split(DATA_PATH)[0]
     else:
         _data_path = DATA_PATH
+
+    if not os.path.exists(_data_path):
+        os.makedirs(_data_path)
 
     os.chdir(_data_path)
 
@@ -106,6 +112,8 @@ def fetch_eazy_photoz():
     # Back to working directory
     os.chdir(current_path)
 
+# Set the data path and download if necessary
+set_data_path()
 
 def symlink_eazy_inputs(path='$EAZYCODE', get_hdfn_test_catalog=False, copy=False):
     """

@@ -23,12 +23,7 @@ FALSE_VALUES = [False, 0, '0', 'False', 'FALSE', 'false', 'n', 'no', 'N', 'No']
 FNU_CGS = u.erg/u.second/u.cm**2/u.Hz
 FLAM_CGS = u.erg/u.second/u.cm**2/u.Angstrom
 
-from . import DATA_PATH, fetch_eazy_photoz
-
-if not os.path.exists(
-    os.path.join(DATA_PATH, "filters", "FILTER.RES.latest")
-):
-    fetch_eazy_photoz()
+from . import DATA_PATH
 
 # DATA_PATH = None
 #
