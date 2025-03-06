@@ -13,12 +13,12 @@ from collections import OrderedDict
 try:
     from tqdm import tqdm
     HAS_TQDM = True
-except:
+except ImportError:
     HAS_TQDM = False
     
 try:
     from grizli.utils import GTable as Table
-except:
+except ImportError:
     from astropy.table import Table
 
 import astropy.io.fits as pyfits
@@ -26,16 +26,13 @@ import astropy.units as u
 import astropy.constants as const
 from astropy.utils.exceptions import AstropyWarning, AstropyUserWarning
 
+from . import utils
 from . import filters as filters_code
 from . import param 
-from . import igm as igm_module
 
+from . import igm as igm_module
 from . import templates as templates_module 
 from .templates import gaussian_templates, bspline_templates
-
-from . import utils 
-
-IGM_OBJECT = igm_module.Asada24()
 
 __all__ = ["PhotoZ", "TemplateGrid", "template_lsq", "fit_by_redshift"]
 
@@ -258,8 +255,7 @@ class PhotoZ(object):
             
         """
         from astropy.cosmology import LambdaCDM
-        global IGM_OBJECT
-        
+
         self.param_file = param_file
         self.translate_file = translate_file
         self.zeropoint_file = zeropoint_file
@@ -2708,8 +2704,6 @@ class PhotoZ(object):
         import astropy.units as u
         from cycler import cycler
         
-        global IGM_OBJECT
-        
         if fitter is None:
             fitter = self.param['FITTER']
 
@@ -2807,7 +2801,7 @@ class PhotoZ(object):
         templz = templ.wave*(1+z)
 
         if self.tempfilt.add_igm:
-            igmz = IGM_OBJECT.full_IGM(z, templz)
+            igmz = templ.igm_absorption(z=z, **kwargs)
         else:
             igmz = 1.
 
@@ -2976,7 +2970,7 @@ class PhotoZ(object):
                 
                 templzi = templ.wave*(1+zi)
                 if self.tempfilt.add_igm:
-                    igmz = IGM_OBJECT.full_IGM(zi, templzi)
+                    igmz = templ.igm_absorption(z=zi, **kwargs)
                 else:
                     igmz = 1.
 
