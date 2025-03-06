@@ -65,7 +65,7 @@ def set_data_path(path='$EAZYCODE'):
     """
     global DATA_PATH
     if path.startswith('$'):
-        path = os.getenv(path)
+        path = os.getenv(path[1:])
 
     if path is None:
         # Use the code attached to the repository
@@ -73,7 +73,10 @@ def set_data_path(path='$EAZYCODE'):
         if not os.path.exists(os.path.join(path, 'templates')):
             path = os.path.join(path, 'eazy-photoz')
 
-    DATA_PATH = path
+    if path.endswith("/"):
+        DATA_PATH = path[:-1]
+    else:
+        DATA_PATH = path
     
     return path
 
