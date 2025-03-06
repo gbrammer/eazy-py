@@ -29,6 +29,8 @@ docs/examples/FILTER*
 docs/examples/zphot*
 docs/examples/zfourge.uds*
 
+*DS_Store
+
 # Distribution / packaging
 .Python
 env/
