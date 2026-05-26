@@ -45,9 +45,9 @@ test = [
     "coverage",
 ]
 vistool = [
-    "dash==2.5.1",
+    "dash==2.18.2",
     "jupyter-dash",
-    "Werkzeug==2.0.3"
+    "Werkzeug==2.3.8"
 ]
 
 [project.urls]

@@ -608,9 +608,9 @@ class EazyExplorer(object):
             # Plots
             html.Div([# Scatter plot
                 dcc.Graph(id='sample-selection-scatter', 
-                          hoverData={'points': [{'customdata':
-                                             (self.df['id'][0], 
-                                              1.0, -9.0)}]}, 
+                          hoverData={'points': [
+                              {'customdata': (self.df['id'][0], 1.0, -9.0)}
+                          ]}, 
                           style={'width':'95%'})
             ], style={'float':'left', 'height':'70%', 'width':'49%'}), 
 
@@ -1036,7 +1036,9 @@ class EazyExplorer(object):
             fig = px.scatter(data_frame=dff[is_sel], x=xcol, y=ycol, 
                              custom_data=['id','z_phot','mass','ssfr','mag'], 
                              **color_kwargs)
-                            
+            
+            self.scatter_ids = np.array(dff["id"][is_sel])
+
             htempl = '(%{x:.2f}, %{y:.2f}) <br>'
             htempl += 'id: %{customdata[0]:0d}  z_phot: %{customdata[1]:.2f}'
             htempl += '<br> mag: %{customdata[4]:.1f}  '
@@ -1236,11 +1238,10 @@ class EazyExplorer(object):
             
 
         @app.callback([Output('object-sed-figure', 'figure'),
-                       Output('object-info', 'children'), 
-                       Output('match-sep', 'children'), 
-                       Output('cutout-figure', cutout_target)], 
-                      [Input('sample-selection-scatter', 
-                                               'hoverData'), 
+                       Output('object-info', 'children'),
+                       Output('match-sep', 'children'),
+                       Output('cutout-figure', cutout_target)],
+                      [Input('sample-selection-scatter', 'hoverData'),
                        Input('sed-unit-selector', 'value'),
                        Input('id-input', 'value')])
         def update_object_sed(hoverData, sed_unit, id_input):
@@ -1248,11 +1249,22 @@ class EazyExplorer(object):
             SED + p(z) plot
             """
             id_i, dr_i = parse_id_input(id_input)
+            
+            def id_from_point(point):
+                if "customdata" in point:
+                    id_i = point['customdata'][0]
+                elif "pointIndex" in point:
+                    id_i = self.scatter_ids[point["pointIndex"]]
+                else:
+                    id_i = 0
+                
+                return id_i
+
             if id_i is None:
-                id_i = hoverData['points'][0]['customdata'][0]
+                id_i = id_from_point(hoverData['points'][0])
             else:
                 if id_i not in self.zout['id']:
-                    id_i = hoverData['points'][0]['customdata'][0]
+                    id_i = id_from_point(hoverData['points'][0])
             
             if dr_i is None:
                 match_sep = ''
