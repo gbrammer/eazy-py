@@ -165,7 +165,6 @@ def test_photoz_methods():
     """
     Test methods on `~eazy.photoz.PhotoZ` object.
     """
-    global ez
 
     ### Catalog subset
     ez.fit_catalog(idx=np.where(ez.cat["id"] < 2)[0], fitter="nnls")
@@ -239,7 +238,6 @@ def test_sps_parameters():
     """
     Derived parameters
     """
-    global ez
 
     import astropy.units as u
 
@@ -387,7 +385,6 @@ def test_load_products():
     """
     Save and read products
     """
-    global ez
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", AstropyWarning)
@@ -439,7 +436,6 @@ def test_fit_stars():
     """
     Fit phoenix star library for Star/Galaxy separation
     """
-    global ez
     res = ez.fit_phoenix_stars()
     assert np.allclose(ez.star_chi2[0, 0], 3191.3662)
 
@@ -460,8 +456,6 @@ def test_photoz_figures():
     Figures generated with PhotoZ object
     """
     import matplotlib.pyplot as plt
-
-    global ez
 
     ### SED figure
     fig, data = ez.show_fit(id=0, id_is_idx=True, show_fnu=False)
@@ -487,8 +481,6 @@ def test_photoz_figures():
 
 def test_zeropoint_residuals():
     """ """
-    global ez
-
     ez.fit_catalog(fitter="nnls")
     res = ez.residuals()
 
@@ -499,16 +491,14 @@ def test_hdf5():
     """
     import matplotlib.pyplot as plt
 
-    plt.ioff()
-
-    global ez
-
     from .. import hdf5
 
     try:
         import h5py
     except ImportError:
         return None
+
+    plt.ioff()
 
     hdf5.write_hdf5(
         ez, h5file="test.hdf5", include_fit_coeffs=False, include_templates=True
