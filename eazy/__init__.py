@@ -15,18 +15,8 @@ except ImportError:
     print('Failed to `import dust_attenuation`')
     print('Install from the repo with $ pip install ' +
           'git+https://github.com/karllark/dust_attenuation.git')
-    # print('Install my fork with $ pip install ' +
-    #       'git+https://github.com/gbrammer/dust_attenuation.git')
 
 ### dust_extinction is now in dependencies and should be installed from PyPI
-
-# try:
-#     import dust_extinction
-# except ImportError:
-#     print('Failed to `import dust_extinction`')
-#     print('Install from the forked repo with $ pip install ' +
-#           'git+https://github.com/gbrammer/dust_extinction.git')
-
 
 ## Hot fix for importing prospector without SPS_HOME variable set
 # try:
@@ -64,6 +54,7 @@ def set_data_path(path='$EAZYCODE'):
 
     """
     global DATA_PATH
+
     if path.startswith('$'):
         path = os.getenv(path[1:])
 
@@ -87,7 +78,6 @@ def fetch_eazy_photoz():
     """
     If necessary, clone the eazy-photoz repository to get templates and filters
     """
-    global DATA_PATH
 
     current_path = os.getcwd()
     

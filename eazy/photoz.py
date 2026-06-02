@@ -6824,9 +6824,6 @@ def template_lsq(fnu_i, efnu_i, Ain, TEFz, zp, ndraws, fitter, renorm_t, hess_th
     from scipy.optimize import nnls
     import scipy.optimize
     
-    global MIN_VALID_FILTERS
-    global BOUNDED_DEFAULTS
-    
     sh = Ain.shape
 
     # Valid fluxes
