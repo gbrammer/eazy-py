@@ -952,7 +952,7 @@ class PhotoZ(object):
 
 
     def set_sys_err(self, positive=True, in_place=True):
-        """
+        r"""
         Include systematic error in uncertainties from `param['SYS_ERR']`.
         
         Parameters
@@ -2538,7 +2538,7 @@ class PhotoZ(object):
     
     
     def show_fit(self, id, id_is_idx=False, zshow=None, show_fnu=0, get_spec=False, xlim=[0.3, 9], show_components=False, show_redshift_draws=False, draws_cmap=None, ds9=None, ds9_sky=True, add_label=True, showpz=0.6, logpz=False, zr=None, axes=None, template_color='#1f77b4', figsize=[8,4], ndraws=100, fitter=None, renorm_t=None, hess_threshold=None, show_missing=True, maglim=None, show_prior=False, show_stars=False, delta_chi2_stars=-20, max_stars=3, show_upperlimits=True, snr_thresh=2., with_tef=True, **kwargs):
-        """
+        r"""
         Make plot of SED and p(z) of a single object
         
         Parameters
@@ -4126,7 +4126,7 @@ class PhotoZ(object):
 
 
     def sps_parameters(self, UBVJ=DEFAULT_UBVJ_FILTERS, extra_rf_filters=DEFAULT_RF_FILTERS, cosmology=None, simple=False, rf_pad_width=0.5, rf_max_err=0.5, percentile_limits=[2.5, 16, 50, 84, 97.5], template_fnu_units=(1*u.solLum / u.Hz), vnorm_type=2, n_proc=-1, coeffv_min=0, **kwargs):
-        """
+        r"""
         Rest-frame colors and population parameters at redshift in ``self.zbest`` attribute
         
         Parameters
@@ -6015,7 +6015,7 @@ def _integrate_tempfilt(itemp, templ, zgrid, RES, f_numbers, add_igm, galactic_e
 
 
 def fit_by_redshift(iz, z, A, fnu_corr, efnu_corr, TEFz, zp, verbose, fitter, renorm_t, hess_threshold):
-    """
+    r"""
     Fit all objects in the catalog at a given reshift for parallelization
     
     Parameters
