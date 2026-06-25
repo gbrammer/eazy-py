@@ -259,7 +259,7 @@ def get_dataset_slice(h5file, dataset, sl=None):
             return f[dataset][sl]
 
 
-def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
+def initialize_from_hdf5(h5file='test.hdf5', verbose=True, **kwargs):
     """
     Initialize a `~eazy.photoz.PhotoZ` object from HDF5 data
     
@@ -304,22 +304,35 @@ def initialize_from_hdf5(h5file='test.hdf5', verbose=True):
             
         if 'fit/fit_coeffs' in f:
             pzobj.fit_coeffs = f['fit/fit_coeffs'][:]
-        
-        pzobj.compute_lnp(prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'], 
-                         beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR'])
-        
-        pzobj.evaluate_zml(prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'], 
-                         beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR'])
-        
+
+        pzobj.compute_lnp(
+            prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'],
+            beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR']
+        )
+
+        pzobj.evaluate_zml(
+            prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'],
+            beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR']
+        )
+
         if f['fit/zbest'].attrs['ZPHOT_USER']:
-            pzobj.fit_at_zbest(zbest=f['fit/zbest'], 
-                               prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'], 
-                         beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR'])
+
+            pzobj.fit_at_zbest(
+                zbest=f['fit/zbest'],
+                prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'],
+                beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR'],
+                **kwargs,
+            )
+
         else:
-            pzobj.fit_at_zbest(zbest=None, 
-                               prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'], 
-                         beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR'])
-            
+
+            pzobj.fit_at_zbest(
+                zbest=None,
+                prior=f['fit/zml'].attrs['ZML_WITH_PRIOR'],
+                beta_prior=f['fit/zml'].attrs['ZML_WITH_BETA_PRIOR'],
+                **kwargs,
+            )
+
     return pzobj
 
 

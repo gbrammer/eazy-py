@@ -25,7 +25,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "peakutils",
-    "scipy",
+    "scipy<1.18", # 1.18 breaks hdf5 tools
     "tqdm",
 ]
 
