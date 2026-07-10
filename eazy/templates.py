@@ -129,7 +129,7 @@ class TemplateError(object):
 
 class Redden(object):
     def __init__(self, model=None, Av=0., **kwargs):
-        """
+        r"""
         Wrapper function for `dust_attenuation` and `dust_extinction` 
         reddening laws
 

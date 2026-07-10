@@ -1777,7 +1777,7 @@ class ExtendedFsps(StellarPopulation):
         target_sfr=None,
         target_lir=None,
     ):
-        """
+        r"""
         Compute a normalization factor to scale input FSPS model flux density
         units of (L_sun / Hz) or (L_sun / \AA) to observed-frame `unit`.
 

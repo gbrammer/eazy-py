@@ -16,7 +16,7 @@ class Asada24(object):
         add_cgm=True,
         **kwargs,
     ):
-        """
+        r"""
         Compute IGM+CGM transmission from Asada et al. 2024, in prep.
         The IGM model is from Inoue+ (2014).
 
@@ -342,7 +342,7 @@ class Inoue14(object):
     max_fuv_wave = 1300.0
 
     def __init__(self, scale_tau=1.0, **kwargs):
-        """
+        r"""
         IGM absorption from Inoue et al. (2014)
 
         Parameters
