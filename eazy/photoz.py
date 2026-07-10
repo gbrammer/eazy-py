@@ -1628,10 +1628,17 @@ class PhotoZ(object):
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
         hess_threshold = self.param['HESS_THRESHOLD']
 
+        if use_numba and (fitter != 'nnls'):
+            warnings.warn(f"use_numba=True only implements FITTER='nnls', "
+                          f"not '{fitter}'; falling back to the python "
+                          f"fitting functions", AstropyUserWarning)
+            use_numba = False
+
         t0 = time.time()
         if use_numba:
             from .numba_utils import fit_by_redshift_dispatcher
-            print("Fitting with Numba core...")
+            if verbose:
+                print("Fitting with Numba core...")
             np_check = 1
             for iz, z in tqdm(enumerate(self.zgrid), total=self.NZ):
                 A = self.tempfilt(z)
@@ -1831,6 +1838,12 @@ class PhotoZ(object):
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
         hess_threshold = self.param['HESS_THRESHOLD']
 
+        if use_numba and (fitter != 'nnls'):
+            warnings.warn(f"use_numba=True only implements FITTER='nnls', "
+                          f"not '{fitter}'; falling back to the python "
+                          f"fitting functions", AstropyUserWarning)
+            use_numba = False
+
         izbest = self.izbest*1
         
         self.get_err = get_err
@@ -1872,9 +1885,13 @@ class PhotoZ(object):
             subset &= selection
             
         idx = self.idx[subset]
-        
+
         np.random.seed(self.random_seed)
-        
+        if use_numba:
+            # numba has its own random state, separate from numpy's
+            from .numba_utils import seed_numba_rng
+            seed_numba_rng(self.random_seed)
+
         if n_proc <= 0:
             np_check = 1
         else:
@@ -3514,7 +3531,13 @@ class PhotoZ(object):
         fitter = self.param['FITTER']
         renorm_t = self.param['RENORM_TEMPLATES'] in utils.TRUE_VALUES
         hess_threshold = self.param['HESS_THRESHOLD']
-        
+
+        if use_numba and (fitter != 'nnls'):
+            warnings.warn(f"use_numba=True only implements FITTER='nnls', "
+                          f"not '{fitter}'; falling back to the python "
+                          f"fitting functions", AstropyUserWarning)
+            use_numba = False
+
         NREST = len(f_numbers)
         if isinstance(f_numbers[0], int):
             f_list = [self.RES[fn] for fn in f_numbers]
