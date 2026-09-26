@@ -501,8 +501,13 @@ class Template():
             
         elif file is not None:
             # Read from a file
+            if file.startswith('templates') & (not os.path.exists('templates')):
+                _file = os.path.join(utils.DATA_PATH, file)
+            else:
+                _file = file
+
             if file.split('.')[-1] in ['fits','csv','ecsv']:
-                tab = Table.read(file)
+                tab = Table.read(_file)
                 self.wave = tab['wave'].data.astype(float)
                 if fits_column not in tab.colnames:
                     msg = (f"'{fits_column}' not in {file}; " +
@@ -524,7 +529,7 @@ class Template():
                     self.meta[k] = tab.meta[k]
                     
             else:
-                _arr = np.loadtxt(file, unpack=True)
+                _arr = np.loadtxt(_file, unpack=True)
                 self.wave, self.flux = _arr[0], _arr[1]
                         
         elif arrays is not None:
